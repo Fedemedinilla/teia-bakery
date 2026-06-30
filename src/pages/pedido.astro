@@ -1,0 +1,96 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base title="Tu pedido — Teia Bakery">
+  <div class="container" id="root">
+    <div class="brand">Teia Bakery · Mayorista</div>
+    <h1>Tu pedido</h1>
+
+    <div id="empty" class="card" style="display:none">
+      Tu carrito está vacío. <a href="/catalogo">Ir al catálogo →</a>
+    </div>
+
+    <div id="cart"></div>
+
+    <form id="form" class="card" style="margin-top:16px;display:none">
+      <h3>Tus datos</h3>
+      <label>Nombre / Comercio</label>
+      <input name="client_name" required />
+      <label>WhatsApp o email</label>
+      <input name="client_contact" required />
+      <label>Dirección de entrega</label>
+      <input name="delivery_address" required />
+      <label>Día que lo necesitás</label>
+      <input name="delivery_date" type="date" />
+      <label>Aclaraciones (opcional)</label>
+      <textarea name="notes" rows="2"></textarea>
+      <div style="margin-top:14px"><button class="btn" type="submit">Enviar pedido</button></div>
+      <p id="msg" class="muted" style="margin-top:10px"></p>
+    </form>
+  </div>
+
+  <script>
+    const money = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
+    let cart = JSON.parse(localStorage.getItem('teia_cart') || '[]');
+    const total = () => cart.reduce((s, i) => s + i.price * i.qty, 0);
+
+    function save() { localStorage.setItem('teia_cart', JSON.stringify(cart)); render(); }
+
+    function render() {
+      const wrap = document.getElementById('cart');
+      const form = document.getElementById('form');
+      const empty = document.getElementById('empty');
+      if (!cart.length) {
+        empty.style.display = 'block';
+        form.style.display = 'none';
+        wrap.innerHTML = '';
+        return;
+      }
+      empty.style.display = 'none';
+      form.style.display = 'block';
+      wrap.innerHTML =
+        '<div class="card"><table><tbody>' +
+        cart.map((i, idx) =>
+          `<tr><td>${i.name} <small class="muted">${i.pack || ''}</small></td>
+           <td style="white-space:nowrap"><button data-d="${idx}" class="btn btn--ghost" style="padding:2px 9px">−</button>
+           <span style="display:inline-block;min-width:28px;text-align:center">${i.qty}</span>
+           <button data-i="${idx}" class="btn btn--ghost" style="padding:2px 9px">+</button></td>
+           <td style="text-align:right">${money(i.price * i.qty)}</td></tr>`
+        ).join('') +
+        `</tbody></table><div style="text-align:right;font-weight:700;margin-top:10px">Total: ${money(total())}</div></div>`;
+      wrap.querySelectorAll('[data-i]').forEach((b) => (b.onclick = () => { cart[b.dataset.i].qty++; save(); }));
+      wrap.querySelectorAll('[data-d]').forEach((b) => (b.onclick = () => {
+        const x = cart[b.dataset.d]; x.qty--; if (x.qty <= 0) cart.splice(b.dataset.d, 1); save();
+      }));
+    }
+
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target).entries());
+      const msg = document.getElementById('msg');
+      msg.textContent = 'Enviando…';
+      try {
+        const res = await fetch('/api/order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...fd, items: cart }),
+        });
+        const out = await res.json().catch(() => ({}));
+        if (res.ok && out.ok) {
+          localStorage.removeItem('teia_cart');
+          document.getElementById('root').innerHTML =
+            '<div class="brand">Teia Bakery</div><h1>¡Pedido enviado! 🧁</h1>' +
+            '<p class="card">Tu pedido <b>' + (out.order_number || '') + '</b> quedó registrado. ' +
+            'Teia lo revisa y te confirma. ¡Gracias!</p>' +
+            '<p style="margin-top:14px"><a class="btn" href="/catalogo">Volver al catálogo</a></p>';
+        } else {
+          msg.textContent = (out && out.error) ? out.error : 'Hubo un problema al enviar. Probá de nuevo.';
+        }
+      } catch {
+        msg.textContent = 'No se pudo enviar. Revisá tu conexión y probá de nuevo.';
+      }
+    });
+
+    render();
+  </script>
+</Base>

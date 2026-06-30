@@ -1,0 +1,64 @@
+---
+export const prerender = false;
+import Base from '../layouts/Base.astro';
+import { sbSelect, supaConfigured } from '../lib/supabase';
+
+const configured = supaConfigured();
+const products = await sbSelect(
+  'products?active=eq.true&order=sort_order.asc,name.asc&select=id,name,description,image_url,pack_label,price,stock'
+);
+const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
+---
+<Base title="Catálogo mayorista — Teia Bakery">
+  <div class="container">
+    <div class="brand">Teia Bakery · Mayorista</div>
+    <h1>Catálogo</h1>
+
+    {!configured && <p class="card">⚠️ Conectá Supabase (variables de entorno en Vercel) para ver los productos.</p>}
+    {configured && products.length === 0 && <p class="card">Todavía no hay productos cargados. Cargalos desde <a href="/administradora">la administradora</a>.</p>}
+
+    <div class="grid">
+      {products.map((p: any) => (
+        <div class="card" data-id={p.id} data-name={p.name} data-price={p.price} data-pack={p.pack_label}>
+          {p.image_url && <img src={p.image_url} alt={p.name} style="width:100%;height:150px;object-fit:cover;border-radius:10px" />}
+          <h3 style="margin:8px 0 2px">{p.name}</h3>
+          <div class="muted" style="font-size:14px">{p.pack_label}</div>
+          <div style="font-weight:700;margin:6px 0">{money(p.price)}</div>
+          {p.stock > 0
+            ? <button class="btn add" type="button">Agregar</button>
+            : <span class="badge badge--out">Sin stock</span>}
+        </div>
+      ))}
+    </div>
+
+    <div id="cartbar" style="position:sticky;bottom:12px;margin-top:20px;display:none">
+      <div class="card" style="display:flex;justify-content:space-between;align-items:center;box-shadow:0 6px 20px rgba(0,0,0,.08)">
+        <span id="cartcount">0 productos</span>
+        <a href="/pedido" class="btn">Ver pedido →</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const cart = JSON.parse(localStorage.getItem('teia_cart') || '[]');
+    function save() { localStorage.setItem('teia_cart', JSON.stringify(cart)); render(); }
+    function render() {
+      const bar = document.getElementById('cartbar');
+      const c = document.getElementById('cartcount');
+      const n = cart.reduce((s, i) => s + i.qty, 0);
+      if (c) c.textContent = n + ' producto' + (n === 1 ? '' : 's');
+      if (bar) bar.style.display = n > 0 ? 'block' : 'none';
+    }
+    document.querySelectorAll('.add').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const card = btn.closest('[data-id]');
+        const id = card.dataset.id;
+        const ex = cart.find((i) => i.id === id);
+        if (ex) ex.qty++;
+        else cart.push({ id, name: card.dataset.name, price: Number(card.dataset.price), pack: card.dataset.pack, qty: 1 });
+        save();
+      });
+    });
+    render();
+  </script>
+</Base>

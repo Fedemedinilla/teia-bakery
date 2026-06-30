@@ -1,0 +1,134 @@
+---
+export const prerender = false;
+import Base from '../layouts/Base.astro';
+import { isTeiaAdmin, authChallenge } from '../lib/auth';
+import { sbSelect } from '../lib/supabase';
+
+// Gate: no password → browser Basic-Auth prompt. Credentials get cached by the browser
+// so the later "confirmar"/"guardar" fetches carry them automatically.
+if (!isTeiaAdmin(Astro.request)) {
+  return authChallenge();
+}
+
+const products = await sbSelect('products?order=sort_order.asc,name.asc&select=*');
+const orders = await sbSelect('orders?order=created_at.desc&select=*&limit=50');
+const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
+
+// Precompute stock flags here — Astro's template can't mix `<=` comparisons with adjacent
+// JSX (it reads `<` as a tag), so we keep comparisons out of the markup.
+const productRows = (products as any[]).map((p) => ({
+  ...p,
+  isOut: Number(p.stock) <= 0,
+  isLow: Number(p.stock) > 0 && Number(p.stock) <= Number(p.low_stock_threshold),
+}));
+
+// Pegá acá los links reales cuando los tengas (o los movemos a env vars).
+const DRIVE_URL = '';
+const SHEET_URL = '';
+---
+<Base title="Administradora — Teia Bakery">
+  <div class="container">
+    <div class="brand">Teia Bakery · Administradora</div>
+    <h1>Panel</h1>
+
+    <h2>Enlaces</h2>
+    <p>
+      <a class="btn btn--ghost" href={DRIVE_URL || '#'} target="_blank" rel="noopener">📁 Drive</a>
+      <a class="btn btn--ghost" href={SHEET_URL || '#'} target="_blank" rel="noopener">📊 Google Sheet</a>
+      <a class="btn btn--ghost" href="mailto:hello@kyndredai.com">🛟 Soporte</a>
+    </p>
+
+    <h2>Pedidos</h2>
+    <div class="card">
+      <table>
+        <thead><tr><th>N°</th><th>Cliente</th><th>Entrega</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          {orders.map((o: any) => (
+            <tr>
+              <td>{o.order_number || '—'}</td>
+              <td>{o.client_name}<br /><small class="muted">{o.client_contact}</small></td>
+              <td>{o.delivery_date || '—'}</td>
+              <td>{money(o.total)}</td>
+              <td>{o.status}</td>
+              <td>{o.status === 'pendiente' && <button class="btn confirm" data-id={o.id}>Confirmar ✓</button>}</td>
+            </tr>
+          ))}
+          {orders.length === 0 && <tr><td colspan="6" class="muted">Sin pedidos todavía.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Productos</h2>
+    <div class="card">
+      <table>
+        <thead><tr><th>Producto</th><th>Pack</th><th>Precio</th><th>Stock</th><th></th></tr></thead>
+        <tbody>
+          {productRows.map((p: any) => (
+            <tr>
+              <td>{p.name}{!p.active && <span class="muted"> (oculto)</span>}</td>
+              <td>{p.pack_label}</td>
+              <td>{money(p.price)}</td>
+              <td>
+                {p.stock}{' '}
+                {p.isOut && <span class="badge badge--out">sin stock</span>}
+                {p.isLow && <span class="badge badge--low">poco stock</span>}
+              </td>
+              <td><button class="btn btn--ghost editp" data-p={JSON.stringify(p)}>Editar</button></td>
+            </tr>
+          ))}
+          {productRows.length === 0 && <tr><td colspan="5" class="muted">Sin productos. Cargá el primero abajo.</td></tr>}
+        </tbody>
+      </table>
+
+      <h3 style="margin-top:18px">Nuevo / editar producto</h3>
+      <form id="pform">
+        <input type="hidden" name="id" />
+        <label>Nombre</label><input name="name" required />
+        <label>Imagen (URL)</label><input name="image_url" />
+        <label>Pack (ej. x6, x12, por kg)</label><input name="pack_label" />
+        <label>Precio mayorista</label><input name="price" type="number" step="0.01" required />
+        <label>Stock (packs)</label><input name="stock" type="number" required />
+        <label>Avisar cuando el stock baje de</label><input name="low_stock_threshold" type="number" value="5" />
+        <div style="margin-top:12px"><button class="btn" type="submit">Guardar producto</button>
+          <button class="btn btn--ghost" type="reset">Limpiar</button></div>
+        <p id="pmsg" class="muted"></p>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll('.confirm').forEach((b) =>
+      b.addEventListener('click', async () => {
+        b.textContent = '…';
+        const r = await fetch('/api/admin/confirm', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id }),
+        });
+        if (r.ok) location.reload();
+        else b.textContent = 'Error';
+      })
+    );
+
+    document.querySelectorAll('.editp').forEach((b) =>
+      b.addEventListener('click', () => {
+        const p = JSON.parse(b.dataset.p);
+        const f = document.getElementById('pform');
+        ['id', 'name', 'image_url', 'pack_label', 'price', 'stock', 'low_stock_threshold'].forEach((k) => {
+          if (f[k]) f[k].value = p[k] ?? '';
+        });
+        f.scrollIntoView({ behavior: 'smooth' });
+      })
+    );
+
+    document.getElementById('pform').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target).entries());
+      const m = document.getElementById('pmsg');
+      m.textContent = 'Guardando…';
+      const r = await fetch('/api/admin/product', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fd),
+      });
+      if (r.ok) location.reload();
+      else m.textContent = 'Error al guardar.';
+    });
+  </script>
+</Base>

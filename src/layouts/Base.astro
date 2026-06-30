@@ -1,0 +1,19 @@
+---
+import '../styles/global.css';
+interface Props {
+  title?: string;
+}
+const { title = 'Teia Bakery — Mayorista' } = Astro.props;
+---
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="robots" content="noindex" />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
