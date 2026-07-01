@@ -48,7 +48,7 @@ const SHEET_URL = '';
     {!configured && <p class="card" style="margin-bottom:12px">🧪 <b>Modo demo</b> — datos de ejemplo. Conectá Supabase + la clave para el panel real.</p>}
 
     <p class="links-row">
-      <a class="btn" href="/catalogo">🛍️ Ver catálogo</a>
+      <a class="btn" href="/catalogo">🛍️ Ir al catálogo</a>
       <a class="btn btn--ghost" href={DRIVE_URL || '#'} target="_blank" rel="noopener">📁 Drive</a>
       <a class="btn btn--ghost" href={SHEET_URL || '#'} target="_blank" rel="noopener">📊 Google Sheet</a>
       <a class="btn btn--ghost" href="mailto:hello@kyndredai.com">🛟 Soporte</a>
@@ -114,6 +114,7 @@ const SHEET_URL = '';
             {o.status === 'pendiente' && <button class="btn save-ord" type="button">Guardar</button>}
             {o.status === 'pendiente' && <button class="btn btn--ghost cancel-ord" type="button">Cancelar</button>}
             {o.status === 'pendiente' && <button class="btn confirm" data-id={o.id}>Confirmar ✓</button>}
+            <button class="btn btn--danger del-ord" type="button" data-num={o.order_number || `#${o.id}`}>Borrar</button>
           </div>
         </div>
       ))}
@@ -465,6 +466,17 @@ const SHEET_URL = '';
         });
         if (r.ok) location.reload();
         else btn.textContent = 'Error';
+      });
+
+      card.querySelector('.del-ord')?.addEventListener('click', async () => {
+        const b = card.querySelector('.del-ord');
+        if (!confirm('¿Borrar el pedido ' + (b.dataset.num || '') + '? No se puede deshacer.')) return;
+        b.textContent = '…';
+        const r = await fetch('/api/admin/order', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: card.dataset.id }),
+        });
+        if (r.ok) location.reload();
+        else b.textContent = 'Error';
       });
     });
 

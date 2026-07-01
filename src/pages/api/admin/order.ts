@@ -15,8 +15,15 @@ export const POST: APIRoute = async ({ request }) => {
   let b: any;
   try { b = await request.json(); } catch { return json({ error: 'JSON inválido.' }, 400); }
   const orderId = Number(b?.id);
-  const edits = Array.isArray(b?.items) ? b.items : [];
   if (!orderId) return json({ error: 'id inválido.' }, 400);
+
+  // Borrar el pedido (la FK on delete cascade elimina sus ítems). No restaura stock.
+  if (b?.action === 'delete') {
+    const ok = await sbDelete(`teia_orders?id=eq.${orderId}`);
+    return ok ? json({ ok: true }) : json({ error: 'No se pudo borrar.' }, 500);
+  }
+
+  const edits = Array.isArray(b?.items) ? b.items : [];
 
   // Precio unitario actual de cada ítem (no se confía en el cliente para el precio).
   const current = await sbSelect(`teia_order_items?order_id=eq.${orderId}&select=id,unit_price`);
