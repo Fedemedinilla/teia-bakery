@@ -26,8 +26,8 @@ export const POST: APIRoute = async ({ request }) => {
   if (!row.name) return json({ error: 'Falta el nombre.' }, 400);
 
   const ok = b?.id
-    ? await sbPatch(`products?id=eq.${Number(b.id)}`, row)
-    : !!(await sbInsert('products', row));
+    ? await sbPatch(`teia_products?id=eq.${Number(b.id)}`, row)
+    : !!(await sbInsert('teia_products', row));
 
   return ok ? json({ ok: true }) : json({ error: 'No se pudo guardar.' }, 500);
 };

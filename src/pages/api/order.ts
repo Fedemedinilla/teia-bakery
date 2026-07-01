@@ -23,7 +23,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (!client_name || !client_contact || !delivery_address) return json({ error: 'Faltan datos del pedido.' }, 400);
 
   const ids = items.map((i: any) => Number(i.id)).filter(Boolean);
-  const prods = ids.length ? await sbSelect(`products?id=in.(${ids.join(',')})&select=id,name,pack_label,price`) : [];
+  const prods = ids.length ? await sbSelect(`teia_products?id=in.(${ids.join(',')})&select=id,name,pack_label,price`) : [];
   const byId: Record<string, any> = Object.fromEntries(prods.map((p: any) => [String(p.id), p]));
 
   let total = 0;
@@ -43,7 +43,7 @@ export const POST: APIRoute = async ({ request }) => {
     };
   });
 
-  const created = await sbInsert<any>('orders', {
+  const created = await sbInsert<any>('teia_orders', {
     client_name, client_contact, delivery_address,
     delivery_date: body?.delivery_date || null,
     notes: String(body?.notes || '').slice(0, 500),
@@ -53,8 +53,8 @@ export const POST: APIRoute = async ({ request }) => {
   if (!order) return json({ error: 'No se pudo crear el pedido.' }, 500);
 
   const order_number = 'TEIA-' + String(order.id).padStart(4, '0');
-  await sbPatch(`orders?id=eq.${order.id}`, { order_number });
-  await sbInsert('order_items', orderItems.map((it: any) => ({ ...it, order_id: order.id })));
+  await sbPatch(`teia_orders?id=eq.${order.id}`, { order_number });
+  await sbInsert('teia_order_items', orderItems.map((it: any) => ({ ...it, order_id: order.id })));
 
   return json({ ok: true, order_number });
 };

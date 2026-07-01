@@ -1,8 +1,8 @@
--- Teia Bakery — productos de ejemplo para arrancar (correr DESPUÉS de schema.sql).
--- Las image_url apuntan a fotos de stock self-hosteadas en /public/img (TEMPORALES).
--- Reemplazá por las fotos reales de Teia desde /administradora. Precios/stock de ejemplo.
+-- Teia Bakery — productos de ejemplo (correr DESPUÉS de schema.sql).
+-- Tablas prefijadas `teia_` (proyecto DEMOS compartido). Las image_url son fotos de stock
+-- self-hosteadas en /public/img (TEMPORALES) — reemplazá por las reales desde /administradora.
 
-insert into products (name, description, category, image_url, pack_label, price, stock, low_stock_threshold, active, sort_order) values
+insert into teia_products (name, description, category, image_url, pack_label, price, stock, low_stock_threshold, active, sort_order) values
   ('Cheesecake de frutos rojos', 'Base de vainilla, frutos rojos frescos.', 'Tortas',    '/img/cheesecake.jpg', 'x6',  28800, 24, 6,  true, 1),
   ('Lemon pie',                  'Merengue italiano flameado.',            'Tortas',    '/img/lemonpie.jpg',   'x6',  25200, 0,  6,  true, 2),
   ('Chocotorta individual',      'Clásica, en formato individual.',        'Tortas',    '/img/chocotorta.jpg', 'x12', 26400, 18, 6,  true, 3),

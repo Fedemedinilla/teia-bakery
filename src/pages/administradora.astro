@@ -13,8 +13,8 @@ if (configured && !isTeiaAdmin(Astro.request)) {
   return authChallenge();
 }
 
-const products = configured ? await sbSelect('products?order=sort_order.asc,name.asc&select=*') : DEMO_PRODUCTS;
-const orders = configured ? await sbSelect('orders?order=created_at.desc&select=*&limit=50') : DEMO_ORDERS;
+const products = configured ? await sbSelect('teia_products?order=sort_order.asc,name.asc&select=*') : DEMO_PRODUCTS;
+const orders = configured ? await sbSelect('teia_orders?order=created_at.desc&select=*&limit=50') : DEMO_ORDERS;
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 
 // Precompute stock flags here — Astro's template can't mix `<=` comparisons with adjacent

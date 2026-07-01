@@ -6,7 +6,7 @@ import { DEMO_PRODUCTS, DEMO_LAST_ORDER } from '../lib/demo';
 
 const configured = supaConfigured();
 const raw = configured
-  ? await sbSelect('products?active=eq.true&order=category.asc,sort_order.asc,name.asc&select=id,name,description,category,image_url,pack_label,price,stock')
+  ? await sbSelect('teia_products?active=eq.true&order=category.asc,sort_order.asc,name.asc&select=id,name,description,category,image_url,pack_label,price,stock')
   : DEMO_PRODUCTS.filter((p) => p.active);
 
 const MIN_ORDER = 40000; // pedido mínimo (ARS) — TODO: mover a config de la tienda

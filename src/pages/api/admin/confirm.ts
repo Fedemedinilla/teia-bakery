@@ -18,24 +18,24 @@ export const POST: APIRoute = async ({ request }) => {
   const id = Number(body?.id);
   if (!id) return json({ error: 'id' }, 400);
 
-  const orders = await sbSelect(`orders?id=eq.${id}&select=*`);
+  const orders = await sbSelect(`teia_orders?id=eq.${id}&select=*`);
   const order = orders[0];
   if (!order) return json({ error: 'no existe' }, 404);
   if (order.status !== 'pendiente') return json({ error: 'ya procesado' }, 409);
 
-  const items = await sbSelect(`order_items?order_id=eq.${id}&select=product_id,qty`);
+  const items = await sbSelect(`teia_order_items?order_id=eq.${id}&select=product_id,qty`);
   const lowStock: string[] = [];
   for (const it of items as any[]) {
     if (!it.product_id) continue;
-    const prods = await sbSelect(`products?id=eq.${it.product_id}&select=id,name,stock,low_stock_threshold`);
+    const prods = await sbSelect(`teia_products?id=eq.${it.product_id}&select=id,name,stock,low_stock_threshold`);
     const p = prods[0] as any;
     if (!p) continue;
     const newStock = Math.max(0, Number(p.stock) - Number(it.qty));
-    await sbPatch(`products?id=eq.${p.id}`, { stock: newStock });
+    await sbPatch(`teia_products?id=eq.${p.id}`, { stock: newStock });
     if (newStock <= Number(p.low_stock_threshold)) lowStock.push(`${p.name} (${newStock})`);
   }
 
-  await sbPatch(`orders?id=eq.${id}`, { status: 'confirmado', confirmed_at: new Date().toISOString() });
+  await sbPatch(`teia_orders?id=eq.${id}`, { status: 'confirmado', confirmed_at: new Date().toISOString() });
 
   // Fire the n8n archiver (no-op if the webhook isn't configured yet).
   const hook = env('N8N_WEBHOOK_URL');
