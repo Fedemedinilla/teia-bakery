@@ -294,7 +294,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
       document.querySelectorAll('section.section[id]').forEach((s) => spy.observe(s));
     }
 
-    // ---- Recompra (reorder) ----
+    // ---- Recompra (reorder): localStorage (mismo aparato) + búsqueda por WhatsApp (cross-device) ----
     function lastOrder() {
       try {
         const ls = JSON.parse(localStorage.getItem('teia_last_order'));
@@ -302,25 +302,72 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
       } catch {}
       return demoLast || null;
     }
-    (function buildReorder() {
-      const lo = lastOrder();
-      if (!lo) return;
+    function loadIntoCart(items) {
+      items.forEach((i) => {
+        const ex = find(i.id);
+        if (ex) ex.qty += i.qty;
+        else cart.push({ id: i.id, name: i.name, price: i.price, pack: i.pack, qty: i.qty });
+      });
+      persist(); syncAll(); renderOrder();
+      if (window.innerWidth < 900) openSheet();
+    }
+    function renderReorderCard(lo) {
+      const box = el('reorderCard');
+      if (!box) return;
+      if (!lo || !lo.items || !lo.items.length) { box.innerHTML = ''; return; }
       const c = lo.items.reduce((s, i) => s + i.qty, 0);
       const t = lo.items.reduce((s, i) => s + i.price * i.qty, 0);
-      el('reorderSlot').innerHTML =
+      box.innerHTML =
         `<div class="reorder"><div><div class="reorder__t">↻ Repetir último pedido</div>` +
         `<div class="reorder__s">${esc(lo.order_number || '')} · ${c} ítems · ${fmt(t)}</div></div>` +
         `<button class="reorder__btn" type="button" id="reorderBtn">Cargar</button></div>`;
-      el('reorderBtn').addEventListener('click', () => {
-        lo.items.forEach((i) => {
-          const ex = find(i.id);
-          if (ex) ex.qty += i.qty;
-          else cart.push({ id: i.id, name: i.name, price: i.price, pack: i.pack, qty: i.qty });
+      el('reorderBtn').addEventListener('click', () => loadIntoCart(lo.items));
+    }
+
+    el('reorderSlot').innerHTML =
+      '<div id="reorderCard"></div>' +
+      '<div class="reorder-lookup">' +
+        '<button type="button" class="reorder-lookup__toggle" id="rlToggle">↻ Traé tu último pedido con tu WhatsApp</button>' +
+        '<form class="reorder-lookup__form" id="rlForm" hidden>' +
+          '<input type="tel" id="rlInput" placeholder="Tu WhatsApp (ej: 11 5555-1234)" autocomplete="tel" inputmode="tel" />' +
+          '<button type="submit" class="btn" id="rlBtn">Buscar</button>' +
+        '</form>' +
+        '<p class="reorder-lookup__msg" id="rlMsg" hidden></p>' +
+      '</div>';
+
+    renderReorderCard(lastOrder());
+
+    el('rlToggle').addEventListener('click', () => {
+      const f = el('rlForm');
+      f.hidden = !f.hidden;
+      if (!f.hidden) el('rlInput').focus();
+    });
+    el('rlForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const contact = el('rlInput').value.trim();
+      const msg = el('rlMsg'), btn = el('rlBtn');
+      if (!contact) return;
+      msg.hidden = true; btn.textContent = 'Buscando…'; btn.disabled = true;
+      try {
+        const r = await fetch('/api/last-order', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact }),
         });
-        persist(); syncAll(); renderOrder();
-        if (window.innerWidth < 900) openSheet();
-      });
-    })();
+        const o = await r.json().catch(() => ({}));
+        if (r.ok && o.ok && o.items && o.items.length) {
+          const lo = { order_number: o.order_number || '', items: o.items };
+          try { localStorage.setItem('teia_last_order', JSON.stringify(lo)); } catch {}
+          renderReorderCard(lo);
+          el('rlForm').hidden = true;
+          msg.hidden = false; msg.className = 'reorder-lookup__msg ok'; msg.textContent = '✓ ¡Encontramos tu pedido! Tocá “Cargar”.';
+        } else {
+          msg.hidden = false; msg.className = 'reorder-lookup__msg'; msg.textContent = (o && o.error) || 'No encontramos pedidos con ese contacto.';
+        }
+      } catch {
+        msg.hidden = false; msg.className = 'reorder-lookup__msg'; msg.textContent = 'No se pudo buscar. Probá de nuevo.';
+      } finally {
+        btn.textContent = 'Buscar'; btn.disabled = false;
+      }
+    });
 
     // ---- init ----
     syncAll();

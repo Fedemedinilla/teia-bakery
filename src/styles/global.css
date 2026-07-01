@@ -186,6 +186,16 @@ h1.title { font-family: var(--font-display); font-weight: 600; font-size: clamp(
 .reorder__btn { background: rgba(255,255,255,.16); color: #fff; border: 1px solid rgba(255,255,255,.5); border-radius: var(--r-full); padding: 9px 15px; font-weight: 700; font-size: 13px; cursor: pointer; white-space: nowrap; transition: background var(--dur) var(--ease); }
 .reorder__btn:hover { background: rgba(255,255,255,.28); }
 
+/* buscar último pedido por WhatsApp (cross-device, sin login) */
+.reorder-lookup { margin: 0 0 18px; }
+.reorder-lookup__toggle { border: 0; background: none; padding: 4px 0; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--accent); cursor: pointer; }
+.reorder-lookup__toggle:hover { text-decoration: underline; text-underline-offset: 2px; }
+.reorder-lookup__form { display: flex; gap: 8px; margin-top: 8px; }
+.reorder-lookup__form input { flex: 1; min-width: 0; }
+.reorder-lookup__form .btn { flex: 0 0 auto; padding: 11px 16px; }
+.reorder-lookup__msg { font-size: 13px; color: var(--ink-2); margin: 8px 0 0; }
+.reorder-lookup__msg.ok { color: var(--good); font-weight: 600; }
+
 .demo-banner { background: var(--surface); border: 1px dashed var(--line-2); border-radius: var(--r-md); padding: 12px 14px; font-size: 14px; color: var(--ink-2); margin-bottom: 16px; }
 
 /* ---- order panel (desktop: sticky lateral | mobile: barra/hoja fija abajo) ---- */
