@@ -1,94 +1,146 @@
 ---
 import Base from '../layouts/Base.astro';
 ---
-<Base title="Tu pedido — Teia Bakery">
-  <div class="container" id="root">
-    <div class="brand">Teia Bakery · Mayorista</div>
-    <h1>Tu pedido</h1>
+<Base title="Confirmá tu pedido — Teia Bakery">
+  <header class="top">
+    <div class="container top__in">
+      <span class="brand">Mayorista<b>Teia Bakery</b></span>
+      <a class="admin-link" href="/catalogo">← Volver al catálogo</a>
+    </div>
+  </header>
 
-    <div id="empty" class="card" style="display:none">
-      Tu carrito está vacío. <a href="/catalogo">Ir al catálogo →</a>
+  <main class="checkout" id="root">
+    <div id="empty" class="empty-state card" hidden>
+      <div class="empty-state__icon" aria-hidden="true">🧁</div>
+      <p class="empty-state__t">Tu pedido está vacío</p>
+      <p class="empty-state__s">Sumá productos al carrito y volvé para confirmar.</p>
+      <a class="btn" href="/catalogo">Ir al catálogo</a>
     </div>
 
-    <div id="cart"></div>
+    <div id="coGrid" hidden>
+      <h1 class="co-title">Confirmá tu pedido</h1>
+      <p class="co-sub">Dejanos tus datos. Teia revisa el pedido y te confirma el día de entrega por WhatsApp.</p>
 
-    <form id="form" class="card" style="margin-top:16px;display:none">
-      <h3>Tus datos</h3>
-      <label>Nombre / Comercio</label>
-      <input name="client_name" required />
-      <label>WhatsApp o email</label>
-      <input name="client_contact" required />
-      <label>Dirección de entrega</label>
-      <input name="delivery_address" required />
-      <p class="muted" style="font-size:13px; margin:12px 0 2px">📅 Teia te confirma el día de entrega por WhatsApp.</p>
-      <label>Aclaraciones (opcional)</label>
-      <textarea name="notes" rows="2"></textarea>
-      <div style="margin-top:14px"><button class="btn" type="submit">Enviar pedido</button></div>
-      <p id="msg" class="muted" style="margin-top:10px"></p>
-    </form>
-  </div>
+      <div class="co-grid">
+        <form id="form" class="card co-form" novalidate>
+          <h2>Tus datos</h2>
+
+          <label for="f-name">Nombre / Comercio</label>
+          <input id="f-name" name="client_name" required autocomplete="organization" placeholder="Ej: Café de la Esquina" />
+
+          <label for="f-contact">WhatsApp o email</label>
+          <input id="f-contact" name="client_contact" required autocomplete="tel" placeholder="Ej: 11 5555-1234" />
+          <p class="field-hint">Por acá te confirmamos el pedido y la entrega.</p>
+
+          <label for="f-addr">Dirección de entrega</label>
+          <input id="f-addr" name="delivery_address" required autocomplete="street-address" placeholder="Calle, número, localidad" />
+
+          <label for="f-notes">Aclaraciones (opcional)</label>
+          <textarea id="f-notes" name="notes" rows="2" placeholder="Ej: entregar antes de las 10 hs, tocar timbre B…"></textarea>
+
+          <p class="co-note">📅 No hace falta que elijas la fecha: <b>Teia te confirma el día de entrega por WhatsApp.</b></p>
+        </form>
+
+        <aside class="co-summary">
+          <div class="card co-summary__card">
+            <h2>Tu pedido</h2>
+            <ul class="order__items co-items" id="cart"></ul>
+            <div class="co-total"><span>Total</span><b id="coTotal">$0</b></div>
+            <p class="co-trust">🤝 Sin pago online — coordinás el pago con Teia al recibir.</p>
+            <button class="btn btn--block" type="submit" form="form" id="submitBtn">Enviar pedido</button>
+            <p id="msg" class="co-msg" role="status" aria-live="polite" hidden></p>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
 
   <script>
     const money = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
     const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    const el = (id) => document.getElementById(id);
+    const sameId = (a, b) => String(a) === String(b);
+
     let cart = JSON.parse(localStorage.getItem('teia_cart') || '[]');
     const total = () => cart.reduce((s, i) => s + i.price * i.qty, 0);
 
     function save() { localStorage.setItem('teia_cart', JSON.stringify(cart)); render(); }
+    function change(id, d) {
+      const it = cart.find((x) => sameId(x.id, id));
+      if (!it) return;
+      it.qty += d;
+      if (it.qty <= 0) cart = cart.filter((x) => !sameId(x.id, id));
+      save();
+    }
+    function removeItem(id) { cart = cart.filter((x) => !sameId(x.id, id)); save(); }
 
     function render() {
-      const wrap = document.getElementById('cart');
-      const form = document.getElementById('form');
-      const empty = document.getElementById('empty');
-      if (!cart.length) {
-        empty.style.display = 'block';
-        form.style.display = 'none';
-        wrap.innerHTML = '';
-        return;
-      }
-      empty.style.display = 'none';
-      form.style.display = 'block';
-      wrap.innerHTML =
-        '<div class="card"><table><tbody>' +
-        cart.map((i, idx) =>
-          `<tr><td>${esc(i.name)} <small class="muted">${esc(i.pack || '')}</small></td>
-           <td style="white-space:nowrap"><button data-d="${idx}" class="btn btn--ghost" style="padding:2px 9px">−</button>
-           <span style="display:inline-block;min-width:28px;text-align:center">${i.qty}</span>
-           <button data-i="${idx}" class="btn btn--ghost" style="padding:2px 9px">+</button></td>
-           <td style="text-align:right">${money(i.price * i.qty)}</td></tr>`
-        ).join('') +
-        `</tbody></table><div style="text-align:right;font-weight:700;margin-top:10px">Total: ${money(total())}</div></div>`;
-      wrap.querySelectorAll('[data-i]').forEach((b) => (b.onclick = () => { cart[b.dataset.i].qty++; save(); }));
-      wrap.querySelectorAll('[data-d]').forEach((b) => (b.onclick = () => {
-        const x = cart[b.dataset.d]; x.qty--; if (x.qty <= 0) cart.splice(b.dataset.d, 1); save();
-      }));
+      const empty = el('empty'), grid = el('coGrid');
+      if (!cart.length) { empty.hidden = false; grid.hidden = true; return; }
+      empty.hidden = true; grid.hidden = false;
+
+      el('cart').innerHTML = cart.map((i) => {
+        const id = esc(String(i.id));
+        return `<li class="oi">` +
+          `<div class="oi__row1"><span class="oi__name">${esc(i.name)}</span>` +
+          `<button class="oi__rm" type="button" data-rm="${id}" aria-label="Quitar ${esc(i.name)}">×</button></div>` +
+          `<div class="oi__row2">` +
+          `<span class="oi__stepper"><button class="oi__step" type="button" data-dec="${id}" aria-label="Restar uno">−</button>` +
+          `<span class="oi__qv">${i.qty}</span>` +
+          `<button class="oi__step" type="button" data-inc="${id}" aria-label="Sumar uno">+</button></span>` +
+          (i.pack ? `<span class="oi__pack">${esc(i.pack)}</span>` : '') +
+          `<span class="oi__line">${money(i.price * i.qty)}</span></div></li>`;
+      }).join('');
+
+      el('cart').querySelectorAll('[data-inc]').forEach((b) => (b.onclick = () => change(b.dataset.inc, +1)));
+      el('cart').querySelectorAll('[data-dec]').forEach((b) => (b.onclick = () => change(b.dataset.dec, -1)));
+      el('cart').querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => removeItem(b.dataset.rm)));
+
+      el('coTotal').textContent = money(total());
+      el('submitBtn').textContent = 'Enviar pedido · ' + money(total());
     }
 
-    document.getElementById('form').addEventListener('submit', async (e) => {
+    el('form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const fd = Object.fromEntries(new FormData(e.target).entries());
-      const msg = document.getElementById('msg');
-      msg.textContent = 'Enviando…';
+      const form = e.target;
+      const msg = el('msg'), btn = el('submitBtn');
+      // validación amable (campos requeridos)
+      const missing = ['client_name', 'client_contact', 'delivery_address'].find((n) => !form.elements[n].value.trim());
+      if (missing) {
+        const field = form.elements[missing];
+        field.focus();
+        msg.hidden = false; msg.className = 'co-msg err'; msg.textContent = 'Completá tu nombre, contacto y dirección para enviar el pedido.';
+        return;
+      }
+      const fd = Object.fromEntries(new FormData(form).entries());
+      msg.hidden = false; msg.className = 'co-msg'; msg.textContent = 'Enviando…';
+      btn.disabled = true;
       try {
         const res = await fetch('/api/order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...fd, items: cart }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...fd, items: cart }),
         });
         const out = await res.json().catch(() => ({}));
         if (res.ok && out.ok) {
           try { localStorage.setItem('teia_last_order', JSON.stringify({ order_number: out.order_number || '', items: cart })); } catch {}
           localStorage.removeItem('teia_cart');
-          document.getElementById('root').innerHTML =
-            '<div class="brand">Teia Bakery</div><h1>¡Pedido enviado! 🧁</h1>' +
-            '<p class="card">Tu pedido <b>' + (out.order_number || '') + '</b> quedó registrado. ' +
-            'Teia lo revisa y te confirma. ¡Gracias!</p>' +
-            '<p style="margin-top:14px"><a class="btn" href="/catalogo">Volver al catálogo</a></p>';
+          el('root').innerHTML =
+            '<div class="success-state card">' +
+            '<div class="success-state__check" aria-hidden="true">✓</div>' +
+            '<h1>¡Pedido enviado!</h1>' +
+            '<p class="success-state__num">Pedido <b>' + esc(out.order_number || '') + '</b></p>' +
+            '<p class="success-state__s">Teia lo revisa y te confirma el día de entrega por WhatsApp. ¡Gracias!</p>' +
+            '<a class="btn" href="/catalogo">Volver al catálogo</a>' +
+            '</div>';
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         } else {
+          msg.className = 'co-msg err';
           msg.textContent = (out && out.error) ? out.error : 'Hubo un problema al enviar. Probá de nuevo.';
+          btn.disabled = false;
         }
       } catch {
+        msg.className = 'co-msg err';
         msg.textContent = 'No se pudo enviar. Revisá tu conexión y probá de nuevo.';
+        btn.disabled = false;
       }
     });
 
