@@ -227,6 +227,11 @@ input[type="checkbox"] { width: auto; }
 .item.is-hidden { opacity: .5; }
 .pv-hidden-note { font-size: 12px; color: var(--warn); text-align: center; margin: 12px 0 0; }
 .ok-msg { color: var(--good); font-weight: 700; margin-top: 10px; }
+.admin-link { font-size: 13px; font-weight: 600; color: var(--ink-3); white-space: nowrap; }
+.admin-link:hover { color: var(--accent); }
+.rubro-list { list-style: none; margin: 0; padding: 0; }
+.rubro-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.rubro-list .btn { padding: 6px 12px; font-size: 13px; }
 
 /* ============================ RESPONSIVE ============================ */
 @media (max-width: 899px) {

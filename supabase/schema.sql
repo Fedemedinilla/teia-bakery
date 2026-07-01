@@ -50,9 +50,18 @@ create index if not exists idx_teia_order_items_order on teia_order_items(order_
 
 -- RLS: la app pega desde el server con la service_role key (la bypassa). Igual ACTIVAR RLS
 -- para que la anon key no pueda leer/escribir nada directo (sin policies = todo denegado a anon).
+-- Rubros / categorías del catálogo (gestionables desde /administradora).
+create table if not exists teia_categories (
+  id          bigint generated always as identity primary key,
+  name        text not null unique,
+  sort_order  int default 0,
+  created_at  timestamptz not null default now()
+);
+
 alter table teia_products    enable row level security;
 alter table teia_orders      enable row level security;
 alter table teia_order_items enable row level security;
+alter table teia_categories  enable row level security;
 
 -- Storage: bucket PÚBLICO para las fotos de producto (subida desde /administradora con la
 -- service_role key; lectura pública vía URL). Correr una vez.

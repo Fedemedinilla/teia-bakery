@@ -14,8 +14,11 @@ const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 const slug = (s: string) =>
   String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-// Group products into sections by category, preserving a sensible rubro order.
-const ORDER = ['Tortas', 'Postres', 'Salados', 'Panadería'];
+// Rubro order comes from teia_categories (gestionadas en /administradora); fallback a los defaults.
+const cats = configured
+  ? await sbSelect('teia_categories?order=sort_order.asc,name.asc&select=name')
+  : [{ name: 'Tortas' }, { name: 'Postres' }, { name: 'Salados' }, { name: 'Panadería' }];
+const ORDER = (cats as any[]).map((c) => c.name);
 const groups = new Map<string, any[]>();
 for (const p of raw as any[]) {
   const c = (p.category || 'Otros').trim() || 'Otros';
@@ -36,6 +39,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
   <header class="top">
     <div class="container top__in">
       <span class="brand">Mayorista<b>Teia Bakery</b></span>
+      <a class="admin-link" href="/administradora" title="Panel de administración">⚙️ Admin</a>
     </div>
   </header>
 

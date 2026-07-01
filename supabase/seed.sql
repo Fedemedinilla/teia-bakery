@@ -2,6 +2,10 @@
 -- Tablas prefijadas `teia_` (proyecto DEMOS compartido). Las image_url son fotos de stock
 -- self-hosteadas en /public/img (TEMPORALES) — reemplazá por las reales desde /administradora.
 
+insert into teia_categories (name, sort_order) values
+  ('Tortas', 1), ('Postres', 2), ('Salados', 3), ('Panadería', 4)
+on conflict (name) do nothing;
+
 insert into teia_products (name, description, category, image_url, pack_label, price, stock, low_stock_threshold, active, sort_order) values
   ('Cheesecake de frutos rojos', 'Base de vainilla, frutos rojos frescos.', 'Tortas',    '/img/cheesecake.jpg', 'x6',  28800, 24, 6,  true, 1),
   ('Lemon pie',                  'Merengue italiano flameado.',            'Tortas',    '/img/lemonpie.jpg',   'x6',  25200, 0,  6,  true, 2),

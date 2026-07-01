@@ -22,8 +22,11 @@ const productRows = (products as any[]).map((p) => ({
   isLow: Number(p.stock) > 0 && Number(p.stock) <= Number(p.low_stock_threshold),
 }));
 
-// Rubros for the datalist: the standard set + whatever already exists.
-const rubros = [...new Set(['Tortas', 'Postres', 'Salados', 'Panadería', ...(products as any[]).map((p) => p.category).filter(Boolean)])];
+// Rubros/categorías (gestionables en la pestaña Rubros); fallback a los defaults en demo.
+const categories = configured
+  ? await sbSelect('teia_categories?order=sort_order.asc,name.asc&select=*')
+  : [{ id: 1, name: 'Tortas' }, { id: 2, name: 'Postres' }, { id: 3, name: 'Salados' }, { id: 4, name: 'Panadería' }];
+const catNames = (categories as any[]).map((c) => c.name);
 
 const DRIVE_URL = '';
 const SHEET_URL = '';
@@ -36,6 +39,7 @@ const SHEET_URL = '';
     {!configured && <p class="card" style="margin-bottom:12px">🧪 <b>Modo demo</b> — datos de ejemplo. Conectá Supabase + la clave para el panel real.</p>}
 
     <p class="links-row">
+      <a class="btn" href="/catalogo">🛍️ Ver catálogo</a>
       <a class="btn btn--ghost" href={DRIVE_URL || '#'} target="_blank" rel="noopener">📁 Drive</a>
       <a class="btn btn--ghost" href={SHEET_URL || '#'} target="_blank" rel="noopener">📊 Google Sheet</a>
       <a class="btn btn--ghost" href="mailto:hello@kyndredai.com">🛟 Soporte</a>
@@ -45,6 +49,7 @@ const SHEET_URL = '';
       <button class="tab is-active" data-tab="pedidos" type="button">Pedidos</button>
       <button class="tab" data-tab="productos" type="button">Productos</button>
       <button class="tab" data-tab="nuevo" type="button">＋ Nuevo producto</button>
+      <button class="tab" data-tab="rubros" type="button">Rubros</button>
     </div>
 
     <!-- PEDIDOS -->
@@ -110,8 +115,11 @@ const SHEET_URL = '';
             <textarea id="pf-desc" name="description" rows="2" placeholder="Ej: Base de vainilla, frutos rojos frescos." autocomplete="off"></textarea>
 
             <label for="pf-cat">Rubro</label>
-            <input id="pf-cat" name="category" list="rubros-list" placeholder="Tortas, Postres, Salados…" autocomplete="off" />
-            <datalist id="rubros-list">{rubros.map((r) => <option value={r} />)}</datalist>
+            <select id="pf-cat" name="category">
+              <option value="">— Elegí un rubro —</option>
+              {catNames.map((c) => <option value={c}>{c}</option>)}
+            </select>
+            <p class="hint">¿Falta un rubro? Crealo en la pestaña <b>Rubros</b>.</p>
 
             <label>Foto del producto</label>
             <div class="filepick">
@@ -160,6 +168,26 @@ const SHEET_URL = '';
             <p class="pv-hidden-note" id="pv-hidden" hidden>🔒 Oculto — no aparece en el catálogo</p>
           </div>
         </aside>
+      </div>
+    </section>
+
+    <!-- RUBROS -->
+    <section class="panel" data-panel="rubros" hidden>
+      <div class="card form-card">
+        <h2 style="margin-top:0">Rubros (categorías)</h2>
+        <p class="hint">Son las secciones del catálogo. Los productos se agrupan por rubro.</p>
+        <ul class="rubro-list" id="rubroList">
+          {categories.map((c: any) => (
+            <li><span>{c.name}</span><button class="btn btn--ghost del-cat" type="button" data-id={c.id} data-name={c.name}>Eliminar</button></li>
+          ))}
+          {categories.length === 0 && <li class="muted">Sin rubros todavía.</li>}
+        </ul>
+        <form id="catform" style="margin-top:16px">
+          <label for="cat-name">Nuevo rubro</label>
+          <input id="cat-name" name="catname" placeholder="Ej: Sin TACC" autocomplete="off" required />
+          <div class="form-actions"><button class="btn" type="submit">Agregar rubro</button></div>
+          <p id="catmsg" class="muted"></p>
+        </form>
       </div>
     </section>
   </div>
@@ -243,6 +271,11 @@ const SHEET_URL = '';
     }
 
     function fillForm(p) {
+      // si el rubro del producto no está en el dropdown (fue borrado), lo agregamos como opción
+      const catSel = F('category');
+      if (catSel && p.category && !Array.from(catSel.options).some((o) => o.value === p.category)) {
+        catSel.add(new Option(p.category, p.category));
+      }
       ['id', 'name', 'description', 'category', 'image_url', 'pack_label', 'price', 'stock', 'low_stock_threshold'].forEach((k) => {
         const el = F(k); if (el) el.value = p[k] ?? '';
       });
@@ -333,9 +366,38 @@ const SHEET_URL = '';
       }
     });
 
-    // deep-link por hash (#pedidos / #productos / #nuevo)
+    // ---- rubros / categorías ----
+    const catform = document.getElementById('catform');
+    if (catform) {
+      const catmsg = document.getElementById('catmsg');
+      catform.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = catform.elements.namedItem('catname').value.trim();
+        if (!name) return;
+        catmsg.className = 'muted';
+        catmsg.textContent = 'Agregando…';
+        const r = await fetch('/api/admin/category', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+        });
+        if (r.ok) location.reload();
+        else { const o = await r.json().catch(() => ({})); catmsg.textContent = (o && o.error) || 'No se pudo agregar.'; }
+      });
+    }
+    document.querySelectorAll('.del-cat').forEach((b) =>
+      b.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar el rubro "' + b.dataset.name + '"? Los productos que lo usan no se borran.')) return;
+        b.textContent = '…';
+        const r = await fetch('/api/admin/category', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: b.dataset.id }),
+        });
+        if (r.ok) location.reload();
+        else b.textContent = 'Error';
+      })
+    );
+
+    // deep-link por hash (#pedidos / #productos / #nuevo / #rubros)
     const initTab = (location.hash || '').slice(1);
-    if (['pedidos', 'productos', 'nuevo'].includes(initTab)) { if (initTab === 'nuevo') resetForm(); showTab(initTab); }
+    if (['pedidos', 'productos', 'nuevo', 'rubros'].includes(initTab)) { if (initTab === 'nuevo') resetForm(); showTab(initTab); }
 
     updatePreview();
   </script>

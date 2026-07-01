@@ -67,3 +67,14 @@ export async function sbPatch(path: string, body: unknown): Promise<boolean> {
     return false;
   }
 }
+
+// DELETE — returns true on success.
+export async function sbDelete(path: string): Promise<boolean> {
+  if (!supaConfigured()) return false;
+  try {
+    const r = await fetch(sb(path), { method: 'DELETE', headers: sbHeaders({ Prefer: 'return=minimal' }) });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
