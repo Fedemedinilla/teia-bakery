@@ -6,6 +6,7 @@ create table if not exists products (
   id                  bigint generated always as identity primary key,
   name                text not null,
   description         text default '',
+  category            text default '',            -- rubro para las secciones (Tortas, Salados…)
   image_url           text default '',
   pack_label          text default '',            -- ej. "x6", "x12", "por kg"
   pack_size           int  default 1,             -- unidades por pack (para validaciones futuras)

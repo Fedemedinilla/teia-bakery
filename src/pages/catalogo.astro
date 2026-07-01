@@ -2,63 +2,247 @@
 export const prerender = false;
 import Base from '../layouts/Base.astro';
 import { sbSelect, supaConfigured } from '../lib/supabase';
+import { DEMO_PRODUCTS, DEMO_LAST_ORDER } from '../lib/demo';
 
 const configured = supaConfigured();
-const products = await sbSelect(
-  'products?active=eq.true&order=sort_order.asc,name.asc&select=id,name,description,image_url,pack_label,price,stock'
-);
+const raw = configured
+  ? await sbSelect('products?active=eq.true&order=category.asc,sort_order.asc,name.asc&select=id,name,description,category,image_url,pack_label,price,stock')
+  : DEMO_PRODUCTS.filter((p) => p.active);
+
+const MIN_ORDER = 40000; // pedido mínimo (ARS) — TODO: mover a config de la tienda
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
+const slug = (s: string) =>
+  String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+// Group products into sections by category, preserving a sensible rubro order.
+const ORDER = ['Tortas', 'Postres', 'Salados', 'Panadería'];
+const groups = new Map<string, any[]>();
+for (const p of raw as any[]) {
+  const c = (p.category || 'Otros').trim() || 'Otros';
+  if (!groups.has(c)) groups.set(c, []);
+  groups.get(c)!.push({ ...p, hasStock: Number(p.stock) > 0 });
+}
+const sections = [...groups.keys()]
+  .sort((a, b) => {
+    const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+  })
+  .map((name) => ({ name, id: slug(name), items: groups.get(name)! }));
+
+// The demo last order feeds the Recompra card when there's no real history yet.
+const demoLast = configured ? null : DEMO_LAST_ORDER;
 ---
 <Base title="Catálogo mayorista — Teia Bakery">
-  <div class="container">
-    <div class="brand">Teia Bakery · Mayorista</div>
-    <h1>Catálogo</h1>
-
-    {!configured && <p class="card">⚠️ Conectá Supabase (variables de entorno en Vercel) para ver los productos.</p>}
-    {configured && products.length === 0 && <p class="card">Todavía no hay productos cargados. Cargalos desde <a href="/administradora">la administradora</a>.</p>}
-
-    <div class="grid">
-      {products.map((p: any) => (
-        <div class="card" data-id={p.id} data-name={p.name} data-price={p.price} data-pack={p.pack_label}>
-          {p.image_url && <img src={p.image_url} alt={p.name} style="width:100%;height:150px;object-fit:cover;border-radius:10px" />}
-          <h3 style="margin:8px 0 2px">{p.name}</h3>
-          <div class="muted" style="font-size:14px">{p.pack_label}</div>
-          <div style="font-weight:700;margin:6px 0">{money(p.price)}</div>
-          {p.stock > 0
-            ? <button class="btn add" type="button">Agregar</button>
-            : <span class="badge badge--out">Sin stock</span>}
-        </div>
-      ))}
+  <header class="top">
+    <div class="container top__in">
+      <span class="brand">Mayorista<b>Teia Bakery</b></span>
     </div>
+  </header>
 
-    <div id="cartbar" style="position:sticky;bottom:12px;margin-top:20px;display:none">
-      <div class="card" style="display:flex;justify-content:space-between;align-items:center;box-shadow:0 6px 20px rgba(0,0,0,.08)">
-        <span id="cartcount">0 productos</span>
-        <a href="/pedido" class="btn">Ver pedido →</a>
+  {sections.length > 0 && (
+    <nav class="rubros" aria-label="Rubros">
+      <div class="rubros__row">
+        {sections.map((s) => <a class="chip" href={`#${s.id}`}>{s.name}</a>)}
       </div>
-    </div>
+    </nav>
+  )}
+
+  <div class="shop">
+    <main class="catalog">
+      <h1 class="title">Nuestro catálogo</h1>
+      <p class="subtitle">Pedí por pack. Sumás cantidades acá mismo y ves tu pedido armarse en vivo.</p>
+
+      <div id="reorderSlot"></div>
+
+      {!configured && <p class="demo-banner">🧪 <b>Modo demo</b> — productos de ejemplo. Conectá Supabase para usar los reales.</p>}
+
+      {sections.map((s) => (
+        <section class="section" id={s.id}>
+          <h2 class="rubro">{s.name}</h2>
+          <div class="rubro__line"></div>
+          <ul class="items">
+            {s.items.map((p: any) => (
+              <li class="item" data-id={p.id} data-name={p.name} data-price={p.price} data-pack={p.pack_label} data-cat={s.name}>
+                {p.image_url
+                  ? <img class="thumb" src={p.image_url} alt={p.name} loading="lazy" width="60" height="60" />
+                  : <div class="thumb--ph" aria-hidden="true">{String(p.name).charAt(0)}</div>}
+                <div class="item__info">
+                  <p class="item__name">{p.name}</p>
+                  {p.description && <p class="item__desc">{p.description}</p>}
+                  <div class="item__meta"><span class="pack">{p.pack_label}</span></div>
+                </div>
+                <div class="item__buy">
+                  <span class="price">{money(p.price)}</span>
+                  {p.hasStock
+                    ? (
+                      <div class="stepper">
+                        <button class="step-btn minus" type="button" aria-label={`Quitar ${p.name}`}>−</button>
+                        <span class="qty" aria-live="polite">0</span>
+                        <button class="step-btn plus" type="button" aria-label={`Agregar ${p.name}`}>+</button>
+                      </div>
+                    )
+                    : <span class="badge-out">Sin stock</span>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+
+      {sections.length === 0 && configured && (
+        <p class="card">Todavía no hay productos cargados. Cargalos desde <a href="/administradora">la administradora</a>.</p>
+      )}
+    </main>
+
+    <aside class="order empty" id="order" aria-label="Tu pedido">
+      <div class="order__bar" id="orderBar">
+        <div class="order__bar-info">
+          <span class="order__bar-total" id="barTotal">$0</span>
+          <span class="order__bar-sub" id="barSub">0 productos</span>
+        </div>
+        <button class="order__bar-cta" id="barCta" type="button">Ver pedido ▲</button>
+      </div>
+      <div class="order__panel" id="orderPanel">
+        <div class="order__handle" aria-hidden="true"></div>
+        <h2 class="order__h">Tu pedido</h2>
+        <p class="order__empty" id="orderEmpty">Tu pedido está vacío. Sumá productos con&nbsp;+.</p>
+        <ul class="order__items" id="orderItems"></ul>
+        <div class="meter" id="meter" hidden>
+          <div class="meter__track"><div class="meter__fill" id="meterFill"></div></div>
+          <p class="meter__t" id="meterT"></p>
+        </div>
+        <div class="order__total" id="orderTotalRow" hidden><span>Total</span><b id="orderTotal">$0</b></div>
+        <a class="btn btn--block" id="confirmBtn" href="/pedido" aria-disabled="true">Confirmar pedido</a>
+      </div>
+    </aside>
+    <div class="backdrop" id="backdrop"></div>
   </div>
 
-  <script>
-    const cart = JSON.parse(localStorage.getItem('teia_cart') || '[]');
-    function save() { localStorage.setItem('teia_cart', JSON.stringify(cart)); render(); }
-    function render() {
-      const bar = document.getElementById('cartbar');
-      const c = document.getElementById('cartcount');
-      const n = cart.reduce((s, i) => s + i.qty, 0);
-      if (c) c.textContent = n + ' producto' + (n === 1 ? '' : 's');
-      if (bar) bar.style.display = n > 0 ? 'block' : 'none';
-    }
-    document.querySelectorAll('.add').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const card = btn.closest('[data-id]');
-        const id = card.dataset.id;
-        const ex = cart.find((i) => i.id === id);
-        if (ex) ex.qty++;
-        else cart.push({ id, name: card.dataset.name, price: Number(card.dataset.price), pack: card.dataset.pack, qty: 1 });
-        save();
-      });
+  <script define:vars={{ MIN_ORDER, demoLast }}>
+    const KEY = 'teia_cart';
+    const fmt = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
+    const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    const sameId = (a, b) => String(a) === String(b);
+
+    let cart = load();
+    function load() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } }
+    function persist() { try { localStorage.setItem(KEY, JSON.stringify(cart)); } catch {} }
+    function find(id) { return cart.find((x) => sameId(x.id, id)); }
+    function total() { return cart.reduce((s, i) => s + i.price * i.qty, 0); }
+    function count() { return cart.reduce((s, i) => s + i.qty, 0); }
+
+    const el = (id) => document.getElementById(id);
+    const order = el('order');
+    const orderItems = el('orderItems'), orderEmpty = el('orderEmpty');
+    const totalRow = el('orderTotalRow'), totalEl = el('orderTotal');
+    const meter = el('meter'), meterFill = el('meterFill'), meterT = el('meterT');
+    const confirmBtn = el('confirmBtn');
+    const barTotal = el('barTotal'), barSub = el('barSub');
+    const bar = el('orderBar'), backdrop = el('backdrop');
+
+    // ---- steppers on each item ----
+    document.querySelectorAll('.item[data-id]').forEach((item) => {
+      const id = item.dataset.id;
+      const meta = { id, name: item.dataset.name, price: Number(item.dataset.price), pack: item.dataset.pack, cat: item.dataset.cat };
+      item.querySelector('.plus')?.addEventListener('click', () => changeQty(id, meta, +1, item));
+      item.querySelector('.minus')?.addEventListener('click', () => changeQty(id, meta, -1, item));
     });
-    render();
+
+    function changeQty(id, meta, delta, itemEl) {
+      const it = find(id);
+      const next = Math.max(0, (it ? it.qty : 0) + delta);
+      if (next === 0) cart = cart.filter((x) => !sameId(x.id, id));
+      else if (it) it.qty = next;
+      else cart.push({ ...meta, qty: next });
+      persist();
+      syncItem(id);
+      renderOrder();
+      if (delta > 0 && itemEl) { itemEl.classList.remove('pulse'); void itemEl.offsetWidth; itemEl.classList.add('pulse'); }
+    }
+
+    function syncItem(id) {
+      const node = document.querySelector(`.item[data-id="${CSS.escape(String(id))}"]`);
+      if (!node) return;
+      const it = find(id);
+      const q = it ? it.qty : 0;
+      const qEl = node.querySelector('.qty');
+      if (qEl) qEl.textContent = q;
+      node.classList.toggle('in-cart', q > 0);
+    }
+    function syncAll() { document.querySelectorAll('.item[data-id]').forEach((n) => syncItem(n.dataset.id)); }
+
+    function renderOrder() {
+      const t = total(), c = count();
+      order.classList.toggle('empty', c === 0);
+      orderEmpty.hidden = c > 0;
+      orderItems.innerHTML = cart.map((i) =>
+        `<li class="oi"><span class="oi__name">${esc(i.name)} <span class="oi__q">${i.qty}× ${esc(i.pack || '')}</span></span>` +
+        `<span class="oi__price">${fmt(i.price * i.qty)}</span>` +
+        `<button class="oi__rm" type="button" data-rm="${esc(String(i.id))}">Quitar</button></li>`
+      ).join('');
+      orderItems.querySelectorAll('[data-rm]').forEach((b) =>
+        b.addEventListener('click', () => {
+          const id = b.dataset.rm;
+          cart = cart.filter((x) => !sameId(x.id, id));
+          persist(); syncItem(id); renderOrder();
+        })
+      );
+      totalRow.hidden = c === 0;
+      totalEl.textContent = fmt(t);
+      barTotal.textContent = fmt(t);
+      barSub.textContent = c === 1 ? '1 producto' : c + ' productos';
+
+      if (c > 0) {
+        meter.hidden = false;
+        const reached = t >= MIN_ORDER;
+        meterFill.style.width = Math.min(100, Math.round((t / MIN_ORDER) * 100)) + '%';
+        meterFill.classList.toggle('ok', reached);
+        meterT.innerHTML = reached ? '✓ Llegaste al pedido mínimo' : `Te faltan <b>${fmt(MIN_ORDER - t)}</b> para el mínimo`;
+        confirmBtn.setAttribute('aria-disabled', reached ? 'false' : 'true');
+      } else {
+        meter.hidden = true;
+        confirmBtn.setAttribute('aria-disabled', 'true');
+      }
+    }
+
+    // ---- mobile sheet open/close ----
+    const openSheet = () => order.classList.add('open');
+    const closeSheet = () => order.classList.remove('open');
+    bar?.addEventListener('click', () => (order.classList.contains('open') ? closeSheet() : openSheet()));
+    backdrop?.addEventListener('click', closeSheet);
+    document.querySelector('.order__handle')?.addEventListener('click', closeSheet);
+    confirmBtn.addEventListener('click', (e) => { if (confirmBtn.getAttribute('aria-disabled') === 'true') e.preventDefault(); });
+
+    // ---- Recompra (reorder) ----
+    function lastOrder() {
+      try {
+        const ls = JSON.parse(localStorage.getItem('teia_last_order'));
+        if (ls && Array.isArray(ls.items) && ls.items.length) return ls;
+      } catch {}
+      return demoLast || null;
+    }
+    (function buildReorder() {
+      const lo = lastOrder();
+      if (!lo) return;
+      const c = lo.items.reduce((s, i) => s + i.qty, 0);
+      const t = lo.items.reduce((s, i) => s + i.price * i.qty, 0);
+      el('reorderSlot').innerHTML =
+        `<div class="reorder"><div><div class="reorder__t">↻ Repetir último pedido</div>` +
+        `<div class="reorder__s">${esc(lo.order_number || '')} · ${c} ítems · ${fmt(t)}</div></div>` +
+        `<button class="reorder__btn" type="button" id="reorderBtn">Cargar</button></div>`;
+      el('reorderBtn').addEventListener('click', () => {
+        lo.items.forEach((i) => {
+          const ex = find(i.id);
+          if (ex) ex.qty += i.qty;
+          else cart.push({ id: i.id, name: i.name, price: i.price, pack: i.pack, qty: i.qty });
+        });
+        persist(); syncAll(); renderOrder();
+        if (window.innerWidth < 900) openSheet();
+      });
+    })();
+
+    // ---- init ----
+    syncAll();
+    renderOrder();
   </script>
 </Base>

@@ -77,6 +77,7 @@ import Base from '../layouts/Base.astro';
         });
         const out = await res.json().catch(() => ({}));
         if (res.ok && out.ok) {
+          try { localStorage.setItem('teia_last_order', JSON.stringify({ order_number: out.order_number || '', items: cart })); } catch {}
           localStorage.removeItem('teia_cart');
           document.getElementById('root').innerHTML =
             '<div class="brand">Teia Bakery</div><h1>¡Pedido enviado! 🧁</h1>' +
