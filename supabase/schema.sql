@@ -53,3 +53,9 @@ create index if not exists idx_teia_order_items_order on teia_order_items(order_
 alter table teia_products    enable row level security;
 alter table teia_orders      enable row level security;
 alter table teia_order_items enable row level security;
+
+-- Storage: bucket PÚBLICO para las fotos de producto (subida desde /administradora con la
+-- service_role key; lectura pública vía URL). Correr una vez.
+insert into storage.buckets (id, name, public)
+values ('teia-productos', 'teia-productos', true)
+on conflict (id) do nothing;

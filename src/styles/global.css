@@ -53,6 +53,7 @@ body {
 }
 a { color: var(--accent); text-decoration: none; }
 img { max-width: 100%; display: block; }
+[hidden] { display: none !important; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
 /* ---- layout ---- */
@@ -193,6 +194,25 @@ label { display: block; font-size: 13px; color: var(--ink-2); margin: 10px 0 4px
 .badge--out { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: top; }
+input[type="checkbox"] { width: auto; }
+
+/* ---- administradora: tabs + form compacto ---- */
+.links-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 16px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 0 18px; flex-wrap: wrap; }
+.tab { background: none; border: 0; padding: 10px 16px; font: inherit; font-weight: 600; color: var(--ink-2); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; border-radius: var(--r-sm) var(--r-sm) 0 0; }
+.tab:hover { color: var(--accent); background: var(--surface-2); }
+.tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+.form-card { max-width: 560px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; margin-top: 4px; }
+@media (max-width: 480px) { .grid2 { grid-template-columns: 1fr; } }
+.filepick { display: flex; align-items: center; gap: 12px; }
+.filebtn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border: 1px dashed var(--line-2); border-radius: var(--r-md); background: var(--surface-2); color: var(--ink-2); cursor: pointer; font-weight: 600; font-size: 14px; }
+.filebtn:hover { border-color: var(--accent); color: var(--accent); }
+.filepick input[type="file"] { display: none; }
+.preview { width: 64px; height: 64px; border-radius: var(--r-md); object-fit: cover; border: 1px solid var(--line); }
+.hint { font-size: 12px; color: var(--ink-3); margin: 4px 0 2px; }
+.check { display: flex; align-items: center; gap: 8px; margin: 16px 0 4px; color: var(--ink); font-size: 14px; }
+.form-actions { display: flex; gap: 10px; margin-top: 16px; }
 
 /* ============================ RESPONSIVE ============================ */
 @media (max-width: 899px) {

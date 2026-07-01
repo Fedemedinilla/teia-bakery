@@ -5,9 +5,7 @@ import { isTeiaAdmin, authChallenge } from '../lib/auth';
 import { sbSelect, supaConfigured } from '../lib/supabase';
 import { DEMO_PRODUCTS, DEMO_ORDERS } from '../lib/demo';
 
-// Gate: in real mode (Supabase configured) require the panel password — the browser shows its
-// Basic-Auth prompt and caches the credentials for the later fetches. In demo mode (no Supabase)
-// the data is all fake, so the panel is open just to be explorable.
+// Gate: in real mode (Supabase configured) require the panel password. In demo mode it's open.
 const configured = supaConfigured();
 if (configured && !isTeiaAdmin(Astro.request)) {
   return authChallenge();
@@ -17,91 +15,143 @@ const products = configured ? await sbSelect('teia_products?order=sort_order.asc
 const orders = configured ? await sbSelect('teia_orders?order=created_at.desc&select=*&limit=50') : DEMO_ORDERS;
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 
-// Precompute stock flags here — Astro's template can't mix `<=` comparisons with adjacent
-// JSX (it reads `<` as a tag), so we keep comparisons out of the markup.
+// Stock flags precomputed (Astro can't mix `<=` with adjacent JSX).
 const productRows = (products as any[]).map((p) => ({
   ...p,
   isOut: Number(p.stock) <= 0,
   isLow: Number(p.stock) > 0 && Number(p.stock) <= Number(p.low_stock_threshold),
 }));
 
-// Pegá acá los links reales cuando los tengas (o los movemos a env vars).
+// Rubros for the datalist: the standard set + whatever already exists.
+const rubros = [...new Set(['Tortas', 'Postres', 'Salados', 'Panadería', ...(products as any[]).map((p) => p.category).filter(Boolean)])];
+
 const DRIVE_URL = '';
 const SHEET_URL = '';
 ---
 <Base title="Administradora — Teia Bakery">
   <div class="container">
     <div class="brand">Teia Bakery · Administradora</div>
-    <h1>Panel</h1>
+    <h1 style="margin-bottom:6px">Panel</h1>
 
-    {!configured && <p class="card">🧪 <b>Modo demo</b> — datos de ejemplo. Conectá Supabase + la clave para el panel real.</p>}
+    {!configured && <p class="card" style="margin-bottom:12px">🧪 <b>Modo demo</b> — datos de ejemplo. Conectá Supabase + la clave para el panel real.</p>}
 
-    <h2>Enlaces</h2>
-    <p>
+    <p class="links-row">
       <a class="btn btn--ghost" href={DRIVE_URL || '#'} target="_blank" rel="noopener">📁 Drive</a>
       <a class="btn btn--ghost" href={SHEET_URL || '#'} target="_blank" rel="noopener">📊 Google Sheet</a>
       <a class="btn btn--ghost" href="mailto:hello@kyndredai.com">🛟 Soporte</a>
     </p>
 
-    <h2>Pedidos</h2>
-    <div class="card">
-      <table>
-        <thead><tr><th>N°</th><th>Cliente</th><th>Entrega</th><th>Total</th><th>Estado</th><th></th></tr></thead>
-        <tbody>
-          {orders.map((o: any) => (
-            <tr>
-              <td>{o.order_number || '—'}</td>
-              <td>{o.client_name}<br /><small class="muted">{o.client_contact}</small></td>
-              <td>{o.delivery_date || '—'}</td>
-              <td>{money(o.total)}</td>
-              <td>{o.status}</td>
-              <td>{o.status === 'pendiente' && <button class="btn confirm" data-id={o.id}>Confirmar ✓</button>}</td>
-            </tr>
-          ))}
-          {orders.length === 0 && <tr><td colspan="6" class="muted">Sin pedidos todavía.</td></tr>}
-        </tbody>
-      </table>
+    <div class="tabs" role="tablist">
+      <button class="tab is-active" data-tab="pedidos" type="button">Pedidos</button>
+      <button class="tab" data-tab="productos" type="button">Productos</button>
+      <button class="tab" data-tab="nuevo" type="button">＋ Nuevo producto</button>
     </div>
 
-    <h2>Productos</h2>
-    <div class="card">
-      <table>
-        <thead><tr><th>Producto</th><th>Pack</th><th>Precio</th><th>Stock</th><th></th></tr></thead>
-        <tbody>
-          {productRows.map((p: any) => (
-            <tr>
-              <td>{p.name}{!p.active && <span class="muted"> (oculto)</span>}</td>
-              <td>{p.pack_label}</td>
-              <td>{money(p.price)}</td>
-              <td>
-                {p.stock}{' '}
-                {p.isOut && <span class="badge badge--out">sin stock</span>}
-                {p.isLow && <span class="badge badge--low">poco stock</span>}
-              </td>
-              <td><button class="btn btn--ghost editp" data-p={JSON.stringify(p)}>Editar</button></td>
-            </tr>
-          ))}
-          {productRows.length === 0 && <tr><td colspan="5" class="muted">Sin productos. Cargá el primero abajo.</td></tr>}
-        </tbody>
-      </table>
+    <!-- PEDIDOS -->
+    <section class="panel" data-panel="pedidos">
+      <div class="card">
+        <table>
+          <thead><tr><th>N°</th><th>Cliente</th><th>Entrega</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            {orders.map((o: any) => (
+              <tr>
+                <td>{o.order_number || '—'}</td>
+                <td>{o.client_name}<br /><small class="muted">{o.client_contact}</small></td>
+                <td>{o.delivery_date || '—'}</td>
+                <td>{money(o.total)}</td>
+                <td>{o.status}</td>
+                <td>{o.status === 'pendiente' && <button class="btn confirm" data-id={o.id}>Confirmar ✓</button>}</td>
+              </tr>
+            ))}
+            {orders.length === 0 && <tr><td colspan="6" class="muted">Sin pedidos todavía.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-      <h3 style="margin-top:18px">Nuevo / editar producto</h3>
-      <form id="pform">
-        <input type="hidden" name="id" />
-        <label>Nombre</label><input name="name" required />
-        <label>Imagen (URL)</label><input name="image_url" />
-        <label>Pack (ej. x6, x12, por kg)</label><input name="pack_label" />
-        <label>Precio mayorista</label><input name="price" type="number" step="0.01" required />
-        <label>Stock (packs)</label><input name="stock" type="number" required />
-        <label>Avisar cuando el stock baje de</label><input name="low_stock_threshold" type="number" value="5" />
-        <div style="margin-top:12px"><button class="btn" type="submit">Guardar producto</button>
-          <button class="btn btn--ghost" type="reset">Limpiar</button></div>
-        <p id="pmsg" class="muted"></p>
-      </form>
-    </div>
+    <!-- PRODUCTOS -->
+    <section class="panel" data-panel="productos" hidden>
+      <div class="card">
+        <table>
+          <thead><tr><th>Producto</th><th>Rubro</th><th>Pack</th><th>Precio</th><th>Stock</th><th></th></tr></thead>
+          <tbody>
+            {productRows.map((p: any) => (
+              <tr>
+                <td>{p.name}{!p.active && <span class="muted"> (oculto)</span>}</td>
+                <td class="muted">{p.category || '—'}</td>
+                <td>{p.pack_label}</td>
+                <td>{money(p.price)}</td>
+                <td>
+                  {p.stock}{' '}
+                  {p.isOut && <span class="badge badge--out">sin stock</span>}
+                  {p.isLow && <span class="badge badge--low">poco stock</span>}
+                </td>
+                <td><button class="btn btn--ghost editp" data-p={JSON.stringify(p)}>Editar</button></td>
+              </tr>
+            ))}
+            {productRows.length === 0 && <tr><td colspan="6" class="muted">Sin productos. Cargá el primero en “＋ Nuevo producto”.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- NUEVO / EDITAR -->
+    <section class="panel" data-panel="nuevo" hidden>
+      <div class="card form-card">
+        <h2 id="formTitle" style="margin-top:0">Nuevo producto</h2>
+        <form id="pform">
+          <input type="hidden" name="id" />
+
+          <label for="pf-name">Nombre</label>
+          <input id="pf-name" name="name" required autocomplete="off" />
+
+          <label for="pf-cat">Rubro</label>
+          <input id="pf-cat" name="category" list="rubros-list" placeholder="Tortas, Postres, Salados…" autocomplete="off" />
+          <datalist id="rubros-list">{rubros.map((r) => <option value={r} />)}</datalist>
+
+          <label>Foto del producto</label>
+          <div class="filepick">
+            <label class="filebtn" for="pfile">📷 Subir foto</label>
+            <input type="file" id="pfile" accept="image/*" />
+            <img id="ppreview" class="preview" hidden alt="" />
+          </div>
+          <input name="image_url" placeholder="…o pegá una URL de imagen" style="margin-top:8px" />
+          <p class="hint">Subí un archivo (recomendado) o pegá una URL. Máx 5&nbsp;MB.</p>
+
+          <div class="grid2">
+            <div><label for="pf-pack">Pack</label><input id="pf-pack" name="pack_label" placeholder="x6, x12, por kg" /></div>
+            <div><label for="pf-price">Precio mayorista</label><input id="pf-price" name="price" type="number" step="0.01" min="0" required /></div>
+            <div><label for="pf-stock">Stock (packs)</label><input id="pf-stock" name="stock" type="number" min="0" required /></div>
+            <div><label for="pf-low">Avisar si baja de</label><input id="pf-low" name="low_stock_threshold" type="number" min="0" value="5" /></div>
+          </div>
+
+          <label class="check"><input type="checkbox" name="active" checked /> Visible en el catálogo</label>
+
+          <div class="form-actions">
+            <button class="btn" type="submit">Guardar producto</button>
+            <button class="btn btn--ghost" type="button" id="pclear">Limpiar</button>
+          </div>
+          <p id="pmsg" class="muted"></p>
+        </form>
+      </div>
+    </section>
   </div>
 
   <script>
+    // ---- tabs ----
+    const showTab = (name) => {
+      document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('is-active', t.dataset.tab === name));
+      document.querySelectorAll('[data-panel]').forEach((p) => (p.hidden = p.dataset.panel !== name));
+    };
+    document.querySelectorAll('.tab').forEach((t) =>
+      t.addEventListener('click', () => {
+        if (t.dataset.tab === 'nuevo') resetForm();
+        showTab(t.dataset.tab);
+        history.replaceState(null, '', '#' + t.dataset.tab);
+      })
+    );
+
+    // ---- confirmar pedido ----
     document.querySelectorAll('.confirm').forEach((b) =>
       b.addEventListener('click', async () => {
         b.textContent = '…';
@@ -113,27 +163,87 @@ const SHEET_URL = '';
       })
     );
 
+    // ---- form producto ----
+    const form = document.getElementById('pform');
+    const fileInput = document.getElementById('pfile');
+    const preview = document.getElementById('ppreview');
+    const msg = document.getElementById('pmsg');
+
+    function showPreview(src) {
+      if (src) { preview.src = src; preview.hidden = false; }
+      else { preview.hidden = true; preview.removeAttribute('src'); }
+    }
+    function fillForm(p) {
+      ['id', 'name', 'category', 'image_url', 'pack_label', 'price', 'stock', 'low_stock_threshold'].forEach((k) => {
+        if (form[k]) form[k].value = p[k] ?? '';
+      });
+      if (form.active) form.active.checked = p.active !== false;
+      if (fileInput) fileInput.value = '';
+      showPreview(p.image_url || '');
+    }
+    function resetForm() {
+      form.reset();
+      document.getElementById('formTitle').textContent = 'Nuevo producto';
+      showPreview('');
+      msg.textContent = '';
+    }
+
     document.querySelectorAll('.editp').forEach((b) =>
       b.addEventListener('click', () => {
-        const p = JSON.parse(b.dataset.p);
-        const f = document.getElementById('pform');
-        ['id', 'name', 'image_url', 'pack_label', 'price', 'stock', 'low_stock_threshold'].forEach((k) => {
-          if (f[k]) f[k].value = p[k] ?? '';
-        });
-        f.scrollIntoView({ behavior: 'smooth' });
+        fillForm(JSON.parse(b.dataset.p));
+        document.getElementById('formTitle').textContent = 'Editar producto';
+        showTab('nuevo');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       })
     );
 
-    document.getElementById('pform').addEventListener('submit', async (e) => {
+    fileInput?.addEventListener('change', () => {
+      const f = fileInput.files && fileInput.files[0];
+      showPreview(f ? URL.createObjectURL(f) : (form.image_url.value || ''));
+    });
+    document.getElementById('pclear').addEventListener('click', resetForm);
+
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const fd = Object.fromEntries(new FormData(e.target).entries());
-      const m = document.getElementById('pmsg');
-      m.textContent = 'Guardando…';
+      let image_url = form.image_url.value.trim();
+      const file = fileInput && fileInput.files && fileInput.files[0];
+
+      // 1) subir la imagen si eligió un archivo
+      if (file) {
+        msg.textContent = 'Subiendo imagen…';
+        const fd = new FormData();
+        fd.append('file', file);
+        const up = await fetch('/api/admin/upload', { method: 'POST', body: fd });
+        const uo = await up.json().catch(() => ({}));
+        if (up.ok && uo.url) image_url = uo.url;
+        else { msg.textContent = (uo && uo.error) || 'No se pudo subir la imagen.'; return; }
+      }
+
+      // 2) guardar el producto
+      msg.textContent = 'Guardando…';
+      const payload = {
+        id: form.id.value,
+        name: form.name.value.trim(),
+        category: form.category.value.trim(),
+        image_url,
+        pack_label: form.pack_label.value.trim(),
+        price: form.price.value,
+        stock: form.stock.value,
+        low_stock_threshold: form.low_stock_threshold.value,
+        active: form.active ? form.active.checked : true,
+      };
       const r = await fetch('/api/admin/product', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fd),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
       if (r.ok) location.reload();
-      else m.textContent = 'Error al guardar.';
+      else { const o = await r.json().catch(() => ({})); msg.textContent = (o && o.error) || 'Error al guardar.'; }
     });
+
+    // deep-link por hash (#pedidos / #productos / #nuevo)
+    const initTab = (location.hash || '').slice(1);
+    if (['pedidos', 'productos', 'nuevo'].includes(initTab)) {
+      if (initTab === 'nuevo') resetForm();
+      showTab(initTab);
+    }
   </script>
 </Base>
