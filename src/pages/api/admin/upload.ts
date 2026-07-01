@@ -20,7 +20,7 @@ export const POST: APIRoute = async ({ request }) => {
   const file = form.get('file');
   if (!(file instanceof File) || file.size === 0) return json({ error: 'No llegó ningún archivo.' }, 400);
   if (!/^image\//.test(file.type)) return json({ error: 'El archivo debe ser una imagen.' }, 400);
-  if (file.size > 5 * 1024 * 1024) return json({ error: 'La imagen supera los 5 MB.' }, 400);
+  if (file.size > 4 * 1024 * 1024) return json({ error: 'La imagen es muy pesada (máx ~4 MB). Probá otra.' }, 413);
 
   const url = (env('SUPABASE_URL') || '').replace(/\/+$/, '');
   const key = env('SUPABASE_SERVICE_ROLE_KEY') || '';
@@ -35,10 +35,13 @@ export const POST: APIRoute = async ({ request }) => {
     });
     if (!r.ok) {
       const detail = await r.text().catch(() => '');
-      return json({ error: `Storage respondió ${r.status}. ${detail.includes('Bucket not found') ? 'Falta crear el bucket teia-productos.' : ''}`.trim() }, 500);
+      console.error('[upload] storage', r.status, detail);
+      const hint = /bucket not found/i.test(detail) ? ' Falta crear el bucket teia-productos (corré el SQL del bucket).' : '';
+      return json({ error: `Storage respondió ${r.status}.${hint}`, detail: detail.slice(0, 300) }, 502);
     }
     return json({ url: `${url}/storage/v1/object/public/${BUCKET}/${path}` });
-  } catch (e) {
-    return json({ error: 'No se pudo subir la imagen.' }, 500);
+  } catch (e: any) {
+    console.error('[upload] exception', e && e.message);
+    return json({ error: 'Error al subir: ' + ((e && e.message) || 'desconocido') }, 500);
   }
 };

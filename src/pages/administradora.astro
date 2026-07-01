@@ -119,7 +119,7 @@ const SHEET_URL = '';
               <input type="file" id="pfile" accept="image/*" />
             </div>
             <input name="image_url" placeholder="…o pegá una URL de imagen" style="margin-top:8px" />
-            <p class="hint">Subí un archivo (recomendado) o pegá una URL. Máx 5&nbsp;MB.</p>
+            <p class="hint">Subí un archivo (recomendado) o pegá una URL. Se ajusta y comprime automáticamente.</p>
 
             <div class="grid2">
               <div><label for="pf-pack">Pack</label><input id="pf-pack" name="pack_label" placeholder="x6, x12, por kg" /></div>
@@ -198,6 +198,24 @@ const SHEET_URL = '';
     const msg = document.getElementById('pmsg');
     const money = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
 
+    // Redimensiona/comprime la imagen en el navegador antes de subir (evita el límite de 4,5MB
+    // de Vercel y hace el catálogo más liviano). Si algo falla, devuelve el archivo original.
+    async function resizeImage(file, maxDim = 1400, quality = 0.85) {
+      try {
+        const bitmap = await createImageBitmap(file);
+        let w = bitmap.width, h = bitmap.height;
+        if (Math.max(w, h) > maxDim) { const s = maxDim / Math.max(w, h); w = Math.round(w * s); h = Math.round(h * s); }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+        if (bitmap.close) bitmap.close();
+        const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', quality));
+        if (!blob) return file;
+        const base = (file.name || 'foto').replace(/\.[^.]+$/, '') || 'foto';
+        return new File([blob], base + '.jpg', { type: 'image/jpeg' });
+      } catch { return file; }
+    }
+
     function updatePreview() {
       const name = F('name').value.trim();
       const desc = F('description') ? F('description').value.trim() : '';
@@ -264,15 +282,20 @@ const SHEET_URL = '';
       let image_url = F('image_url').value.trim();
       const file = fileInput && fileInput.files && fileInput.files[0];
 
-      // 1) subir la imagen si eligió un archivo
+      // 1) subir la imagen si eligió un archivo (comprimida en el navegador)
       if (file) {
+        msg.textContent = 'Procesando imagen…';
+        const toUpload = await resizeImage(file);
         msg.textContent = 'Subiendo imagen…';
         const fd = new FormData();
-        fd.append('file', file);
-        const up = await fetch('/api/admin/upload', { method: 'POST', body: fd });
-        const uo = await up.json().catch(() => ({}));
+        fd.append('file', toUpload);
+        let up, uo;
+        try {
+          up = await fetch('/api/admin/upload', { method: 'POST', body: fd });
+          uo = await up.json().catch(() => ({}));
+        } catch { msg.textContent = 'No se pudo conectar para subir la imagen.'; return; }
         if (up.ok && uo.url) image_url = uo.url;
-        else { msg.textContent = (uo && uo.error) || 'No se pudo subir la imagen.'; return; }
+        else { msg.textContent = (uo && uo.error) || ('No se pudo subir la imagen (código ' + (up ? up.status : '?') + ').'); return; }
       }
 
       // 2) guardar el producto
