@@ -27,8 +27,8 @@ export const DEMO_PRODUCTS = [
 ];
 
 export const DEMO_ORDERS = [
-  { id: 101, order_number: 'TEIA-0041', client_name: 'Café de la Esquina', client_contact: '11 5555-1234',  delivery_date: '2026-07-03', total: 86400, status: 'pendiente' },
-  { id: 100, order_number: 'TEIA-0040', client_name: 'Almacén Belén',      client_contact: 'belen@correo.com', delivery_date: '2026-07-02', total: 50400, status: 'confirmado' },
+  { id: 101, order_number: 'TEIA-0041', client_name: 'Café de la Esquina', client_contact: '11 5555-1234',  delivery_address: 'Av. Corrientes 1234, CABA', delivery_date: null, total: 86400, status: 'pendiente' },
+  { id: 100, order_number: 'TEIA-0040', client_name: 'Almacén Belén',      client_contact: 'belen@correo.com', delivery_address: 'Belgrano 567, San Isidro', delivery_date: null, total: 50400, status: 'confirmado' },
 ];
 
 // A sample "last order" so the Recompra (reorder) card is visible in the demo.

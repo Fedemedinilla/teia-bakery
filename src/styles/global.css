@@ -233,6 +233,16 @@ input[type="checkbox"] { width: auto; }
 .rubro-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
 .rubro-list .btn { padding: 6px 12px; font-size: 13px; }
 
+.admin-wrap { padding-top: 26px; }
+
+/* tablas: scroll horizontal en pantallas chicas (no se rompen) */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
+.table-scroll table { min-width: 520px; }
+@media (max-width: 560px) {
+  th, td { padding: 8px 6px; font-size: 13px; }
+  .admin-wrap { padding-top: 20px; }
+}
+
 /* ============================ RESPONSIVE ============================ */
 @media (max-width: 899px) {
   /* order → barra fija abajo que expande a hoja */

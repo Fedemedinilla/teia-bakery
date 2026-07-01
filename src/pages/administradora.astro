@@ -32,7 +32,7 @@ const DRIVE_URL = '';
 const SHEET_URL = '';
 ---
 <Base title="Administradora — Teia Bakery">
-  <div class="container">
+  <div class="container admin-wrap">
     <div class="brand">Teia Bakery · Administradora</div>
     <h1 style="margin-bottom:6px">Panel</h1>
 
@@ -55,28 +55,33 @@ const SHEET_URL = '';
     <!-- PEDIDOS -->
     <section class="panel" data-panel="pedidos">
       <div class="card">
+        <div class="table-scroll">
         <table>
-          <thead><tr><th>N°</th><th>Cliente</th><th>Entrega</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+          <thead><tr><th>N°</th><th>Cliente / entrega</th><th>Total</th><th>Estado</th><th></th></tr></thead>
           <tbody>
             {orders.map((o: any) => (
               <tr>
                 <td>{o.order_number || '—'}</td>
-                <td>{o.client_name}<br /><small class="muted">{o.client_contact}</small></td>
-                <td>{o.delivery_date || '—'}</td>
+                <td>
+                  {o.client_name}<br /><small class="muted">{o.client_contact}</small>
+                  {o.delivery_address && <span><br /><small class="muted">📍 {o.delivery_address}</small></span>}
+                </td>
                 <td>{money(o.total)}</td>
                 <td>{o.status}</td>
                 <td>{o.status === 'pendiente' && <button class="btn confirm" data-id={o.id}>Confirmar ✓</button>}</td>
               </tr>
             ))}
-            {orders.length === 0 && <tr><td colspan="6" class="muted">Sin pedidos todavía.</td></tr>}
+            {orders.length === 0 && <tr><td colspan="5" class="muted">Sin pedidos todavía.</td></tr>}
           </tbody>
         </table>
+        </div>
       </div>
     </section>
 
     <!-- PRODUCTOS -->
     <section class="panel" data-panel="productos" hidden>
       <div class="card">
+        <div class="table-scroll">
         <table>
           <thead><tr><th>Producto</th><th>Rubro</th><th>Pack</th><th>Precio</th><th>Stock</th><th></th></tr></thead>
           <tbody>
@@ -97,6 +102,7 @@ const SHEET_URL = '';
             {productRows.length === 0 && <tr><td colspan="6" class="muted">Sin productos. Cargá el primero en “＋ Nuevo producto”.</td></tr>}
           </tbody>
         </table>
+        </div>
       </div>
     </section>
 
