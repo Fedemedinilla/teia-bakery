@@ -206,12 +206,19 @@ h1.title { font-family: var(--font-display); font-weight: 600; font-size: clamp(
 }
 .order__h { font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; margin: 0 0 12px; }
 .order__items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 40vh; overflow-y: auto; }
-.oi { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; font-size: 13.5px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
-.oi__name { font-weight: 600; }
-.oi__q { color: var(--ink-2); font-size: 12px; }
-.oi__price { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
-.oi__rm { grid-column: 2; justify-self: end; background: none; border: 0; color: var(--ink-3); font-size: 11px; cursor: pointer; padding: 0; }
-.oi__rm:hover { color: var(--bad); }
+.oi { padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.oi:last-child { padding-bottom: 0; border-bottom: 0; }
+.oi__row1 { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.oi__name { font-weight: 600; font-size: 13.5px; line-height: 1.3; }
+.oi__rm { flex: 0 0 auto; width: 22px; height: 22px; display: grid; place-items: center; border: 0; border-radius: var(--r-full); background: var(--surface-2); color: var(--ink-3); font-size: 16px; line-height: 1; cursor: pointer; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.oi__rm:hover { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+.oi__row2 { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
+.oi__stepper { display: inline-flex; align-items: center; gap: 2px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r-full); padding: 2px; }
+.oi__step { width: 24px; height: 24px; border: 0; border-radius: var(--r-full); background: transparent; color: var(--accent); font-size: 15px; font-weight: 700; line-height: 1; cursor: pointer; display: grid; place-items: center; transition: background var(--dur) var(--ease); }
+.oi__step:hover { background: var(--accent-soft); }
+.oi__qv { min-width: 20px; text-align: center; font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+.oi__pack { font-size: 11px; color: var(--ink-3); }
+.oi__line { margin-left: auto; font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .order__empty { color: var(--ink-2); font-size: 14px; padding: 8px 0 4px; }
 
 .meter { margin: 14px 0 10px; }

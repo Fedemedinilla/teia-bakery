@@ -198,17 +198,30 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
       const t = total(), c = count();
       order.classList.toggle('empty', c === 0);
       orderEmpty.hidden = c > 0;
-      orderItems.innerHTML = cart.map((i) =>
-        `<li class="oi"><span class="oi__name">${esc(i.name)} <span class="oi__q">${i.qty}× ${esc(i.pack || '')}</span></span>` +
-        `<span class="oi__price">${fmt(i.price * i.qty)}</span>` +
-        `<button class="oi__rm" type="button" data-rm="${esc(String(i.id))}">Quitar</button></li>`
-      ).join('');
+      orderItems.innerHTML = cart.map((i) => {
+        const id = esc(String(i.id));
+        return `<li class="oi">` +
+          `<div class="oi__row1"><span class="oi__name">${esc(i.name)}</span>` +
+          `<button class="oi__rm" type="button" data-rm="${id}" aria-label="Quitar ${esc(i.name)}">×</button></div>` +
+          `<div class="oi__row2">` +
+          `<span class="oi__stepper"><button class="oi__step" type="button" data-dec="${id}" aria-label="Restar uno">−</button>` +
+          `<span class="oi__qv">${i.qty}</span>` +
+          `<button class="oi__step" type="button" data-inc="${id}" aria-label="Sumar uno">+</button></span>` +
+          (i.pack ? `<span class="oi__pack">${esc(i.pack)}</span>` : '') +
+          `<span class="oi__line">${fmt(i.price * i.qty)}</span></div></li>`;
+      }).join('');
       orderItems.querySelectorAll('[data-rm]').forEach((b) =>
         b.addEventListener('click', () => {
           const id = b.dataset.rm;
           cart = cart.filter((x) => !sameId(x.id, id));
           persist(); syncItem(id); renderOrder();
         })
+      );
+      orderItems.querySelectorAll('[data-inc]').forEach((b) =>
+        b.addEventListener('click', () => { const it = find(b.dataset.inc); if (it) changeQty(it.id, it, +1); })
+      );
+      orderItems.querySelectorAll('[data-dec]').forEach((b) =>
+        b.addEventListener('click', () => { const it = find(b.dataset.dec); if (it) changeQty(it.id, it, -1); })
       );
       totalRow.hidden = c === 0;
       totalEl.textContent = fmt(t);
