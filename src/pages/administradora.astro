@@ -279,19 +279,26 @@ const SHEET_URL = '';
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      msg.className = 'muted';
       let image_url = F('image_url').value.trim();
       const file = fileInput && fileInput.files && fileInput.files[0];
 
-      // 1) subir la imagen si eligió un archivo (comprimida en el navegador)
+      // 1) subir la imagen si eligió un archivo: se comprime y se manda como BASE64 en JSON
+      //    (NO multipart — Vercel bloquea el multipart con 403 vía WAF).
       if (file) {
         msg.textContent = 'Procesando imagen…';
         const toUpload = await resizeImage(file);
+        const dataUrl = await new Promise((res) => {
+          const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = () => res(''); rd.readAsDataURL(toUpload);
+        });
+        if (!dataUrl) { msg.textContent = 'No se pudo leer la imagen.'; return; }
         msg.textContent = 'Subiendo imagen…';
-        const fd = new FormData();
-        fd.append('file', toUpload);
         let up, uo;
         try {
-          up = await fetch('/api/admin/upload', { method: 'POST', body: fd });
+          up = await fetch('/api/admin/upload', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contentType: toUpload.type, data: dataUrl }),
+          });
           uo = await up.json().catch(() => ({}));
         } catch { msg.textContent = 'No se pudo conectar para subir la imagen.'; return; }
         if (up.ok && uo.url) image_url = uo.url;
@@ -315,8 +322,15 @@ const SHEET_URL = '';
       const r = await fetch('/api/admin/product', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
-      if (r.ok) location.reload();
-      else { const o = await r.json().catch(() => ({})); msg.textContent = (o && o.error) || 'Error al guardar.'; }
+      if (r.ok) {
+        const editing = !!F('id').value;
+        msg.className = 'ok-msg';
+        msg.textContent = editing ? '✓ Producto actualizado' : '✓ ¡Producto agregado!';
+        setTimeout(() => { location.hash = 'productos'; location.reload(); }, 950);
+      } else {
+        const o = await r.json().catch(() => ({}));
+        msg.textContent = (o && o.error) || 'Error al guardar.';
+      }
     });
 
     // deep-link por hash (#pedidos / #productos / #nuevo)
