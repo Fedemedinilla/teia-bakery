@@ -32,9 +32,11 @@
   --sh-md: 0 6px 18px rgba(51,41,31,.08), 0 2px 6px rgba(51,41,31,.05);
   --sh-lg: 0 16px 42px rgba(51,41,31,.14), 0 6px 14px rgba(51,41,31,.07);
 
-  --dur: 200ms;
-  --ease: cubic-bezier(.2, 0, 0, 1);
-  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --dur: 200ms; --dur-fast: 140ms; --dur-slow: 320ms;
+  --ease: cubic-bezier(.2, 0, 0, 1);          /* estados del mismo elemento */
+  --ease-out: cubic-bezier(.16, 1, .3, 1);    /* entradas */
+  --ease-in: cubic-bezier(.4, 0, 1, 1);       /* salidas */
+  --ease-spring: linear(0, 0.55, 0.9, 1.04, 1); /* expresivo, sólo momentos que lo ganan */
 
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
@@ -78,7 +80,9 @@ img { max-width: 100%; display: block; }
   background: var(--surface); border: 1px solid var(--line-2); color: var(--ink-2);
   font-size: 13px; font-weight: 600; white-space: nowrap; transition: all var(--dur) var(--ease);
 }
-.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); box-shadow: var(--sh-sm); }
+.chip:active { transform: translateY(0); }
+.chip.is-active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
 /* ---- shop grid: mobile 1 col; desktop catalog + sticky order panel ---- */
 .shop { display: block; max-width: var(--maxw); margin: 0 auto; padding: 20px 16px 120px; }
@@ -103,6 +107,10 @@ h1.title { font-family: var(--font-display); font-weight: 600; font-size: clamp(
   animation: fadeUp .45s var(--ease-out) both;
 }
 .item.in-cart { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset, var(--sh-sm); }
+@media (hover: hover) {
+  .item:hover { transform: translateY(-2px); box-shadow: var(--sh-md); }
+  .item.in-cart:hover { box-shadow: 0 0 0 1px var(--accent) inset, var(--sh-md); }
+}
 @media (hover: hover) { .item:hover { box-shadow: var(--sh-md); transform: translateY(-1px); } }
 .thumb-box { position: relative; width: 60px; height: 60px; flex: 0 0 60px; }
 .thumb-ph {
@@ -207,8 +215,8 @@ h1.title { font-family: var(--font-display); font-weight: 600; font-size: clamp(
 .order__total b { font-size: 20px; font-family: var(--font-display); font-variant-numeric: tabular-nums; }
 
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: var(--r-md); padding: 13px 16px; font-weight: 700; font-size: 15px; cursor: pointer; text-decoration: none; transition: background var(--dur) var(--ease), transform 90ms var(--ease); }
-.btn:hover { background: var(--accent-2); }
-.btn:active { transform: scale(.98); }
+.btn:hover { background: var(--accent-2); transform: translateY(-1px); box-shadow: var(--sh-md); }
+.btn:active { transform: translateY(0) scale(.98); box-shadow: none; }
 .btn[aria-disabled='true'] { background: var(--line-2); color: var(--ink-3); cursor: not-allowed; pointer-events: none; }
 .btn--block { width: 100%; }
 .btn--ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
@@ -343,7 +351,26 @@ input[type="checkbox"] { width: auto; }
 .item:nth-child(2) { animation-delay: .06s; }
 .item:nth-child(3) { animation-delay: .10s; }
 .item:nth-child(4) { animation-delay: .14s; }
-.pulse { animation: pop .35s var(--ease-out); }
+.pulse { animation: pop .35s var(--ease-spring); }
+.item:nth-child(5) { animation-delay: .18s; }
+.item:nth-child(6) { animation-delay: .22s; }
+.item:nth-child(7) { animation-delay: .26s; }
+.item:nth-child(n+8) { animation-delay: .30s; }
+
+/* modal: entrada (rise + scale) y salida suave */
+@keyframes backdropIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cardIn { from { opacity: 0; transform: translateY(16px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.pmodal__backdrop { animation: backdropIn var(--dur) var(--ease-out); }
+.pmodal__card { animation: cardIn var(--dur-slow) var(--ease-out); }
+.pmodal.closing .pmodal__backdrop { animation: backdropIn var(--dur-fast) var(--ease-in) reverse forwards; }
+.pmodal.closing .pmodal__card { animation: cardIn var(--dur-fast) var(--ease-in) reverse forwards; }
+
+/* Lenis smooth scroll (mismo que kyndredai.com) */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
+.lenis.lenis-stopped { overflow: hidden; }
+.lenis.lenis-smooth iframe { pointer-events: none; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

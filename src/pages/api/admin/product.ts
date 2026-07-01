@@ -6,8 +6,8 @@ import { sbInsert, sbPatch, sbDelete, supaConfigured } from '../../../lib/supaba
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
 
-// Admin only: create or update a product (id present = update). Image upload to Supabase
-// Storage comes next; for now image_url is a pasted link.
+// Admin only: create / update (id present = update) / delete (action='delete') a product.
+// image_url llega ya resuelto: o una URL pegada, o la URL pública que devolvió /api/admin/upload.
 export const POST: APIRoute = async ({ request }) => {
   if (!supaConfigured()) return json({ ok: true, demo: true }); // demo: nada que persistir
   if (!isTeiaAdmin(request)) return new Response('no autorizado', { status: 401 });

@@ -18,5 +18,25 @@ const { title = 'Teia Bakery — Mayorista' } = Astro.props;
   </head>
   <body>
     <slot />
+    <script>
+      import Lenis from 'lenis';
+      // Smooth scroll (igual que kyndredai.com). Respeta prefers-reduced-motion y no toca el
+      // touch (Lenis deja el scroll táctil nativo), así que el sheet/modal en mobile van fluidos.
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (!reduce) {
+        const lenis = new Lenis({ duration: 1.05, smoothWheel: true, wheelMultiplier: 1 });
+        const raf = (t) => { lenis.raf(t); requestAnimationFrame(raf); };
+        requestAnimationFrame(raf);
+        // anchors internos (chips de rubro) → scroll suave con offset para el nav sticky
+        document.querySelectorAll('a[href^="#"]').forEach((a) => {
+          a.addEventListener('click', (e) => {
+            const href = a.getAttribute('href');
+            if (!href || href === '#') return;
+            const el = document.querySelector(href);
+            if (el) { e.preventDefault(); lenis.scrollTo(el, { offset: -76 }); }
+          });
+        });
+      }
+    </script>
   </body>
 </html>

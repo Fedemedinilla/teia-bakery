@@ -101,7 +101,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
         </div>
         <button class="order__bar-cta" id="barCta" type="button">Ver pedido ▲</button>
       </div>
-      <div class="order__panel" id="orderPanel">
+      <div class="order__panel" id="orderPanel" data-lenis-prevent>
         <div class="order__handle" aria-hidden="true"></div>
         <h2 class="order__h">Tu pedido</h2>
         <p class="order__empty" id="orderEmpty">Tu pedido está vacío. Sumá productos con “Agregar”.</p>
@@ -120,7 +120,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
   <!-- modal de detalle de producto -->
   <div class="pmodal" id="pmodal" hidden>
     <div class="pmodal__backdrop" data-close></div>
-    <div class="pmodal__card" role="dialog" aria-modal="true">
+    <div class="pmodal__card" role="dialog" aria-modal="true" data-lenis-prevent>
       <button class="pmodal__x" type="button" data-close aria-label="Cerrar">×</button>
       <div class="pmodal__img" id="pm-img"></div>
       <div class="pmodal__body">
@@ -237,8 +237,10 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
     confirmBtn.addEventListener('click', (e) => { if (confirmBtn.getAttribute('aria-disabled') === 'true') e.preventDefault(); });
 
     // ---- modal detalle de producto ----
+    let lastFocus = null;
     function openModal(item) {
       modalId = item.dataset.id;
+      lastFocus = document.activeElement;
       const m = meta(item);
       el('pm-name').textContent = m.name;
       el('pm-pack').textContent = m.pack || '';
@@ -249,8 +251,15 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
         : '<span class="pm-ph">' + esc((m.name.charAt(0) || '?').toUpperCase()) + '</span>';
       renderModalBuy();
       modal.hidden = false;
+      modal.querySelector('.pmodal__x')?.focus();
     }
-    function closeModal() { modal.hidden = true; modalId = null; }
+    function closeModal() {
+      if (modal.hidden) return;
+      const done = () => { modal.hidden = true; modal.classList.remove('closing'); modalId = null; lastFocus?.focus?.(); };
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
+      modal.classList.add('closing');
+      setTimeout(done, 170);
+    }
     function renderModalBuy() {
       const box = el('pm-buy');
       if (!box || modalId === null) return;
@@ -268,6 +277,22 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
       item.querySelector('.item__name')?.addEventListener('click', open);
       item.querySelector('.more-link')?.addEventListener('click', open);
     });
+
+    // ---- scroll-spy: resalta el chip del rubro visible al hacer scroll ----
+    const chips = document.querySelectorAll('.rubros .chip');
+    if (chips.length && 'IntersectionObserver' in window) {
+      const chipById = {};
+      chips.forEach((c) => { const h = c.getAttribute('href'); if (h) chipById[h.slice(1)] = c; });
+      const spy = new IntersectionObserver((entries) => {
+        entries.forEach((en) => {
+          if (en.isIntersecting) {
+            chips.forEach((c) => c.classList.remove('is-active'));
+            chipById[en.target.id]?.classList.add('is-active');
+          }
+        });
+      }, { rootMargin: '-45% 0px -50% 0px', threshold: 0 });
+      document.querySelectorAll('section.section[id]').forEach((s) => spy.observe(s));
+    }
 
     // ---- Recompra (reorder) ----
     function lastOrder() {

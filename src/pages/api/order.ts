@@ -16,6 +16,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   const items = Array.isArray(body?.items) ? body.items : [];
   if (!items.length) return json({ error: 'El carrito está vacío.' }, 400);
+  if (items.length > 200) return json({ error: 'Demasiados ítems en el pedido.' }, 400);
 
   const client_name = String(body?.client_name || '').slice(0, 160).trim();
   const client_contact = String(body?.client_contact || '').slice(0, 160).trim();
@@ -29,13 +30,13 @@ export const POST: APIRoute = async ({ request }) => {
   let total = 0;
   const orderItems = items.map((i: any) => {
     const p = byId[String(i.id)];
-    const qty = Math.max(1, parseInt(i.qty) || 1);
+    const qty = Math.min(9999, Math.max(1, parseInt(i.qty) || 1));
     const unit_price = Number(p?.price || 0);
     const line_total = unit_price * qty;
     total += line_total;
     return {
       product_id: p?.id || null,
-      name: p?.name || String(i.name || ''),
+      name: p?.name || String(i.name || '').slice(0, 160),
       pack_label: p?.pack_label || '',
       qty,
       unit_price,
