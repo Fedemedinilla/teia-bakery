@@ -70,10 +70,28 @@ const SHEET_URL = '';
             <div>
               <span class="ordcard__num">{o.order_number || `#${o.id}`}</span>
               <span class={`badge badge--${o.status === 'confirmado' ? 'ok' : 'wait'}`}>{o.status}</span>
-              <div class="muted ordcard__cli">{o.client_name} · {o.client_contact}</div>
-              {o.delivery_address && <div class="muted ordcard__cli">📍 {o.delivery_address}</div>}
             </div>
             <div class="ordcard__total" data-total>{money(o.total)}</div>
+          </div>
+
+          <div class="ordcard__view">
+            <div class="muted ordcard__cli">{o.client_name} · {o.client_contact}</div>
+            {o.delivery_address && <div class="muted ordcard__cli">📍 {o.delivery_address}</div>}
+            {o.delivery_date && <div class="muted ordcard__cli">🗓️ Entrega: {o.delivery_date}</div>}
+            {o.notes && <div class="muted ordcard__cli">📝 {o.notes}</div>}
+          </div>
+
+          <div class="ordcard__edit">
+            <div class="grid2">
+              <div><label>Cliente</label><input class="of-name" value={o.client_name} /></div>
+              <div><label>Contacto</label><input class="of-contact" value={o.client_contact} /></div>
+            </div>
+            <label>Dirección de entrega</label>
+            <input class="of-addr" value={o.delivery_address || ''} />
+            <div class="grid2">
+              <div><label>Día de entrega</label><input class="of-date" type="date" value={o.delivery_date || ''} /></div>
+              <div><label>Notas</label><input class="of-notes" value={o.notes || ''} /></div>
+            </div>
           </div>
 
           <ul class="ordcard__items">
@@ -92,7 +110,7 @@ const SHEET_URL = '';
           </ul>
 
           <div class="ordcard__actions">
-            {o.status === 'pendiente' && (itemsByOrder[o.id] || []).length > 0 && <button class="btn btn--ghost edit-ord" type="button">✏️ Editar cantidades</button>}
+            {o.status === 'pendiente' && <button class="btn btn--ghost edit-ord" type="button">✏️ Editar pedido</button>}
             {o.status === 'pendiente' && <button class="btn save-ord" type="button">Guardar</button>}
             {o.status === 'pendiente' && <button class="btn btn--ghost cancel-ord" type="button">Cancelar</button>}
             {o.status === 'pendiente' && <button class="btn confirm" data-id={o.id}>Confirmar ✓</button>}
@@ -119,7 +137,10 @@ const SHEET_URL = '';
                   {p.isOut && <span class="badge badge--out">sin stock</span>}
                   {p.isLow && <span class="badge badge--low">poco stock</span>}
                 </td>
-                <td><button class="btn btn--ghost editp" data-p={JSON.stringify(p)}>Editar</button></td>
+                <td class="prod-actions">
+                  <button class="btn btn--ghost editp" data-p={JSON.stringify(p)}>Editar</button>
+                  <button class="btn btn--danger del-prod" type="button" data-id={p.id} data-name={p.name}>Borrar</button>
+                </td>
               </tr>
             ))}
             {productRows.length === 0 && <tr><td colspan="6" class="muted">Sin productos. Cargá el primero en “＋ Nuevo producto”.</td></tr>}
@@ -331,6 +352,18 @@ const SHEET_URL = '';
       })
     );
 
+    document.querySelectorAll('.del-prod').forEach((b) =>
+      b.addEventListener('click', async () => {
+        if (!confirm('¿Borrar el producto "' + b.dataset.name + '"? No se puede deshacer.')) return;
+        b.textContent = '…';
+        const r = await fetch('/api/admin/product', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: b.dataset.id }),
+        });
+        if (r.ok) location.reload();
+        else b.textContent = 'Error';
+      })
+    );
+
     fileInput?.addEventListener('change', () => {
       const f = fileInput.files && fileInput.files[0];
       if (fileBtn) fileBtn.textContent = f ? '✓ Foto lista' : '📷 Subir foto';
@@ -395,10 +428,11 @@ const SHEET_URL = '';
       }
     });
 
-    // ---- editar cantidades de un pedido ----
+    // ---- editar un pedido (datos + cantidades) ----
     document.querySelectorAll('.ordcard').forEach((card) => {
       const totalEl = card.querySelector('[data-total]');
       const rows = [...card.querySelectorAll('.oi-row')];
+      const val = (sel) => { const e = card.querySelector(sel); return e ? e.value : undefined; };
       const recompute = () => {
         let total = 0;
         rows.forEach((row) => {
@@ -412,7 +446,7 @@ const SHEET_URL = '';
       };
       card.querySelector('.edit-ord')?.addEventListener('click', () => card.classList.add('editing'));
       card.querySelector('.cancel-ord')?.addEventListener('click', () => {
-        rows.forEach((row) => { const i = row.querySelector('.qty-edit'); i.value = i.defaultValue; });
+        card.querySelectorAll('input').forEach((i) => (i.value = i.defaultValue));
         card.classList.remove('editing');
         recompute();
       });
@@ -422,7 +456,12 @@ const SHEET_URL = '';
         const items = rows.map((row) => ({ id: row.dataset.item, qty: Math.max(0, parseInt(row.querySelector('.qty-edit').value) || 0) }));
         btn.textContent = 'Guardando…';
         const r = await fetch('/api/admin/order', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: card.dataset.id, items }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: card.dataset.id, items,
+            client_name: val('.of-name'), client_contact: val('.of-contact'),
+            delivery_address: val('.of-addr'), delivery_date: val('.of-date'), notes: val('.of-notes'),
+          }),
         });
         if (r.ok) location.reload();
         else btn.textContent = 'Error';

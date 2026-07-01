@@ -38,7 +38,18 @@ export const POST: APIRoute = async ({ request }) => {
   // Recalcular el total del pedido leyendo los ítems que quedaron.
   const fresh = await sbSelect(`teia_order_items?order_id=eq.${orderId}&select=line_total`);
   const total = (fresh as any[]).reduce((s, i) => s + (Number(i.line_total) || 0), 0);
-  await sbPatch(`teia_orders?id=eq.${orderId}`, { total });
+
+  // Patch del pedido: total + detalles editables (los campos NOT NULL solo si vienen con texto).
+  const patch: Record<string, any> = { total };
+  const name = String(b?.client_name ?? '').slice(0, 160).trim();
+  if (name) patch.client_name = name;
+  const contact = String(b?.client_contact ?? '').slice(0, 160).trim();
+  if (contact) patch.client_contact = contact;
+  const addr = String(b?.delivery_address ?? '').slice(0, 300).trim();
+  if (addr) patch.delivery_address = addr;
+  if ('delivery_date' in b) patch.delivery_date = b.delivery_date || null;
+  if ('notes' in b) patch.notes = String(b?.notes ?? '').slice(0, 500).trim();
+  await sbPatch(`teia_orders?id=eq.${orderId}`, patch);
 
   return json({ ok: true, total });
 };

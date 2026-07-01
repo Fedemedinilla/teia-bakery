@@ -1,7 +1,7 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
-import { sbInsert, sbPatch, supaConfigured } from '../../../lib/supabase';
+import { sbInsert, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -14,6 +14,16 @@ export const POST: APIRoute = async ({ request }) => {
 
   let b: any;
   try { b = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
+
+  // Borrar producto: primero lo desvinculamos de los pedidos (los ítems guardan snapshot de
+  // nombre/precio, así que el historial no se pierde) para no romper la FK, y después se elimina.
+  if (b?.action === 'delete') {
+    const id = Number(b?.id);
+    if (!id) return json({ error: 'id inválido.' }, 400);
+    await sbPatch(`teia_order_items?product_id=eq.${id}`, { product_id: null });
+    const ok = await sbDelete(`teia_products?id=eq.${id}`);
+    return ok ? json({ ok: true }) : json({ error: 'No se pudo eliminar.' }, 500);
+  }
 
   const row = {
     name: String(b?.name || '').slice(0, 160).trim(),
