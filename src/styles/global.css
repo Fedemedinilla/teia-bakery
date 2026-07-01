@@ -137,6 +137,35 @@ h1.title { font-family: var(--font-display); font-weight: 600; font-size: clamp(
 .add-btn:active { transform: scale(.96); }
 .badge-out { font-size: 12px; color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); padding: 4px 10px; border-radius: var(--r-full); font-weight: 600; }
 
+/* control de compra: contenedor de ancho estable (Agregar <-> stepper) */
+.buy-ctl { min-width: 110px; display: flex; justify-content: flex-end; }
+.add-btn.add-one { height: 40px; }
+
+/* "ver más" / detalle del producto */
+.thumb-box { cursor: pointer; }
+.thumb-box:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-md); }
+.item__name { cursor: pointer; }
+.item__name:hover { color: var(--accent); }
+.more-link { border: 0; background: none; padding: 0; font: inherit; font-size: 11.5px; font-weight: 600; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+
+/* modal de detalle de producto */
+.pmodal { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.pmodal[hidden] { display: none; }
+.pmodal__backdrop { position: absolute; inset: 0; background: rgba(51, 41, 31, .5); }
+.pmodal__card { position: relative; z-index: 1; width: 100%; max-width: 420px; max-height: 88vh; overflow-y: auto; background: var(--surface); border-radius: var(--r-xl); box-shadow: var(--sh-lg); animation: fadeUp .28s var(--ease-out); }
+.pmodal__x { position: absolute; top: 10px; right: 10px; z-index: 2; width: 34px; height: 34px; border: 0; border-radius: 50%; background: rgba(255, 253, 248, .92); color: var(--ink); font-size: 22px; line-height: 1; cursor: pointer; display: grid; place-items: center; box-shadow: var(--sh-sm); }
+.pmodal__img { width: 100%; aspect-ratio: 16 / 10; background: var(--accent-soft); display: grid; place-items: center; overflow: hidden; border-radius: var(--r-xl) var(--r-xl) 0 0; }
+.pmodal__img img { width: 100%; height: 100%; object-fit: cover; }
+.pm-ph { font-family: var(--font-display); font-size: 72px; font-weight: 600; color: var(--accent); }
+.pmodal__body { padding: 18px 20px 22px; }
+.pmodal__body h3 { font-size: 22px; margin: 0 0 8px; }
+.pmodal__meta { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.pmodal__meta .price { font-size: 18px; }
+.pmodal__body p { color: var(--ink-2); font-size: 14px; line-height: 1.55; margin: 0 0 18px; }
+#pm-buy { display: flex; }
+#pm-buy .add-btn { width: 100%; height: 46px; font-size: 15px; }
+#pm-buy .stepper { width: 100%; justify-content: space-between; height: 46px; }
+
 /* ---- reorder card (Recompra) ---- */
 .reorder {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;

@@ -54,7 +54,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
   <div class="shop">
     <main class="catalog">
       <h1 class="title">Nuestro catálogo</h1>
-      <p class="subtitle">Pedí por pack. Sumás cantidades acá mismo y ves tu pedido armarse en vivo.</p>
+      <p class="subtitle">Tocá “Agregar” para sumar al pedido. Mirá cada producto tocando la foto.</p>
 
       <div id="reorderSlot"></div>
 
@@ -66,26 +66,20 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
           <div class="rubro__line"></div>
           <ul class="items">
             {s.items.map((p: any) => (
-              <li class="item" data-id={p.id} data-name={p.name} data-price={p.price} data-pack={p.pack_label} data-cat={s.name}>
-                <div class="thumb-box">
+              <li class="item" data-id={p.id} data-name={p.name} data-price={p.price} data-pack={p.pack_label} data-cat={s.name} data-desc={p.description || ''} data-img={p.image_url || ''}>
+                <div class="thumb-box" role="button" tabindex="0" title="Ver más">
                   <span class="thumb-ph" aria-hidden="true">{String(p.name).charAt(0)}</span>
                   {p.image_url && <img class="thumb-img" src={p.image_url} alt={p.name} loading="lazy" width="60" height="60" onerror="this.remove()" />}
                 </div>
                 <div class="item__info">
                   <p class="item__name">{p.name}</p>
                   {p.description && <p class="item__desc">{p.description}</p>}
-                  <div class="item__meta"><span class="pack">{p.pack_label}</span></div>
+                  <div class="item__meta"><span class="pack">{p.pack_label}</span><button class="more-link" type="button">ver más</button></div>
                 </div>
                 <div class="item__buy">
                   <span class="price">{money(p.price)}</span>
                   {p.hasStock
-                    ? (
-                      <div class="stepper">
-                        <button class="step-btn minus" type="button" aria-label={`Quitar ${p.name}`}>−</button>
-                        <span class="qty" aria-live="polite">0</span>
-                        <button class="step-btn plus" type="button" aria-label={`Agregar ${p.name}`}>+</button>
-                      </div>
-                    )
+                    ? <div class="buy-ctl" data-stock="1"></div>
                     : <span class="badge-out">Sin stock</span>}
                 </div>
               </li>
@@ -110,7 +104,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
       <div class="order__panel" id="orderPanel">
         <div class="order__handle" aria-hidden="true"></div>
         <h2 class="order__h">Tu pedido</h2>
-        <p class="order__empty" id="orderEmpty">Tu pedido está vacío. Sumá productos con&nbsp;+.</p>
+        <p class="order__empty" id="orderEmpty">Tu pedido está vacío. Sumá productos con “Agregar”.</p>
         <ul class="order__items" id="orderItems"></ul>
         <div class="meter" id="meter" hidden>
           <div class="meter__track"><div class="meter__fill" id="meterFill"></div></div>
@@ -123,6 +117,21 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
     <div class="backdrop" id="backdrop"></div>
   </div>
 
+  <!-- modal de detalle de producto -->
+  <div class="pmodal" id="pmodal" hidden>
+    <div class="pmodal__backdrop" data-close></div>
+    <div class="pmodal__card" role="dialog" aria-modal="true">
+      <button class="pmodal__x" type="button" data-close aria-label="Cerrar">×</button>
+      <div class="pmodal__img" id="pm-img"></div>
+      <div class="pmodal__body">
+        <h3 id="pm-name"></h3>
+        <div class="pmodal__meta"><span class="pack" id="pm-pack"></span><span class="price" id="pm-price"></span></div>
+        <p id="pm-desc"></p>
+        <div id="pm-buy"></div>
+      </div>
+    </div>
+  </div>
+
   <script define:vars={{ MIN_ORDER, demoLast }}>
     const KEY = 'teia_cart';
     const fmt = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
@@ -130,11 +139,13 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
     const sameId = (a, b) => String(a) === String(b);
 
     let cart = load();
+    let modalId = null;
     function load() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } }
     function persist() { try { localStorage.setItem(KEY, JSON.stringify(cart)); } catch {} }
     function find(id) { return cart.find((x) => sameId(x.id, id)); }
     function total() { return cart.reduce((s, i) => s + i.price * i.qty, 0); }
     function count() { return cart.reduce((s, i) => s + i.qty, 0); }
+    function meta(item) { return { id: item.dataset.id, name: item.dataset.name, price: Number(item.dataset.price), pack: item.dataset.pack, cat: item.dataset.cat, desc: item.dataset.desc, img: item.dataset.img }; }
 
     const el = (id) => document.getElementById(id);
     const order = el('order');
@@ -144,37 +155,44 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
     const confirmBtn = el('confirmBtn');
     const barTotal = el('barTotal'), barSub = el('barSub');
     const bar = el('orderBar'), backdrop = el('backdrop');
+    const modal = el('pmodal');
 
-    // ---- steppers on each item ----
-    document.querySelectorAll('.item[data-id]').forEach((item) => {
-      const id = item.dataset.id;
-      const meta = { id, name: item.dataset.name, price: Number(item.dataset.price), pack: item.dataset.pack, cat: item.dataset.cat };
-      item.querySelector('.plus')?.addEventListener('click', () => changeQty(id, meta, +1, item));
-      item.querySelector('.minus')?.addEventListener('click', () => changeQty(id, meta, -1, item));
-    });
-
-    function changeQty(id, meta, delta, itemEl) {
+    function changeQty(id, m, delta, itemEl) {
       const it = find(id);
       const next = Math.max(0, (it ? it.qty : 0) + delta);
       if (next === 0) cart = cart.filter((x) => !sameId(x.id, id));
       else if (it) it.qty = next;
-      else cart.push({ ...meta, qty: next });
+      else cart.push({ id: m.id, name: m.name, price: m.price, pack: m.pack, cat: m.cat, qty: next });
       persist();
       syncItem(id);
       renderOrder();
       if (delta > 0 && itemEl) { itemEl.classList.remove('pulse'); void itemEl.offsetWidth; itemEl.classList.add('pulse'); }
     }
 
-    function syncItem(id) {
-      const node = document.querySelector(`.item[data-id="${CSS.escape(String(id))}"]`);
-      if (!node) return;
-      const it = find(id);
-      const q = it ? it.qty : 0;
-      const qEl = node.querySelector('.qty');
-      if (qEl) qEl.textContent = q;
-      node.classList.toggle('in-cart', q > 0);
+    // ---- control de compra: "Agregar" (qty 0) o stepper − qty + (qty ≥ 1) ----
+    function buyHTML(q) {
+      return q > 0
+        ? '<div class="stepper"><button class="step-btn minus" type="button" aria-label="Quitar">−</button><span class="qty">' + q + '</span><button class="step-btn plus" type="button" aria-label="Agregar más">+</button></div>'
+        : '<button class="add-btn add-one" type="button">Agregar</button>';
     }
-    function syncAll() { document.querySelectorAll('.item[data-id]').forEach((n) => syncItem(n.dataset.id)); }
+    function wireBuy(box, id, m, itemEl) {
+      box.querySelector('.add-one')?.addEventListener('click', () => changeQty(id, m, +1, itemEl));
+      box.querySelector('.plus')?.addEventListener('click', () => changeQty(id, m, +1, itemEl));
+      box.querySelector('.minus')?.addEventListener('click', () => changeQty(id, m, -1, itemEl));
+    }
+    function renderBuy(item) {
+      const box = item.querySelector('.buy-ctl');
+      if (!box) return;
+      const id = item.dataset.id, q = (find(id) || {}).qty || 0;
+      box.innerHTML = buyHTML(q);
+      wireBuy(box, id, meta(item), item);
+      item.classList.toggle('in-cart', q > 0);
+    }
+    function syncItem(id) {
+      document.querySelectorAll('.item[data-id="' + CSS.escape(String(id)) + '"]').forEach(renderBuy);
+      if (modalId !== null && sameId(modalId, id)) renderModalBuy();
+    }
+    function syncAll() { document.querySelectorAll('.item[data-id]').forEach(renderBuy); }
 
     function renderOrder() {
       const t = total(), c = count();
@@ -217,6 +235,39 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
     backdrop?.addEventListener('click', closeSheet);
     document.querySelector('.order__handle')?.addEventListener('click', closeSheet);
     confirmBtn.addEventListener('click', (e) => { if (confirmBtn.getAttribute('aria-disabled') === 'true') e.preventDefault(); });
+
+    // ---- modal detalle de producto ----
+    function openModal(item) {
+      modalId = item.dataset.id;
+      const m = meta(item);
+      el('pm-name').textContent = m.name;
+      el('pm-pack').textContent = m.pack || '';
+      el('pm-price').textContent = fmt(m.price);
+      el('pm-desc').textContent = m.desc || 'Sin descripción.';
+      el('pm-img').innerHTML = m.img
+        ? '<img src="' + esc(m.img) + '" alt="' + esc(m.name) + '">'
+        : '<span class="pm-ph">' + esc((m.name.charAt(0) || '?').toUpperCase()) + '</span>';
+      renderModalBuy();
+      modal.hidden = false;
+    }
+    function closeModal() { modal.hidden = true; modalId = null; }
+    function renderModalBuy() {
+      const box = el('pm-buy');
+      if (!box || modalId === null) return;
+      const item = document.querySelector('.item[data-id="' + CSS.escape(String(modalId)) + '"]');
+      const inStock = item ? item.querySelector('.buy-ctl') != null : false;
+      const q = (find(modalId) || {}).qty || 0;
+      box.innerHTML = inStock ? buyHTML(q) : '<span class="badge-out">Sin stock</span>';
+      if (item && inStock) wireBuy(box, modalId, meta(item), item);
+    }
+    modal?.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeModal));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal && !modal.hidden) closeModal(); });
+    document.querySelectorAll('.item[data-id]').forEach((item) => {
+      const open = () => openModal(item);
+      item.querySelector('.thumb-box')?.addEventListener('click', open);
+      item.querySelector('.item__name')?.addEventListener('click', open);
+      item.querySelector('.more-link')?.addEventListener('click', open);
+    });
 
     // ---- Recompra (reorder) ----
     function lastOrder() {
