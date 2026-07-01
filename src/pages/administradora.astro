@@ -2,16 +2,19 @@
 export const prerender = false;
 import Base from '../layouts/Base.astro';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
-import { sbSelect } from '../lib/supabase';
+import { sbSelect, supaConfigured } from '../lib/supabase';
+import { DEMO_PRODUCTS, DEMO_ORDERS } from '../lib/demo';
 
-// Gate: no password → browser Basic-Auth prompt. Credentials get cached by the browser
-// so the later "confirmar"/"guardar" fetches carry them automatically.
-if (!isTeiaAdmin(Astro.request)) {
+// Gate: in real mode (Supabase configured) require the panel password — the browser shows its
+// Basic-Auth prompt and caches the credentials for the later fetches. In demo mode (no Supabase)
+// the data is all fake, so the panel is open just to be explorable.
+const configured = supaConfigured();
+if (configured && !isTeiaAdmin(Astro.request)) {
   return authChallenge();
 }
 
-const products = await sbSelect('products?order=sort_order.asc,name.asc&select=*');
-const orders = await sbSelect('orders?order=created_at.desc&select=*&limit=50');
+const products = configured ? await sbSelect('products?order=sort_order.asc,name.asc&select=*') : DEMO_PRODUCTS;
+const orders = configured ? await sbSelect('orders?order=created_at.desc&select=*&limit=50') : DEMO_ORDERS;
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 
 // Precompute stock flags here — Astro's template can't mix `<=` comparisons with adjacent
@@ -30,6 +33,8 @@ const SHEET_URL = '';
   <div class="container">
     <div class="brand">Teia Bakery · Administradora</div>
     <h1>Panel</h1>
+
+    {!configured && <p class="card">🧪 <b>Modo demo</b> — datos de ejemplo. Conectá Supabase + la clave para el panel real.</p>}
 
     <h2>Enlaces</h2>
     <p>

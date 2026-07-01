@@ -1,7 +1,7 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
-import { sbSelect, sbPatch, env } from '../../../lib/supabase';
+import { sbSelect, sbPatch, env, supaConfigured } from '../../../lib/supabase';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -10,6 +10,7 @@ const json = (o: any, s = 200) =>
 // n8n archiver (remitos → Drive → Sheet → email). Confirms are serial (one admin), so the
 // read-then-write stock loop is fine for this volume.
 export const POST: APIRoute = async ({ request }) => {
+  if (!supaConfigured()) return json({ ok: true, demo: true }); // demo: nada que persistir
   if (!isTeiaAdmin(request)) return new Response('no autorizado', { status: 401 });
 
   let body: any;

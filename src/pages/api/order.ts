@@ -8,7 +8,8 @@ const json = (o: any, s = 200) =>
 // Public: create an order from the cart. Prices are RE-READ from the DB — never trust the
 // client's prices. Status starts 'pendiente'; Teia confirms it from /administradora.
 export const POST: APIRoute = async ({ request }) => {
-  if (!supaConfigured()) return json({ error: 'Supabase no configurado todavía.' }, 503);
+  // Demo mode (no Supabase): don't persist, but return OK so the checkout flow is fully clickable.
+  if (!supaConfigured()) return json({ ok: true, order_number: 'TEIA-DEMO' });
 
   let body: any;
   try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }

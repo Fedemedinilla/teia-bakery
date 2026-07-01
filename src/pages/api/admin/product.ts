@@ -1,7 +1,7 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
-import { sbInsert, sbPatch } from '../../../lib/supabase';
+import { sbInsert, sbPatch, supaConfigured } from '../../../lib/supabase';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -9,6 +9,7 @@ const json = (o: any, s = 200) =>
 // Admin only: create or update a product (id present = update). Image upload to Supabase
 // Storage comes next; for now image_url is a pasted link.
 export const POST: APIRoute = async ({ request }) => {
+  if (!supaConfigured()) return json({ ok: true, demo: true }); // demo: nada que persistir
   if (!isTeiaAdmin(request)) return new Response('no autorizado', { status: 401 });
 
   let b: any;
