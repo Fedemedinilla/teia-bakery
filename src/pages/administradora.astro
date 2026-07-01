@@ -97,42 +97,69 @@ const SHEET_URL = '';
 
     <!-- NUEVO / EDITAR -->
     <section class="panel" data-panel="nuevo" hidden>
-      <div class="card form-card">
-        <h2 id="formTitle" style="margin-top:0">Nuevo producto</h2>
-        <form id="pform">
-          <input type="hidden" name="id" />
+      <div class="editor">
+        <div class="card form-card">
+          <h2 id="formTitle" style="margin-top:0">Nuevo producto</h2>
+          <form id="pform">
+            <input type="hidden" name="id" />
 
-          <label for="pf-name">Nombre</label>
-          <input id="pf-name" name="name" required autocomplete="off" />
+            <label for="pf-name">Nombre</label>
+            <input id="pf-name" name="name" required autocomplete="off" />
 
-          <label for="pf-cat">Rubro</label>
-          <input id="pf-cat" name="category" list="rubros-list" placeholder="Tortas, Postres, Salados…" autocomplete="off" />
-          <datalist id="rubros-list">{rubros.map((r) => <option value={r} />)}</datalist>
+            <label for="pf-desc">Descripción</label>
+            <textarea id="pf-desc" name="description" rows="2" placeholder="Ej: Base de vainilla, frutos rojos frescos." autocomplete="off"></textarea>
 
-          <label>Foto del producto</label>
-          <div class="filepick">
-            <label class="filebtn" for="pfile">📷 Subir foto</label>
-            <input type="file" id="pfile" accept="image/*" />
-            <img id="ppreview" class="preview" hidden alt="" />
+            <label for="pf-cat">Rubro</label>
+            <input id="pf-cat" name="category" list="rubros-list" placeholder="Tortas, Postres, Salados…" autocomplete="off" />
+            <datalist id="rubros-list">{rubros.map((r) => <option value={r} />)}</datalist>
+
+            <label>Foto del producto</label>
+            <div class="filepick">
+              <label class="filebtn" id="pfilebtn" for="pfile">📷 Subir foto</label>
+              <input type="file" id="pfile" accept="image/*" />
+            </div>
+            <input name="image_url" placeholder="…o pegá una URL de imagen" style="margin-top:8px" />
+            <p class="hint">Subí un archivo (recomendado) o pegá una URL. Máx 5&nbsp;MB.</p>
+
+            <div class="grid2">
+              <div><label for="pf-pack">Pack</label><input id="pf-pack" name="pack_label" placeholder="x6, x12, por kg" /></div>
+              <div><label for="pf-price">Precio mayorista</label><input id="pf-price" name="price" type="number" step="0.01" min="0" required /></div>
+              <div><label for="pf-stock">Stock (packs)</label><input id="pf-stock" name="stock" type="number" min="0" required /></div>
+              <div><label for="pf-low">Avisar si baja de</label><input id="pf-low" name="low_stock_threshold" type="number" min="0" value="5" /></div>
+            </div>
+
+            <label class="check"><input type="checkbox" name="active" checked /> Visible en el catálogo</label>
+
+            <div class="form-actions">
+              <button class="btn" type="submit">Guardar producto</button>
+              <button class="btn btn--ghost" type="button" id="pclear">Limpiar</button>
+            </div>
+            <p id="pmsg" class="muted"></p>
+          </form>
+        </div>
+
+        <aside class="preview-pane" aria-hidden="true">
+          <p class="preview-pane__label">👁 Vista previa</p>
+          <p class="preview-section">Así lo verá el cliente · Sección: <b id="pv-cat">—</b></p>
+          <div class="preview-stage">
+            <div class="item is-preview" id="pv-item">
+              <div class="thumb-box">
+                <span class="thumb-ph" id="pv-initial">?</span>
+                <img class="thumb-img" id="pv-img" hidden alt="" />
+              </div>
+              <div class="item__info">
+                <p class="item__name" id="pv-name">Nombre del producto</p>
+                <p class="item__desc" id="pv-desc" hidden></p>
+                <div class="item__meta"><span class="pack" id="pv-pack" hidden></span></div>
+              </div>
+              <div class="item__buy">
+                <span class="price" id="pv-price">$0</span>
+                <div id="pv-buy"></div>
+              </div>
+            </div>
+            <p class="pv-hidden-note" id="pv-hidden" hidden>🔒 Oculto — no aparece en el catálogo</p>
           </div>
-          <input name="image_url" placeholder="…o pegá una URL de imagen" style="margin-top:8px" />
-          <p class="hint">Subí un archivo (recomendado) o pegá una URL. Máx 5&nbsp;MB.</p>
-
-          <div class="grid2">
-            <div><label for="pf-pack">Pack</label><input id="pf-pack" name="pack_label" placeholder="x6, x12, por kg" /></div>
-            <div><label for="pf-price">Precio mayorista</label><input id="pf-price" name="price" type="number" step="0.01" min="0" required /></div>
-            <div><label for="pf-stock">Stock (packs)</label><input id="pf-stock" name="stock" type="number" min="0" required /></div>
-            <div><label for="pf-low">Avisar si baja de</label><input id="pf-low" name="low_stock_threshold" type="number" min="0" value="5" /></div>
-          </div>
-
-          <label class="check"><input type="checkbox" name="active" checked /> Visible en el catálogo</label>
-
-          <div class="form-actions">
-            <button class="btn" type="submit">Guardar producto</button>
-            <button class="btn btn--ghost" type="button" id="pclear">Limpiar</button>
-          </div>
-          <p id="pmsg" class="muted"></p>
-        </form>
+        </aside>
       </div>
     </section>
   </div>
@@ -163,29 +190,56 @@ const SHEET_URL = '';
       })
     );
 
-    // ---- form producto ----
+    // ---- form producto + vista previa en vivo ----
     const form = document.getElementById('pform');
+    const F = (n) => form.elements.namedItem(n); // robusto: evita el shadowing de form.name / form.id
     const fileInput = document.getElementById('pfile');
-    const preview = document.getElementById('ppreview');
+    const fileBtn = document.getElementById('pfilebtn');
     const msg = document.getElementById('pmsg');
+    const money = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
 
-    function showPreview(src) {
-      if (src) { preview.src = src; preview.hidden = false; }
-      else { preview.hidden = true; preview.removeAttribute('src'); }
+    function updatePreview() {
+      const name = F('name').value.trim();
+      const desc = F('description') ? F('description').value.trim() : '';
+      const cat = F('category').value.trim();
+      const pack = F('pack_label').value.trim();
+      const stock = Number(F('stock').value) || 0;
+      const active = F('active') ? F('active').checked : true;
+      const file = fileInput && fileInput.files && fileInput.files[0];
+      const imgSrc = file ? URL.createObjectURL(file) : F('image_url').value.trim();
+
+      const set = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
+      set('pv-name', name || 'Nombre del producto');
+      set('pv-cat', cat || '—');
+      set('pv-price', money(F('price').value));
+      set('pv-initial', (name.charAt(0) || '?').toUpperCase());
+      const dEl = document.getElementById('pv-desc'); dEl.textContent = desc; dEl.hidden = !desc;
+      const pEl = document.getElementById('pv-pack'); pEl.textContent = pack; pEl.hidden = !pack;
+      const img = document.getElementById('pv-img');
+      if (imgSrc) { img.src = imgSrc; img.hidden = false; } else { img.hidden = true; img.removeAttribute('src'); }
+      document.getElementById('pv-buy').innerHTML = stock > 0
+        ? '<div class="stepper"><span class="step-btn">−</span><span class="qty">0</span><span class="step-btn">+</span></div>'
+        : '<span class="badge-out">Sin stock</span>';
+      document.getElementById('pv-item').classList.toggle('is-hidden', !active);
+      document.getElementById('pv-hidden').hidden = active;
     }
+
     function fillForm(p) {
-      ['id', 'name', 'category', 'image_url', 'pack_label', 'price', 'stock', 'low_stock_threshold'].forEach((k) => {
-        if (form[k]) form[k].value = p[k] ?? '';
+      ['id', 'name', 'description', 'category', 'image_url', 'pack_label', 'price', 'stock', 'low_stock_threshold'].forEach((k) => {
+        const el = F(k); if (el) el.value = p[k] ?? '';
       });
-      if (form.active) form.active.checked = p.active !== false;
+      if (F('active')) F('active').checked = p.active !== false;
       if (fileInput) fileInput.value = '';
-      showPreview(p.image_url || '');
+      if (fileBtn) fileBtn.textContent = '📷 Subir foto';
+      updatePreview();
     }
     function resetForm() {
       form.reset();
       document.getElementById('formTitle').textContent = 'Nuevo producto';
-      showPreview('');
+      if (fileInput) fileInput.value = '';
+      if (fileBtn) fileBtn.textContent = '📷 Subir foto';
       msg.textContent = '';
+      updatePreview();
     }
 
     document.querySelectorAll('.editp').forEach((b) =>
@@ -199,13 +253,15 @@ const SHEET_URL = '';
 
     fileInput?.addEventListener('change', () => {
       const f = fileInput.files && fileInput.files[0];
-      showPreview(f ? URL.createObjectURL(f) : (form.image_url.value || ''));
+      if (fileBtn) fileBtn.textContent = f ? '✓ Foto lista' : '📷 Subir foto';
+      updatePreview();
     });
+    form.addEventListener('input', updatePreview);
     document.getElementById('pclear').addEventListener('click', resetForm);
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      let image_url = form.image_url.value.trim();
+      let image_url = F('image_url').value.trim();
       const file = fileInput && fileInput.files && fileInput.files[0];
 
       // 1) subir la imagen si eligió un archivo
@@ -222,15 +278,16 @@ const SHEET_URL = '';
       // 2) guardar el producto
       msg.textContent = 'Guardando…';
       const payload = {
-        id: form.id.value,
-        name: form.name.value.trim(),
-        category: form.category.value.trim(),
+        id: F('id').value,
+        name: F('name').value.trim(),
+        description: F('description').value.trim(),
+        category: F('category').value.trim(),
         image_url,
-        pack_label: form.pack_label.value.trim(),
-        price: form.price.value,
-        stock: form.stock.value,
-        low_stock_threshold: form.low_stock_threshold.value,
-        active: form.active ? form.active.checked : true,
+        pack_label: F('pack_label').value.trim(),
+        price: F('price').value,
+        stock: F('stock').value,
+        low_stock_threshold: F('low_stock_threshold').value,
+        active: F('active') ? F('active').checked : true,
       };
       const r = await fetch('/api/admin/product', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -241,9 +298,8 @@ const SHEET_URL = '';
 
     // deep-link por hash (#pedidos / #productos / #nuevo)
     const initTab = (location.hash || '').slice(1);
-    if (['pedidos', 'productos', 'nuevo'].includes(initTab)) {
-      if (initTab === 'nuevo') resetForm();
-      showTab(initTab);
-    }
+    if (['pedidos', 'productos', 'nuevo'].includes(initTab)) { if (initTab === 'nuevo') resetForm(); showTab(initTab); }
+
+    updatePreview();
   </script>
 </Base>

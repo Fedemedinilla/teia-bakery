@@ -17,6 +17,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   const row = {
     name: String(b?.name || '').slice(0, 160).trim(),
+    description: String(b?.description || '').slice(0, 300).trim(),
     category: String(b?.category || '').slice(0, 60).trim(),
     image_url: String(b?.image_url || '').slice(0, 400).trim(),
     pack_label: String(b?.pack_label || '').slice(0, 40).trim(),
