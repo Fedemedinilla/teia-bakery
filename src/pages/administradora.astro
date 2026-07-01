@@ -3,7 +3,7 @@ export const prerender = false;
 import Base from '../layouts/Base.astro';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
 import { sbSelect, supaConfigured } from '../lib/supabase';
-import { DEMO_PRODUCTS, DEMO_ORDERS } from '../lib/demo';
+import { DEMO_PRODUCTS, DEMO_ORDERS, DEMO_ORDER_ITEMS } from '../lib/demo';
 
 // Gate: in real mode (Supabase configured) require the panel password. In demo mode it's open.
 const configured = supaConfigured();
@@ -13,6 +13,15 @@ if (configured && !isTeiaAdmin(Astro.request)) {
 
 const products = configured ? await sbSelect('teia_products?order=sort_order.asc,name.asc&select=*') : DEMO_PRODUCTS;
 const orders = configured ? await sbSelect('teia_orders?order=created_at.desc&select=*&limit=50') : DEMO_ORDERS;
+
+// Ítems de cada pedido (para mostrar QUÉ se pidió + editar cantidades).
+const orderIds = (orders as any[]).map((o) => o.id);
+const orderItems = configured
+  ? (orderIds.length ? await sbSelect(`teia_order_items?order_id=in.(${orderIds.join(',')})&select=*&order=id.asc`) : [])
+  : DEMO_ORDER_ITEMS;
+const itemsByOrder: Record<string, any[]> = {};
+for (const it of orderItems as any[]) { (itemsByOrder[it.order_id] ||= []).push(it); }
+
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 
 // Stock flags precomputed (Astro can't mix `<=` with adjacent JSX).
@@ -54,28 +63,42 @@ const SHEET_URL = '';
 
     <!-- PEDIDOS -->
     <section class="panel" data-panel="pedidos">
-      <div class="card">
-        <div class="table-scroll">
-        <table>
-          <thead><tr><th>N°</th><th>Cliente / entrega</th><th>Total</th><th>Estado</th><th></th></tr></thead>
-          <tbody>
-            {orders.map((o: any) => (
-              <tr>
-                <td>{o.order_number || '—'}</td>
-                <td>
-                  {o.client_name}<br /><small class="muted">{o.client_contact}</small>
-                  {o.delivery_address && <span><br /><small class="muted">📍 {o.delivery_address}</small></span>}
-                </td>
-                <td>{money(o.total)}</td>
-                <td>{o.status}</td>
-                <td>{o.status === 'pendiente' && <button class="btn confirm" data-id={o.id}>Confirmar ✓</button>}</td>
-              </tr>
+      {orders.length === 0 && <p class="card muted">Sin pedidos todavía.</p>}
+      {orders.map((o: any) => (
+        <div class="card ordcard" data-id={o.id}>
+          <div class="ordcard__head">
+            <div>
+              <span class="ordcard__num">{o.order_number || `#${o.id}`}</span>
+              <span class={`badge badge--${o.status === 'confirmado' ? 'ok' : 'wait'}`}>{o.status}</span>
+              <div class="muted ordcard__cli">{o.client_name} · {o.client_contact}</div>
+              {o.delivery_address && <div class="muted ordcard__cli">📍 {o.delivery_address}</div>}
+            </div>
+            <div class="ordcard__total" data-total>{money(o.total)}</div>
+          </div>
+
+          <ul class="ordcard__items">
+            {(itemsByOrder[o.id] || []).map((it: any) => (
+              <li class="oi-row" data-item={it.id} data-price={it.unit_price}>
+                <span class="oi-name">{it.name} <small class="muted">{it.pack_label}</small></span>
+                <span class="oi-qty">
+                  <span class="qty-view">{it.qty}</span>
+                  <input class="qty-edit" type="number" min="0" value={it.qty} aria-label={`Cantidad de ${it.name}`} />
+                  <span class="muted"> × {money(it.unit_price)}</span>
+                </span>
+                <span class="oi-line" data-line>{money(it.line_total)}</span>
+              </li>
             ))}
-            {orders.length === 0 && <tr><td colspan="5" class="muted">Sin pedidos todavía.</td></tr>}
-          </tbody>
-        </table>
+            {(itemsByOrder[o.id] || []).length === 0 && <li class="muted">Sin detalle de ítems.</li>}
+          </ul>
+
+          <div class="ordcard__actions">
+            {o.status === 'pendiente' && (itemsByOrder[o.id] || []).length > 0 && <button class="btn btn--ghost edit-ord" type="button">✏️ Editar cantidades</button>}
+            {o.status === 'pendiente' && <button class="btn save-ord" type="button">Guardar</button>}
+            {o.status === 'pendiente' && <button class="btn btn--ghost cancel-ord" type="button">Cancelar</button>}
+            {o.status === 'pendiente' && <button class="btn confirm" data-id={o.id}>Confirmar ✓</button>}
+          </div>
         </div>
-      </div>
+      ))}
     </section>
 
     <!-- PRODUCTOS -->
@@ -370,6 +393,40 @@ const SHEET_URL = '';
         const o = await r.json().catch(() => ({}));
         msg.textContent = (o && o.error) || 'Error al guardar.';
       }
+    });
+
+    // ---- editar cantidades de un pedido ----
+    document.querySelectorAll('.ordcard').forEach((card) => {
+      const totalEl = card.querySelector('[data-total]');
+      const rows = [...card.querySelectorAll('.oi-row')];
+      const recompute = () => {
+        let total = 0;
+        rows.forEach((row) => {
+          const price = Number(row.dataset.price) || 0;
+          const qty = Math.max(0, parseInt(row.querySelector('.qty-edit').value) || 0);
+          const line = price * qty;
+          total += line;
+          row.querySelector('[data-line]').textContent = money(line);
+        });
+        if (totalEl) totalEl.textContent = money(total);
+      };
+      card.querySelector('.edit-ord')?.addEventListener('click', () => card.classList.add('editing'));
+      card.querySelector('.cancel-ord')?.addEventListener('click', () => {
+        rows.forEach((row) => { const i = row.querySelector('.qty-edit'); i.value = i.defaultValue; });
+        card.classList.remove('editing');
+        recompute();
+      });
+      rows.forEach((row) => row.querySelector('.qty-edit')?.addEventListener('input', recompute));
+      card.querySelector('.save-ord')?.addEventListener('click', async () => {
+        const btn = card.querySelector('.save-ord');
+        const items = rows.map((row) => ({ id: row.dataset.item, qty: Math.max(0, parseInt(row.querySelector('.qty-edit').value) || 0) }));
+        btn.textContent = 'Guardando…';
+        const r = await fetch('/api/admin/order', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: card.dataset.id, items }),
+        });
+        if (r.ok) location.reload();
+        else btn.textContent = 'Error';
+      });
     });
 
     // ---- rubros / categorías ----

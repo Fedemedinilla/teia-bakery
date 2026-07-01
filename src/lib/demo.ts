@@ -31,6 +31,14 @@ export const DEMO_ORDERS = [
   { id: 100, order_number: 'TEIA-0040', client_name: 'Almacén Belén',      client_contact: 'belen@correo.com', delivery_address: 'Belgrano 567, San Isidro', delivery_date: null, total: 50400, status: 'confirmado' },
 ];
 
+// Ítems de los pedidos demo (para que las tarjetas muestren "qué se pidió").
+export const DEMO_ORDER_ITEMS = [
+  { id: 1, order_id: 101, name: 'Cheesecake de frutos rojos', pack_label: 'x6',  qty: 2, unit_price: 28800, line_total: 57600 },
+  { id: 2, order_id: 101, name: 'Medialunas de manteca',      pack_label: 'x12', qty: 3, unit_price: 9600,  line_total: 28800 },
+  { id: 3, order_id: 100, name: 'Brownie premium',            pack_label: 'x12', qty: 1, unit_price: 21600, line_total: 21600 },
+  { id: 4, order_id: 100, name: 'Alfajores de maicena',       pack_label: 'x12', qty: 2, unit_price: 14400, line_total: 28800 },
+];
+
 // A sample "last order" so the Recompra (reorder) card is visible in the demo.
 export const DEMO_LAST_ORDER = {
   order_number: 'TEIA-0040',
