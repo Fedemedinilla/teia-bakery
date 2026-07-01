@@ -63,9 +63,10 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
           <ul class="items">
             {s.items.map((p: any) => (
               <li class="item" data-id={p.id} data-name={p.name} data-price={p.price} data-pack={p.pack_label} data-cat={s.name}>
-                {p.image_url
-                  ? <img class="thumb" src={p.image_url} alt={p.name} loading="lazy" width="60" height="60" />
-                  : <div class="thumb--ph" aria-hidden="true">{String(p.name).charAt(0)}</div>}
+                <div class="thumb-box">
+                  <span class="thumb-ph" aria-hidden="true">{String(p.name).charAt(0)}</span>
+                  {p.image_url && <img class="thumb-img" src={p.image_url} alt={p.name} loading="lazy" width="60" height="60" onerror="this.remove()" />}
+                </div>
                 <div class="item__info">
                   <p class="item__name">{p.name}</p>
                   {p.description && <p class="item__desc">{p.description}</p>}
