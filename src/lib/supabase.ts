@@ -78,3 +78,20 @@ export async function sbDelete(path: string): Promise<boolean> {
     return false;
   }
 }
+
+// UPLOAD a Storage — sube bytes a un bucket y devuelve la URL pública, o null si falla.
+// x-upsert:true → idempotente: reintentar con el mismo path sobreescribe, no duplica.
+export async function sbUpload(bucket: string, path: string, bytes: Uint8Array | Buffer, contentType: string): Promise<string | null> {
+  if (!supaConfigured()) return null;
+  const url = base(), k = key();
+  try {
+    const r = await fetch(`${url}/storage/v1/object/${bucket}/${path}`, {
+      method: 'POST',
+      headers: { apikey: k, Authorization: `Bearer ${k}`, 'Content-Type': contentType, 'x-upsert': 'true' },
+      body: bytes as any,
+    });
+    return r.ok ? `${url}/storage/v1/object/public/${bucket}/${path}` : null;
+  } catch {
+    return null;
+  }
+}

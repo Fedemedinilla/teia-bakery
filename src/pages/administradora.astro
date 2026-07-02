@@ -22,6 +22,9 @@ const orderItems = configured
 const itemsByOrder: Record<string, any[]> = {};
 for (const it of orderItems as any[]) { (itemsByOrder[it.order_id] ||= []).push(it); }
 
+// Marca si el pedido ya tiene sus remitos archivados (links vs botón "Reintentar").
+const orderRows = (orders as any[]).map((o) => ({ ...o, archived: o.archive_status === 'archivado' && !!o.remito_cliente_url }));
+
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 
 // Stock flags precomputed (Astro can't mix `<=` with adjacent JSX).
@@ -64,7 +67,7 @@ const SHEET_URL = '';
     <!-- PEDIDOS -->
     <section class="panel" data-panel="pedidos">
       {orders.length === 0 && <p class="card muted">Sin pedidos todavía.</p>}
-      {orders.map((o: any) => (
+      {orderRows.map((o: any) => (
         <div class="card ordcard" data-id={o.id}>
           <div class="ordcard__head">
             <div>
@@ -108,6 +111,16 @@ const SHEET_URL = '';
             ))}
             {(itemsByOrder[o.id] || []).length === 0 && <li class="muted">Sin detalle de ítems.</li>}
           </ul>
+
+          {o.status === 'confirmado' && (
+            <div class="ordcard__arch">
+              {o.archived && <span class="arch arch--ok">✓ Remitos</span>}
+              {o.archived && <a class="arch-link" href={o.remito_cliente_url} target="_blank" rel="noopener">📄 Cliente</a>}
+              {o.archived && <a class="arch-link" href={o.remito_interno_url} target="_blank" rel="noopener">📄 Interno</a>}
+              {!o.archived && <span class="arch arch--err">⚠️ Sin archivar{o.archive_error ? `: ${o.archive_error}` : ''}</span>}
+              {!o.archived && <button class="btn btn--ghost retry-arch" type="button" data-id={o.id}>Reintentar</button>}
+            </div>
+          )}
 
           <div class="ordcard__actions">
             {o.status === 'pendiente' && <button class="btn btn--ghost edit-ord" type="button">✏️ Editar pedido</button>}
@@ -266,6 +279,18 @@ const SHEET_URL = '';
         });
         if (r.ok) location.reload();
         else b.textContent = 'Error';
+      })
+    );
+
+    // ---- reintentar archivado de remitos ----
+    document.querySelectorAll('.retry-arch').forEach((b) =>
+      b.addEventListener('click', async () => {
+        b.textContent = 'Archivando…'; b.disabled = true;
+        const r = await fetch('/api/admin/archive', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id }),
+        });
+        if (r.ok) location.reload();
+        else { b.textContent = 'Reintentar'; b.disabled = false; alert('No se pudo archivar. Probá de nuevo.'); }
       })
     );
 

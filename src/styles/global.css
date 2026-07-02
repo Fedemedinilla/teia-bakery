@@ -349,6 +349,14 @@ input[type="checkbox"] { width: auto; }
 .ordcard.editing .qty-view { display: none; }
 .ordcard__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .ordcard__actions .btn { padding: 9px 14px; font-size: 14px; }
+
+/* fila de archivado de remitos */
+.ordcard__arch { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; font-size: 13px; }
+.arch { font-weight: 600; }
+.arch--ok { color: var(--good); }
+.arch--err { color: var(--bad); }
+.arch-link { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.ordcard__arch .retry-arch { padding: 5px 12px; font-size: 13px; }
 .ordcard .save-ord, .ordcard .cancel-ord { display: none; }
 .ordcard.editing .save-ord, .ordcard.editing .cancel-ord { display: inline-flex; }
 .ordcard.editing .edit-ord, .ordcard.editing .confirm, .ordcard.editing .del-ord { display: none; }

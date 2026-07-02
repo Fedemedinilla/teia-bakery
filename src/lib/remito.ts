@@ -91,8 +91,8 @@ export async function buildRemito(order: any, items: any[], variant: RemitoVaria
     right(String(it.qty ?? ''), cQty, y, variant === 'interno' ? helvB : helv, variant === 'interno' ? 11 : 10, INK);
     right(money(it.unit_price), cUnit, y, helv, 9, INK2);
     right(money(it.line_total), cSub, y, helvB, 10, INK);
-    y -= 20;
-    hr(y + 5, 0.4);
+    hr(y - 9, 0.4); // separador en el HUECO entre filas (no sobre el texto)
+    y -= 24;
   }
 
   // total

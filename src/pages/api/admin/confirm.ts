@@ -1,7 +1,8 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
-import { sbSelect, sbPatch, env, supaConfigured } from '../../../lib/supabase';
+import { sbSelect, sbPatch, supaConfigured } from '../../../lib/supabase';
+import { archiveOrder } from './archive';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -37,17 +38,9 @@ export const POST: APIRoute = async ({ request }) => {
 
   await sbPatch(`teia_orders?id=eq.${id}`, { status: 'confirmado', confirmed_at: new Date().toISOString() });
 
-  // Fire the n8n archiver (no-op if the webhook isn't configured yet).
-  const hook = env('N8N_WEBHOOK_URL');
-  if (hook) {
-    try {
-      await fetch(hook, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: id, order_number: order.order_number }),
-      });
-    } catch { /* never block the confirm on the webhook */ }
-  }
+  // Archivar (app-native): genera los 2 remitos → Supabase Storage + estado. No bloquea el
+  // confirm: archiveOrder captura sus propios errores (quedan en archive_status='error').
+  await archiveOrder(id);
 
   // Low-stock alert. For now logged; next step = email via Resend to Teia.
   if (lowStock.length) console.warn('[teia] poco stock tras confirmar', order.order_number, '→', lowStock.join(', '));
