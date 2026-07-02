@@ -77,6 +77,16 @@ const SHEET_URL = '';
             <div class="ordcard__total" data-total>{money(o.total)}</div>
           </div>
 
+          {o.status === 'pendiente' && (
+            <label class="ordcard__disc">
+              <input type="checkbox" class="disc-toggle" checked={Number(o.discount_pct) === 10} />
+              Descuento fiel −10% <span class="ordcard__disc-hint">(clientes fieles)</span>
+            </label>
+          )}
+          {o.status !== 'pendiente' && Number(o.discount_pct) > 0 && (
+            <div class="ordcard__disc ordcard__disc--applied">✓ Descuento fiel −{o.discount_pct}% aplicado</div>
+          )}
+
           <div class="ordcard__view">
             <div class="muted ordcard__cli">{o.client_name} · {o.client_contact}</div>
             {o.delivery_address && <div class="muted ordcard__cli">📍 {o.delivery_address}</div>}
@@ -142,15 +152,15 @@ const SHEET_URL = '';
           <tbody>
             {productRows.map((p: any) => (
               <tr>
-                <td>{p.name}{!p.active && <span class="muted"> (oculto)</span>}</td>
-                <td class="muted">{p.category || '—'}</td>
-                <td>{p.pack_label}</td>
-                <td>{money(p.price)}</td>
-                <td>
+                <td data-label="Producto"><span class="td-v">{p.name}{!p.active && <span class="muted"> (oculto)</span>}</span></td>
+                <td data-label="Rubro" class="muted"><span class="td-v">{p.category || '—'}</span></td>
+                <td data-label="Pack"><span class="td-v">{p.pack_label}</span></td>
+                <td data-label="Precio"><span class="td-v">{money(p.price)}</span></td>
+                <td data-label="Stock"><span class="td-v">
                   {p.stock}{' '}
                   {p.isOut && <span class="badge badge--out">sin stock</span>}
                   {p.isLow && <span class="badge badge--low">poco stock</span>}
-                </td>
+                </span></td>
                 <td class="prod-actions">
                   <button class="btn btn--ghost editp" data-p={JSON.stringify(p)}>Editar</button>
                   <button class="btn btn--danger del-prod" type="button" data-id={p.id} data-name={p.name}>Borrar</button>
@@ -459,17 +469,27 @@ const SHEET_URL = '';
       const totalEl = card.querySelector('[data-total]');
       const rows = [...card.querySelectorAll('.oi-row')];
       const val = (sel) => { const e = card.querySelector(sel); return e ? e.value : undefined; };
+      const discPct = () => (card.querySelector('.disc-toggle')?.checked ? 10 : 0);
       const recompute = () => {
-        let total = 0;
+        let subtotal = 0;
         rows.forEach((row) => {
           const price = Number(row.dataset.price) || 0;
           const qty = Math.max(0, parseInt(row.querySelector('.qty-edit').value) || 0);
           const line = price * qty;
-          total += line;
+          subtotal += line;
           row.querySelector('[data-line]').textContent = money(line);
         });
-        if (totalEl) totalEl.textContent = money(total);
+        if (totalEl) totalEl.textContent = money(Math.round(subtotal * (1 - discPct() / 100)));
       };
+      // Toggle de descuento fiel: guarda al instante y recarga (recalcula total + remito).
+      card.querySelector('.disc-toggle')?.addEventListener('change', async (e) => {
+        const r = await fetch('/api/admin/order', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: card.dataset.id, discount_pct: e.target.checked ? 10 : 0 }),
+        });
+        if (r.ok) location.reload();
+        else { e.target.checked = !e.target.checked; alert('No se pudo aplicar el descuento.'); }
+      });
       card.querySelector('.edit-ord')?.addEventListener('click', () => card.classList.add('editing'));
       card.querySelector('.cancel-ord')?.addEventListener('click', () => {
         card.querySelectorAll('input').forEach((i) => (i.value = i.defaultValue));
@@ -487,6 +507,7 @@ const SHEET_URL = '';
             id: card.dataset.id, items,
             client_name: val('.of-name'), client_contact: val('.of-contact'),
             delivery_address: val('.of-addr'), delivery_date: val('.of-date'), notes: val('.of-notes'),
+            discount_pct: discPct(),
           }),
         });
         if (r.ok) location.reload();

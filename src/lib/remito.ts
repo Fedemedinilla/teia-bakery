@@ -95,8 +95,18 @@ export async function buildRemito(order: any, items: any[], variant: RemitoVaria
     y -= 24;
   }
 
-  // total
+  // total (con desglose si hay descuento fiel)
   y -= 12;
+  const pct = Number(order.discount_pct) || 0;
+  if (pct > 0) {
+    const subtotal = items.reduce((s, it) => s + (Number(it.line_total) || 0), 0);
+    right('Subtotal', cUnit, y, helv, 10, INK2);
+    right(money(subtotal), cSub, y, helv, 10, INK2);
+    y -= 16;
+    right(`Descuento fiel (−${pct}%)`, cUnit, y, helv, 10, ACCENT);
+    right('−' + money(subtotal - Number(order.total)), cSub, y, helv, 10, ACCENT);
+    y -= 18;
+  }
   right('Total', cUnit, y, helvB, 12, INK);
   right(money(order.total), cSub, y, helvB, 15, ACCENT);
   y -= 34;

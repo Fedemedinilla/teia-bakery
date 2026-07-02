@@ -328,6 +328,20 @@ input[type="checkbox"] { width: auto; }
 /* tablas: scroll horizontal en pantallas chicas (no se rompen) */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
 .table-scroll table { min-width: 520px; }
+
+/* mobile: la tabla de productos pasa a tarjetas verticales (sin scroll horizontal) */
+@media (max-width: 680px) {
+  .table-scroll { overflow-x: visible; margin: 0; }
+  .table-scroll table, .table-scroll tbody { display: block; min-width: 0; width: 100%; }
+  .table-scroll thead { display: none; }
+  .table-scroll tr { display: block; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px 12px; margin-bottom: 10px; }
+  .table-scroll td { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; border: 0; }
+  .table-scroll td::before { content: attr(data-label); flex: 0 0 auto; font-weight: 600; color: var(--ink-2); }
+  .table-scroll .td-v { flex: 1 1 auto; min-width: 0; text-align: right; overflow-wrap: anywhere; }
+  .table-scroll td.prod-actions { justify-content: flex-end; gap: 8px; padding-top: 10px; margin-top: 4px; border-top: 1px solid var(--line); }
+  .table-scroll td.prod-actions::before { display: none; }
+  .table-scroll td.prod-actions .btn { flex: 1; }
+}
 @media (max-width: 560px) {
   th, td { padding: 8px 6px; font-size: 13px; }
   .admin-wrap { padding-top: 20px; }
@@ -357,6 +371,13 @@ input[type="checkbox"] { width: auto; }
 .arch--err { color: var(--bad); }
 .arch-link { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .ordcard__arch .retry-arch { padding: 5px 12px; font-size: 13px; }
+
+/* toggle de descuento fiel */
+.ordcard__disc { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--ink); margin: 4px 0 12px; cursor: pointer; user-select: none; }
+.ordcard__disc input { width: auto; margin: 0; accent-color: var(--accent); }
+.ordcard__disc-hint { font-weight: 400; color: var(--ink-3); font-size: 12px; }
+.ordcard__disc--applied { color: var(--good); cursor: default; }
+.ordcard.editing .ordcard__disc { display: none; }
 .ordcard .save-ord, .ordcard .cancel-ord { display: none; }
 .ordcard.editing .save-ord, .ordcard.editing .cancel-ord { display: inline-flex; }
 .ordcard.editing .edit-ord, .ordcard.editing .confirm, .ordcard.editing .del-ord { display: none; }

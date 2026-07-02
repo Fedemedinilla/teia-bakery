@@ -42,12 +42,21 @@ export const POST: APIRoute = async ({ request }) => {
     }
   }
 
-  // Recalcular el total del pedido leyendo los ítems que quedaron.
+  // Recalcular el total: subtotal de los ítems, menos el descuento fiel (0 o 10%).
   const fresh = await sbSelect(`teia_order_items?order_id=eq.${orderId}&select=line_total`);
-  const total = (fresh as any[]).reduce((s, i) => s + (Number(i.line_total) || 0), 0);
+  const subtotal = (fresh as any[]).reduce((s, i) => s + (Number(i.line_total) || 0), 0);
+  let pct: number;
+  if ('discount_pct' in b) {
+    pct = [0, 10].includes(Number(b.discount_pct)) ? Number(b.discount_pct) : 0;
+  } else {
+    // No vino el descuento en este request → mantener el que ya tenía el pedido.
+    const cur = await sbSelect(`teia_orders?id=eq.${orderId}&select=discount_pct`);
+    pct = Number((cur as any[])[0]?.discount_pct) || 0;
+  }
+  const total = Math.round(subtotal * (1 - pct / 100));
 
-  // Patch del pedido: total + detalles editables (los campos NOT NULL solo si vienen con texto).
-  const patch: Record<string, any> = { total };
+  // Patch del pedido: total + descuento + detalles editables (los NOT NULL solo si vienen con texto).
+  const patch: Record<string, any> = { total, discount_pct: pct };
   const name = String(b?.client_name ?? '').slice(0, 160).trim();
   if (name) patch.client_name = name;
   const contact = String(b?.client_contact ?? '').slice(0, 160).trim();
