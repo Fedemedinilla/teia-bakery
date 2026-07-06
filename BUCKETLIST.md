@@ -3,41 +3,50 @@
 App de pedidos mayorista (B2B). Live: **teia-bakery.vercel.app** · Repo: `Fedemedinilla/teia-bakery`
 Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **template e-commerce** de KyndredAI.
 
-> Lista canónica de tareas — se lee/actualiza cada sesión.
+> Lista canónica de tareas — se lee/actualiza cada sesión. Última reconciliación: **2026-07-05**.
 
 ---
 
 ## ✅ Hecho (el grueso de la app)
-- **/catalogo** — fusión "anti-Tiendanube": carta por rubros + steppers en línea + panel de pedido en vivo con medidor de mínimo + recompra + fotos; responsive.
-- **/pedido** — checkout (el cliente ya NO pone fecha de entrega; la confirma Mica).
+- **/catalogo** — fusión "anti-Tiendanube": carta por rubros + "Agregar"→stepper + panel de pedido en vivo
+  (medidor de mínimo) + modal de detalle de producto + recompra (localStorage **+ búsqueda por WhatsApp
+  cross-device** vía `/api/last-order`) + scroll-spy + Lenis smooth scroll.
+- **/pedido** — checkout rediseñado (bible UX/UI): 2 columnas, resumen sticky editable, validación amable,
+  estados vacío/éxito pulidos. El cliente NO pone fecha de entrega (la confirma Mica por WhatsApp).
 - **/administradora** (con clave):
-  - **Pedidos** — tarjetas con el detalle de ítems + "Editar pedido" (todos los datos + cantidades) + Confirmar (descuenta stock).
-  - **Productos** — lista + Editar + Borrar + badges de stock.
-  - **Nuevo producto** — form compacto + vista previa en vivo + subida de imagen (a Storage) + rubro como dropdown + Visible.
+  - **Pedidos** — tarjetas con detalle + Editar pedido (datos + cantidades) + Confirmar + Borrar +
+    **toggle "Descuento fiel −10%"** (manual, decide Mica) + estado de archivado (✓ links a los 2 PDF / ⚠️ Reintentar).
+  - **Productos** — lista + Editar + Borrar + badges de stock; **mobile = tarjetas verticales** (sin scroll horizontal).
+  - **Nuevo producto** — form + vista previa en vivo + subida de imagen + rubro dropdown + Visible.
   - **Rubros** — crear/borrar categorías.
-  - Navegación admin ↔ catálogo.
-- Stock (descuento al confirmar + aviso de poco stock).
-- Modo demo (sin Supabase muestra datos de ejemplo).
+- **Archivador de remitos (app-native, sin n8n)** — al Confirmar: genera **2 PDF** (cliente + interno con
+  checkboxes) con pdf-lib → **Supabase Storage** (bucket `teia-remitos`; NO Drive: una service account no
+  tiene cuota en Gmail) → URLs + `archive_status` en el pedido. Reintento 3×, idempotente (HMAC path),
+  nunca bloquea el confirm; botón Reintentar en el panel.
+- Stock (descuento al confirmar + aviso de poco stock). Modo demo. Auditoría de código/seguridad
+  (caps en /api/order, escape XSS, headers en vercel.json) + auditoría de diseño (micro-interacciones).
 
 ## 🔴 Falta para el MVP (lo que lo hace entregable)
-Lo core que reemplaza el trabajo manual de Mica:
-1. **Service account de Google** — *(Federico)* prerequisito de lo de abajo. **← próximo paso.**
-2. **Archivador de remitos** — al Confirmar → genera el remito PDF (pdf-lib) → lo sube a **Drive / carpeta "remitos"** (subcarpetas semanales). App-native (sin n8n).
-3. **Espejo al Google Sheet** — TODO lo del panel (productos + pedidos) reflejado en el Sheet, **incluso borrados** (rebuild completo por cron).
-4. **Confirmar SQL corridos en DEMOS**: bucket `teia-productos` (subida de fotos) + tabla `teia_categories` (dropdown de rubros).
-5. **Test end-to-end**: pedido real → confirmar → ver descuento de stock + remito generado.
+1. **Service account de Google** — *(Federico; pasos ya entregados)* prerequisito del Sheet. **← bloqueante.**
+2. **SQL `discount_pct`** — *(Federico, 1 línea)* `alter table teia_orders add column if not exists discount_pct int not null default 0;` — sin esto el toggle de descuento no persiste en prod.
+3. **Espejo al Google Sheet** — pedidos + productos reflejados (incluso borrados; rebuild por cron) con
+   columna de links a los remitos. *(Necesita 1.)*
+4. **Barrido nocturno** — cron que reintenta pedidos con `archive_status='error'`.
+5. **Test end-to-end en prod**: pedido → confirmar → 2 PDF + fila en Sheet + descuento fiel en remito.
 
 ## 🟡 Para el go-live oficial (handoff a Teia)
 - Mover de DEMOS a un **proyecto Supabase del cliente** (aislado, su cuenta).
 - **Dominio** `app.teiabakery.com.ar`.
 - **Keep-alive** para que el free tier de Supabase no pause la base.
 - `MIN_ORDER` (hoy hardcodeado en 40000) → config de la tienda.
-- Cargar los **links reales de Drive/Sheet** en el admin (hoy vacíos).
-- **Precio** cerrado (~US$700 build + ~US$55/mes) + scope por escrito.
-- **Testimonio** + permiso para mostrarlo en portfolio/LinkedIn.
+- Cargar el **link real del Sheet** en el admin (hoy vacío; el botón Drive quedó legacy → decidir si se saca).
+- **Precio** cerrado (US$700 build + US$55/mes; propuesta PDF sobria ya entregada) + scope por escrito.
+- **Testimonio** + permiso para mostrarlo en portfolio/LinkedIn/IG.
 
 ## 🔵 Fase 2 (nice-to-have)
-- **Resumen semanal con IA** (Claude lee la semana → producto top, total, clientes, % de cambios) — el gancho vendible.
+- **Resumen semanal con IA** (código calcula números exactos desde la DB → Claude redacta el informe) — el gancho vendible.
+- Lista de **clientes fieles** que pre-tilda el descuento −10% (match por teléfono; Mica siempre confirma).
 - Estados **entregado / anulado** (anular reajusta stock).
-- **Email** de aviso de poco stock (hoy solo se loguea).
+- **Email** de aviso de poco stock + email de alerta cuando un archivado falla 3× (hoy solo estado en panel).
 - Auto-edición del cliente hasta 24h antes del envío (hoy lo edita Mica).
+- Endurecer `/api/last-order` si hiciera falta (hoy: cualquiera con un teléfono ve el último pedido de ese teléfono — baja sensibilidad, decisión consciente).
