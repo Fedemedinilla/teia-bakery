@@ -52,6 +52,20 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
 - **Precio** cerrado (US$700 build + US$55/mes; propuesta PDF sobria ya entregada) + scope por escrito.
 - **Testimonio** + permiso para mostrarlo en portfolio/LinkedIn/IG.
 
+## 📩 Pedidos de Mica (WhatsApp 2026-07-06) — scope a decidir con Federico
+1. **Dos listas de precios** (una para Chungo, otra mayorista general) — propuesta: tabla
+   `teia_clients` (nombre, contacto, dirección, lista de precios, token) + segundo precio por
+   producto + **link propio por cliente** (`/catalogo?c=<token>`) que muestra su lista.
+2. **Datos del cliente pre-cargados** — el mismo link propio pre-llena nombre/dirección en el
+   checkout (resuelve 1 y 2 con la misma pieza). Complementa el last-order por WhatsApp que ya existe.
+3. **"Drive por mes/año"** — NO reabrir Drive (descartado: la SA no tiene cuota). Se responde con
+   el **Sheet espejo**: cada pedido con fecha/cliente/total/links a remitos, filtrable por mes/año.
+4. **Histórico por producto/cliente + totales mensuales/anuales** — pestañas con fórmulas en el
+   mismo Sheet espejo (se arma una vez, sin mantenimiento). El informe redactado con IA sigue en Fase 2.
+5. **Cuentas armadas por Federico** (Vercel/Supabase) — ya era el plan del handoff; decidir si a
+   nombre de ella o hosting bajo KyndredAI dentro del mensual (ver checklist de handoff).
+6. **Guía de uso** no técnica (cambiar precios, productos, confirmar pedidos) + llamada corta.
+
 ## 🔵 Fase 2 (nice-to-have)
 - **Resumen semanal con IA** (código calcula números exactos desde la DB → Claude redacta el informe) — el gancho vendible.
 - Lista de **clientes fieles** que pre-tilda el descuento −10% (match por teléfono; Mica siempre confirma).
