@@ -1,7 +1,7 @@
 ---
 export const prerender = false;
 import Base from '../layouts/Base.astro';
-import { sbSelect, supaConfigured } from '../lib/supabase';
+import { sbSelect, supaConfigured, env } from '../lib/supabase';
 import { DEMO_PRODUCTS, DEMO_LAST_ORDER } from '../lib/demo';
 
 const configured = supaConfigured();
@@ -9,7 +9,7 @@ const raw = configured
   ? await sbSelect('teia_products?active=eq.true&order=category.asc,sort_order.asc,name.asc&select=id,name,description,category,image_url,pack_label,price,stock')
   : DEMO_PRODUCTS.filter((p) => p.active);
 
-const MIN_ORDER = 40000; // pedido mínimo (ARS) — TODO: mover a config de la tienda
+const MIN_ORDER = Number(env('TEIA_MIN_ORDER')) || 40000; // pedido mínimo (ARS) — env de Vercel, con default
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 const slug = (s: string) =>
   String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

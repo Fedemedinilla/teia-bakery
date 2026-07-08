@@ -7,9 +7,9 @@ import { archiveOrder } from './archive';
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
 
-// Admin only: confirm a pending order → decrement stock per item, flag low stock, and fire the
-// n8n archiver (remitos → Drive → Sheet → email). Confirms are serial (one admin), so the
-// read-then-write stock loop is fine for this volume.
+// Admin only: confirm a pending order → decrement stock per item, flag low stock, and run the
+// app-native archiver (2 remitos PDF → Supabase Storage). Confirms are serial (one admin), so
+// the read-then-write stock loop is fine for this volume.
 export const POST: APIRoute = async ({ request }) => {
   if (!supaConfigured()) return json({ ok: true, demo: true }); // demo: nada que persistir
   if (!isTeiaAdmin(request)) return new Response('no autorizado', { status: 401 });

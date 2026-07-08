@@ -30,9 +30,25 @@ create table if not exists teia_orders (
   status           text not null default 'pendiente',  -- pendiente|confirmado|entregado|anulado
   version          int  not null default 1,
   total            numeric(12,2) not null default 0,
+  discount_pct     int  not null default 0,   -- descuento fiel (toggle manual en el panel)
   created_at       timestamptz not null default now(),
-  confirmed_at     timestamptz
+  confirmed_at     timestamptz,
+  -- Archivador de remitos (app-native): 2 PDFs → Supabase Storage `teia-remitos`
+  archive_status     text,                    -- null (no corrió) | 'archivado' | 'error'
+  archive_error      text,
+  archived_at        timestamptz,
+  remito_cliente_url text,
+  remito_interno_url text
 );
+
+-- MIGRACIÓN para bases que ya existían antes de estas columnas (correr en el SQL Editor;
+-- en una base nueva son no-ops porque el create de arriba ya las trae):
+alter table teia_orders add column if not exists discount_pct       int not null default 0;
+alter table teia_orders add column if not exists archive_status     text;
+alter table teia_orders add column if not exists archive_error      text;
+alter table teia_orders add column if not exists archived_at        timestamptz;
+alter table teia_orders add column if not exists remito_cliente_url text;
+alter table teia_orders add column if not exists remito_interno_url text;
 
 create table if not exists teia_order_items (
   id          bigint generated always as identity primary key,
@@ -67,4 +83,10 @@ alter table teia_categories  enable row level security;
 -- service_role key; lectura pública vía URL). Correr una vez.
 insert into storage.buckets (id, name, public)
 values ('teia-productos', 'teia-productos', true)
+on conflict (id) do nothing;
+
+-- Storage: bucket PÚBLICO para los remitos PDF (el archivador sube con la service_role key;
+-- los links públicos van al panel y al Sheet espejo). El path lleva un token HMAC no adivinable.
+insert into storage.buckets (id, name, public)
+values ('teia-remitos', 'teia-remitos', true)
 on conflict (id) do nothing;
