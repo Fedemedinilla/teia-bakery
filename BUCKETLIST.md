@@ -58,8 +58,16 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
    producto + **link propio por cliente** (`/catalogo?c=<token>`) que muestra su lista.
 2. **Datos del cliente pre-cargados** — el mismo link propio pre-llena nombre/dirección en el
    checkout (resuelve 1 y 2 con la misma pieza). Complementa el last-order por WhatsApp que ya existe.
-3. **"Drive por mes/año"** — NO reabrir Drive (descartado: la SA no tiene cuota). Se responde con
-   el **Sheet espejo**: cada pedido con fecha/cliente/total/links a remitos, filtrable por mes/año.
+3. **Drive por mes/año — CONFIRMADO por la clienta (2026-07-16); SÍ es posible.** El descarte
+   anterior era del camino service account (los archivos quedan a nombre de la SA, que no tiene
+   cuota en Gmail). **Ruta propuesta (pendiente de ok de Federico): OAuth con la cuenta de Mica,
+   scope `drive.file`** — ella autoriza una vez, refresh token en Vercel, los remitos van a SU
+   Drive (`Remitos/2026/Julio/<cliente>/…`) con su cuota. Bonus: si la app crea el Sheet espejo,
+   `drive.file` también cubre la Sheets API → **la service account deja de hacer falta** (adiós
+   tarea bloqueante 1 del MVP). Se puede probar YA con el Gmail de Federico y cambiar el token
+   en el handoff. Supabase Storage sigue como archivo maestro; Drive es espejo dentro de
+   `archiveOrder` (mismo retry + barrido). Plan B: puente Apps Script en su cuenta. Si ella ya
+   tuviera Workspace (¿mail @teiabakery.com.ar?), existe la ruta unidad compartida + SA.
 4. **Histórico por producto/cliente + totales mensuales/anuales** — pestañas con fórmulas en el
    mismo Sheet espejo (se arma una vez, sin mantenimiento). El informe redactado con IA sigue en Fase 2.
 5. **Cuentas armadas por Federico** (Vercel/Supabase) — ya era el plan del handoff; decidir si a
