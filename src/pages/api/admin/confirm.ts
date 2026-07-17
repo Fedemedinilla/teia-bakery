@@ -3,6 +3,7 @@ import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbSelectStrict, sbPatch, sbPatchReturning, supaConfigured } from '../../../lib/supabase';
 import { archiveOrder } from './archive';
+import { tryMirror } from '../../../lib/google';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -50,9 +51,10 @@ export const POST: APIRoute = async ({ request }) => {
     if (newStock <= Number(p.low_stock_threshold)) lowStock.push(`${p.name} (${newStock})`);
   }
 
-  // Archivar (app-native): genera los 2 remitos → Supabase Storage + estado. No bloquea el
+  // Archivar (app-native): genera los 2 remitos → Supabase Storage + Drive. No bloquea el
   // confirm: archiveOrder captura sus propios errores (quedan en archive_status='error').
   await archiveOrder(id);
+  await tryMirror(); // Sheet espejo al día (best effort, nunca rompe el confirm)
 
   // Low-stock alert. For now logged; next step = email via Resend to Teia.
   if (lowStock.length) console.warn('[teia] poco stock tras confirmar', order.order_number, '→', lowStock.join(', '));

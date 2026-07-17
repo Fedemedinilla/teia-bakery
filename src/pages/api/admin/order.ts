@@ -2,6 +2,7 @@ export const prerender = false;
 import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbSelect, sbSelectStrict, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
+import { tryMirror } from '../../../lib/google';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -35,6 +36,7 @@ export const POST: APIRoute = async ({ request }) => {
       }
     }
     const ok = await sbDelete(`teia_orders?id=eq.${orderId}`);
+    if (ok) await tryMirror(); // el borrado desaparece del Sheet (rebuild completo)
     return ok ? json({ ok: true }) : json({ error: 'No se pudo borrar.' }, 500);
   }
 
@@ -81,6 +83,7 @@ export const POST: APIRoute = async ({ request }) => {
   if ('delivery_date' in b) patch.delivery_date = b.delivery_date || null;
   if ('notes' in b) patch.notes = String(b?.notes ?? '').slice(0, 500).trim();
   await sbPatch(`teia_orders?id=eq.${orderId}`, patch);
+  await tryMirror(); // ediciones reflejadas en el Sheet
 
   return json({ ok: true, total });
 };

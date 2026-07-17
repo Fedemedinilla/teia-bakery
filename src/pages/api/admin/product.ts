@@ -1,5 +1,6 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
+import { tryMirror } from '../../../lib/google';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbInsert, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
 
@@ -22,6 +23,7 @@ export const POST: APIRoute = async ({ request }) => {
     if (!id) return json({ error: 'id inválido.' }, 400);
     await sbPatch(`teia_order_items?product_id=eq.${id}`, { product_id: null });
     const ok = await sbDelete(`teia_products?id=eq.${id}`);
+    if (ok) await tryMirror();
     return ok ? json({ ok: true }) : json({ error: 'No se pudo eliminar.' }, 500);
   }
 
@@ -42,5 +44,6 @@ export const POST: APIRoute = async ({ request }) => {
     ? await sbPatch(`teia_products?id=eq.${Number(b.id)}`, row)
     : !!(await sbInsert('teia_products', row));
 
+  if (ok) await tryMirror(); // la pestaña Productos del Sheet queda al día
   return ok ? json({ ok: true }) : json({ error: 'No se pudo guardar.' }, 500);
 };

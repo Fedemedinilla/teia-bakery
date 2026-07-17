@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbSelectStrict, sbPatch, sbUpload, env, supaConfigured } from '../../../lib/supabase';
 import { buildRemito } from '../../../lib/remito';
+import { gConfigured, ensureMonthClientPath, driveUploadPdf, tryMirror } from '../../../lib/google';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -41,16 +42,30 @@ export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: s
     if (items === null || !(items as any[]).length) throw new Error('No se pudieron leer los ítems del pedido.');
     const version = Number(order.version) || 1;
     const token = pathToken(id);
-    const upload = (variant: 'cliente' | 'interno') => withRetry(async () => {
-      const bytes = await buildRemito(order, items as any[], variant);
+    const bytesCliente = await withRetry(() => buildRemito(order, items as any[], 'cliente'));
+    const bytesInterno = await withRetry(() => buildRemito(order, items as any[], 'interno'));
+    const store = (variant: 'cliente' | 'interno', bytes: Uint8Array) => withRetry(async () => {
       const path = `remito-${id}-${token}-${variant}-v${version}.pdf`;
       const url = await sbUpload('teia-remitos', path, Buffer.from(bytes), 'application/pdf');
       if (!url) throw new Error(`No se pudo subir el remito (${variant}).`);
       return url;
     });
 
-    const cliente = await upload('cliente');
-    const interno = await upload('interno');
+    const cliente = await store('cliente', bytesCliente);
+    const interno = await store('interno', bytesInterno);
+
+    // Espejo a DRIVE (cuenta de la clienta, OAuth drive.file): carpeta año/mes/comercio con
+    // nombres legibles. Mismos bytes, mismo retry; idempotente (reintentar actualiza, no
+    // duplica). Si Google no está conectado, se saltea; si falla, el pedido queda en 'error'
+    // y el botón Reintentar / el barrido nocturno lo completan.
+    if (gConfigured()) {
+      await withRetry(async () => {
+        const folder = await ensureMonthClientPath(order.confirmed_at || order.created_at, order.client_name);
+        const num = order.order_number || '#' + order.id;
+        await driveUploadPdf(folder, `${num} - Remito cliente.pdf`, bytesCliente);
+        await driveUploadPdf(folder, `${num} - Hoja interna.pdf`, bytesInterno);
+      });
+    }
 
     await sbPatch(`teia_orders?id=eq.${id}`, {
       archive_status: 'archivado',
@@ -76,5 +91,6 @@ export const POST: APIRoute = async ({ request }) => {
   const id = Number(b?.id);
   if (!id) return json({ error: 'id inválido.' }, 400);
   const res = await archiveOrder(id);
+  await tryMirror(); // el Sheet refleja el nuevo estado de archivado (best effort)
   return res.ok ? json(res) : json({ error: res.error }, 500);
 };

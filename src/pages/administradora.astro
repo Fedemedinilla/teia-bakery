@@ -48,8 +48,6 @@ const categories = configured
   : [{ id: 1, name: 'Tortas' }, { id: 2, name: 'Postres' }, { id: 3, name: 'Salados' }, { id: 4, name: 'Panadería' }];
 const catNames = (categories as any[]).map((c) => c.name);
 
-const DRIVE_URL = '';
-const SHEET_URL = '';
 ---
 <Base title="Administradora — Teia Bakery">
   <div class="container admin-wrap">
@@ -60,8 +58,9 @@ const SHEET_URL = '';
 
     <p class="links-row">
       <a class="btn" href="/catalogo">🛍️ Ir al catálogo</a>
-      <a class="btn btn--ghost" href={DRIVE_URL || '#'} target="_blank" rel="noopener">📁 Drive</a>
-      <a class="btn btn--ghost" href={SHEET_URL || '#'} target="_blank" rel="noopener">📊 Google Sheet</a>
+      <a class="btn btn--ghost" id="gDrive" href="#" target="_blank" rel="noopener" hidden>📁 Remitos en Drive</a>
+      <a class="btn btn--ghost" id="gSheet" href="#" target="_blank" rel="noopener" hidden>📊 Planilla</a>
+      <a class="btn btn--ghost" id="gConnect" href="/api/admin/google/start" hidden>🔗 Conectar Google</a>
       <a class="btn btn--ghost" href="mailto:hello@kyndredai.com">🛟 Soporte</a>
     </p>
 
@@ -765,5 +764,18 @@ const SHEET_URL = '';
     if (['pedidos', 'clientes', 'productos', 'nuevo', 'rubros'].includes(initTab)) { if (initTab === 'nuevo') resetForm(); showTab(initTab); }
 
     updatePreview();
+
+    // ---- botones de Google según el estado REAL (nada hardcodeado — sobrevive el handoff:
+    // con la cuenta nueva conectada, los links apuntan solos a SU Drive y SU planilla) ----
+    fetch('/api/admin/google/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => {
+        if (!s) return;
+        if (!s.connected) { document.getElementById('gConnect').hidden = false; return; }
+        if (s.driveUrl) { const a = document.getElementById('gDrive'); a.href = s.driveUrl; a.hidden = false; }
+        if (s.sheetUrl) { const a = document.getElementById('gSheet'); a.href = s.sheetUrl; a.hidden = false; }
+        // conectado pero sin carpeta/planilla todavía: se crean solas con el primer archivado
+      })
+      .catch(() => {});
   </script>
 </Base>

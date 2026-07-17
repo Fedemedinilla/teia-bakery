@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbSelect, supaConfigured, env } from '../../../lib/supabase';
 import { archiveOrder } from '../admin/archive';
+import { gConfigured, mirrorToSheet } from '../../../lib/google';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -41,5 +42,12 @@ export const GET: APIRoute = async ({ request }) => {
     const r = await archiveOrder(o.id);
     results.push({ id: o.id, order: o.order_number, ok: r.ok, ...(r.ok ? {} : { error: r.error }) });
   }
-  return json({ ok: true, swept: results.length, results });
+
+  // Rebuild nocturno del Sheet espejo: además de reflejar los reintentos de recién, corrige
+  // cualquier drift del día (es un rebuild completo desde la base, la fuente de verdad).
+  let mirror: string = 'sin configurar';
+  if (gConfigured()) {
+    try { await mirrorToSheet(); mirror = 'ok'; } catch (e: any) { mirror = 'error: ' + ((e && e.message) || e); }
+  }
+  return json({ ok: true, swept: results.length, results, mirror });
 };

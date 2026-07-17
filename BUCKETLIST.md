@@ -36,8 +36,17 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
 ## 🔴 Falta para el MVP (lo que lo hace entregable)
 1. **Service account de Google** — *(Federico; pasos ya entregados)* prerequisito del Sheet. **← bloqueante.**
 2. **SQL `discount_pct`** — *(Federico, 1 línea)* `alter table teia_orders add column if not exists discount_pct int not null default 0;` — sin esto el toggle de descuento no persiste en prod.
-3. **Espejo al Google Sheet** — pedidos + productos reflejados (incluso borrados; rebuild por cron) con
-   columna de links a los remitos. *(Necesita 1.)*
+3. ~~Espejo Google Sheet + Drive~~ — **CONSTRUIDO 2026-07-17** (falta conectar la cuenta): OAuth
+   `drive.file` con la cuenta real (NO service account). `lib/google.ts` REST puro: Drive
+   `Remitos Teia/año/mes - Mes/comercio/` con PDFs de nombre legible (idempotente, mismo retry
+   del archivador) + Sheet espejo AUTO-CREADO con 5 pestañas (Pedidos con links a remitos,
+   Ítems, Productos, Clientes, Resumen con totales por mes/año/cliente/producto — cubre el
+   pedido de históricos de Mica). REBUILD completo desde la base en cada cambio (confirmar,
+   editar, borrar, reintentar, producto) + rebuild nocturno en el sweep. TRANSPORTABLE: 3 env
+   vars; carpeta y planilla se auto-crean (marcadas con appProperties, cero IDs hardcodeados)
+   → handoff a la clienta = re-consentir con SU cuenta y pegar el token nuevo. Botón "Conectar
+   Google" en el panel (start/callback muestran el refresh token una vez) + botones Drive/
+   Planilla dinámicos según el estado real. **Pendiente: checklist GCP de Federico + conectar.**
 4. ~~Barrido nocturno~~ — **HECHO 2026-07-08** (`/api/cron/sweep`, ver arriba); falta verlo correr en prod.
 5. ~~Test end-to-end en prod~~ — **HECHO 2026-07-17** (flujo cuentas CUIT completo): pedido hostil →
    cuenta auto-creada → Mica activa descuento en Clientes → 2º pedido llega con −10% server-side
