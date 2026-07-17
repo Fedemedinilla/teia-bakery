@@ -26,9 +26,16 @@ export const DEMO_PRODUCTS = [
   { id: 10, name: 'Empanadas caprese',          category: 'Salados', description: 'Tomate, muzzarella y albahaca.',       pack_label: 'x12', price: 15600, stock: 30, low_stock_threshold: 8,  active: true, image_url: '/img/empanadas.jpg' },
 ];
 
+// Cuentas demo (CUITs sintéticos con verificador válido — no son de empresas reales).
+// El primero tiene descuento fiel para mostrar el catálogo con precios tachados.
+export const DEMO_CLIENTS = [
+  { id: 1, cuit: '20000000001', business_name: 'Café de la Esquina', client_contact: '11 5555-1234',    delivery_address: 'Av. Corrientes 1234, CABA',  discount_pct: 10, notes: 'Cliente fiel (demo).', last_order_at: '2026-07-10T12:00:00Z' },
+  { id: 2, cuit: '27000000006', business_name: 'Almacén Belén',      client_contact: 'belen@correo.com', delivery_address: 'Belgrano 567, San Isidro',   discount_pct: 0,  notes: '',                    last_order_at: '2026-07-08T12:00:00Z' },
+];
+
 export const DEMO_ORDERS = [
-  { id: 101, order_number: 'TEIA-0041', client_name: 'Café de la Esquina', client_contact: '11 5555-1234',  delivery_address: 'Av. Corrientes 1234, CABA', delivery_date: null, total: 86400, status: 'pendiente' },
-  { id: 100, order_number: 'TEIA-0040', client_name: 'Almacén Belén',      client_contact: 'belen@correo.com', delivery_address: 'Belgrano 567, San Isidro', delivery_date: null, total: 50400, status: 'confirmado' },
+  { id: 101, order_number: 'TEIA-0041', client_id: 1, client_name: 'Café de la Esquina', client_contact: '11 5555-1234',  delivery_address: 'Av. Corrientes 1234, CABA', delivery_date: null, total: 86400, status: 'pendiente', discount_pct: 0 },
+  { id: 100, order_number: 'TEIA-0040', client_id: 2, client_name: 'Almacén Belén',      client_contact: 'belen@correo.com', delivery_address: 'Belgrano 567, San Isidro', delivery_date: null, total: 50400, status: 'confirmado', discount_pct: 0 },
 ];
 
 // Ítems de los pedidos demo (para que las tarjetas muestren "qué se pidió").
@@ -39,7 +46,7 @@ export const DEMO_ORDER_ITEMS = [
   { id: 4, order_id: 100, name: 'Alfajores de maicena',       pack_label: 'x12', qty: 2, unit_price: 14400, line_total: 28800 },
 ];
 
-// A sample "last order" so the Recompra (reorder) card is visible in the demo.
+// El "último pedido" de la cuenta demo 20-00000000-1 (alimenta la tarjeta de recompra).
 export const DEMO_LAST_ORDER = {
   order_number: 'TEIA-0040',
   items: [

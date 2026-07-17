@@ -2,7 +2,7 @@
 export const prerender = false;
 import Base from '../layouts/Base.astro';
 import { sbSelect, supaConfigured, env } from '../lib/supabase';
-import { DEMO_PRODUCTS, DEMO_LAST_ORDER } from '../lib/demo';
+import { DEMO_PRODUCTS } from '../lib/demo';
 
 const configured = supaConfigured();
 const raw = configured
@@ -32,8 +32,6 @@ const sections = [...groups.keys()]
   })
   .map((name) => ({ name, id: slug(name), items: groups.get(name)! }));
 
-// The demo last order feeds the Recompra card when there's no real history yet.
-const demoLast = configured ? null : DEMO_LAST_ORDER;
 ---
 <Base title="Catálogo mayorista — Teia Bakery">
   <header class="top">
@@ -110,6 +108,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
           <div class="meter__track"><div class="meter__fill" id="meterFill"></div></div>
           <p class="meter__t" id="meterT"></p>
         </div>
+        <div class="order__disc" id="orderDisc" hidden>✓ Descuento fiel −10% aplicado</div>
         <div class="order__total" id="orderTotalRow" hidden><span>Total</span><b id="orderTotal">$0</b></div>
         <a class="btn btn--block" id="confirmBtn" href="/pedido" aria-disabled="true">Confirmar pedido</a>
       </div>
@@ -132,7 +131,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
     </div>
   </div>
 
-  <script define:vars={{ MIN_ORDER, demoLast }}>
+  <script define:vars={{ MIN_ORDER }}>
     const KEY = 'teia_cart';
     const fmt = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
     const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -140,6 +139,20 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
 
     let cart = load();
     let modalId = null;
+
+    // ---- cuenta por CUIT + descuento fiel: capa de VISTA. La DB guarda precios de LISTA;
+    // el server aplica el % del cliente por su cuenta al crear la orden (el navegador jamás
+    // manda un porcentaje). Acá solo se muestra: precio tachado + precio con descuento. ----
+    let CLIENT = null; // {business_name, discount_pct, cuit, ...} | {cuit, unknown:true} | null
+    const pct = () => (CLIENT && !CLIENT.unknown && Number(CLIENT.discount_pct)) || 0;
+    const net = (n) => Math.round(n * (1 - pct() / 100));
+    const priceHTML = (base) => (pct() > 0 ? `<s>${fmt(base)}</s> ${fmt(net(base))}` : fmt(base));
+    function decoratePrices() {
+      document.querySelectorAll('.item[data-id]').forEach((item) => {
+        const p = item.querySelector('.price');
+        if (p) p.innerHTML = priceHTML(Number(item.dataset.price) || 0);
+      });
+    }
     function load() { try { const raw = JSON.parse(localStorage.getItem(KEY)); return Array.isArray(raw) ? raw : []; } catch { return []; } }
     function persist() { try { localStorage.setItem(KEY, JSON.stringify(cart)); } catch {} }
     function find(id) { return cart.find((x) => sameId(x.id, id)); }
@@ -208,7 +221,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
           `<span class="oi__qv">${i.qty}</span>` +
           `<button class="oi__step" type="button" data-inc="${id}" aria-label="Sumar uno">+</button></span>` +
           (i.pack ? `<span class="oi__pack">${esc(i.pack)}</span>` : '') +
-          `<span class="oi__line">${fmt(i.price * i.qty)}</span></div></li>`;
+          `<span class="oi__line">${fmt(net(i.price * i.qty))}</span></div></li>`;
       }).join('');
       orderItems.querySelectorAll('[data-rm]').forEach((b) =>
         b.addEventListener('click', () => {
@@ -223,9 +236,12 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
       orderItems.querySelectorAll('[data-dec]').forEach((b) =>
         b.addEventListener('click', () => { const it = find(b.dataset.dec); if (it) changeQty(it.id, it, -1); })
       );
+      const tNet = Math.round(t * (1 - pct() / 100)); // misma fórmula que el server
       totalRow.hidden = c === 0;
-      totalEl.textContent = fmt(t);
-      barTotal.textContent = fmt(t);
+      const disc = el('orderDisc');
+      if (disc) disc.hidden = c === 0 || pct() === 0;
+      totalEl.textContent = fmt(tNet);
+      barTotal.textContent = fmt(tNet);
       barSub.textContent = c === 1 ? '1 producto' : c + ' productos';
 
       if (c > 0) {
@@ -257,7 +273,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
       const m = meta(item);
       el('pm-name').textContent = m.name;
       el('pm-pack').textContent = m.pack || '';
-      el('pm-price').textContent = fmt(m.price);
+      el('pm-price').innerHTML = priceHTML(m.price);
       el('pm-desc').textContent = m.desc || 'Sin descripción.';
       el('pm-img').innerHTML = m.img
         ? '<img src="' + esc(m.img) + '" alt="' + esc(m.name) + '">'
@@ -307,14 +323,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
       document.querySelectorAll('section.section[id]').forEach((s) => spy.observe(s));
     }
 
-    // ---- Recompra (reorder): localStorage (mismo aparato) + búsqueda por WhatsApp (cross-device) ----
-    function lastOrder() {
-      try {
-        const ls = JSON.parse(localStorage.getItem('teia_last_order'));
-        if (ls && Array.isArray(ls.items) && ls.items.length) return ls;
-      } catch {}
-      return demoLast || null;
-    }
+    // ---- Recompra: el último pedido viene de la CUENTA (server, cross-device de verdad) ----
     function loadIntoCart(items) {
       // El pedido guardado puede tener meses: los precios/nombres se toman del CATÁLOGO actual
       // (el DOM ya los tiene), y lo borrado/oculto/sin stock se saltea avisando — así el total
@@ -346,7 +355,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
       if (!box) return;
       if (!lo || !lo.items || !lo.items.length) { box.innerHTML = ''; return; }
       const c = lo.items.reduce((s, i) => s + i.qty, 0);
-      const t = lo.items.reduce((s, i) => s + i.price * i.qty, 0);
+      const t = Math.round(lo.items.reduce((s, i) => s + i.price * i.qty, 0) * (1 - pct() / 100)); // coherente con el resto: neto
       box.innerHTML =
         `<div class="reorder"><div><div class="reorder__t">↻ Repetir último pedido</div>` +
         `<div class="reorder__s">${esc(lo.order_number || '')} · ${c} ítems · ${fmt(t)}</div></div>` +
@@ -355,52 +364,77 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
       el('reorderBtn').addEventListener('click', () => loadIntoCart(lo.items));
     }
 
-    el('reorderSlot').innerHTML =
-      '<div id="reorderCard"></div>' +
-      '<div class="reorder-lookup">' +
-        '<button type="button" class="reorder-lookup__toggle" id="rlToggle">↻ Traé tu último pedido con tu WhatsApp</button>' +
-        '<form class="reorder-lookup__form" id="rlForm" hidden>' +
-          '<input type="tel" id="rlInput" placeholder="Tu WhatsApp (ej: 11 5555-1234)" autocomplete="tel" inputmode="tel" />' +
-          '<button type="submit" class="btn" id="rlBtn">Buscar</button>' +
-        '</form>' +
-        '<p class="reorder-lookup__msg" id="rlMsg" hidden></p>' +
-      '</div>';
+    // ---- identificación por CUIT (la "sesión" del comercio) ----
+    const CUIT_KEY = 'teia_cuit';
+    const fmtCuit = (s) => { const d = String(s || '').replace(/\D/g, ''); return d.length === 11 ? d.slice(0, 2) + '-' + d.slice(2, 10) + '-' + d.slice(10) : String(s || ''); };
 
-    renderReorderCard(lastOrder());
+    function renderAccount() {
+      const box = el('accountBox');
+      if (CLIENT && !CLIENT.unknown) {
+        box.innerHTML =
+          `<div class="reorder"><div><div class="reorder__t">👤 ${esc(CLIENT.business_name)}</div>` +
+          `<div class="reorder__s">CUIT ${esc(fmtCuit(CLIENT.cuit))}${pct() > 0 ? ' · ✓ Descuento fiel −10% activo' : ''}</div></div>` +
+          `<button class="reorder__btn" type="button" id="cuitLogout">Cambiar</button></div>`;
+        el('cuitLogout').addEventListener('click', logout);
+      } else {
+        box.innerHTML =
+          `<div class="reorder-lookup">` +
+          `<button type="button" class="reorder-lookup__toggle" id="cuitToggle">👤 Ingresá con tu CUIT — tus datos y tu último pedido, listos</button>` +
+          `<form class="reorder-lookup__form" id="cuitForm" hidden>` +
+          `<input id="cuitInput" inputmode="numeric" autocomplete="off" placeholder="Tu CUIT (ej: 30-12345678-6)" />` +
+          `<button type="submit" class="btn" id="cuitBtn">Entrar</button></form>` +
+          `<p class="reorder-lookup__msg" id="cuitMsg" hidden></p></div>`;
+        el('cuitToggle').addEventListener('click', () => {
+          const f = el('cuitForm');
+          f.hidden = !f.hidden;
+          if (!f.hidden) el('cuitInput').focus();
+        });
+        el('cuitForm').addEventListener('submit', (e) => { e.preventDefault(); identify(el('cuitInput').value, true); });
+      }
+    }
 
-    el('rlToggle').addEventListener('click', () => {
-      const f = el('rlForm');
-      f.hidden = !f.hidden;
-      if (!f.hidden) el('rlInput').focus();
-    });
-    el('rlForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const contact = el('rlInput').value.trim();
-      const msg = el('rlMsg'), btn = el('rlBtn');
-      if (!contact) return;
-      msg.hidden = true; btn.textContent = 'Buscando…'; btn.disabled = true;
+    async function identify(cuitRaw, interactive) {
+      const raw = String(cuitRaw || '').trim();
+      if (!raw) return;
+      const btn = el('cuitBtn');
+      if (interactive && btn) { btn.disabled = true; btn.textContent = '…'; }
+      const show = (t, ok) => { const m = el('cuitMsg'); if (m) { m.hidden = false; m.className = 'reorder-lookup__msg' + (ok ? ' ok' : ''); m.textContent = t; } };
       try {
-        const r = await fetch('/api/last-order', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact }),
+        const r = await fetch('/api/client', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cuit: raw }),
         });
         const o = await r.json().catch(() => ({}));
-        if (r.ok && o.ok && o.items && o.items.length) {
-          const lo = { order_number: o.order_number || '', items: o.items };
-          try { localStorage.setItem('teia_last_order', JSON.stringify(lo)); } catch {}
-          renderReorderCard(lo);
-          el('rlForm').hidden = true;
-          msg.hidden = false; msg.className = 'reorder-lookup__msg ok'; msg.textContent = '✓ ¡Encontramos tu pedido! Tocá “Cargar”.';
+        if (!r.ok) { if (interactive) show((o && o.error) || 'No se pudo consultar. Probá de nuevo.', false); return; }
+        try { localStorage.setItem(CUIT_KEY, raw); } catch {}
+        if (o.unknown) {
+          CLIENT = { cuit: raw, unknown: true, discount_pct: 0 };
+          renderReorderCard(null);
+          if (interactive) show('✓ CUIT nuevo: con tu primer pedido guardamos tus datos para la próxima.', true);
         } else {
-          msg.hidden = false; msg.className = 'reorder-lookup__msg'; msg.textContent = (o && o.error) || 'No encontramos pedidos con ese contacto.';
+          CLIENT = { ...o.client, cuit: raw };
+          renderAccount();
+          renderReorderCard(o.last_order || null);
         }
+        decoratePrices(); renderOrder();
       } catch {
-        msg.hidden = false; msg.className = 'reorder-lookup__msg'; msg.textContent = 'No se pudo buscar. Probá de nuevo.';
+        if (interactive) show('No se pudo consultar. Revisá tu conexión.', false);
       } finally {
-        btn.textContent = 'Buscar'; btn.disabled = false;
+        if (interactive && btn && document.body.contains(btn)) { btn.disabled = false; btn.textContent = 'Entrar'; }
       }
-    });
+    }
+
+    function logout() {
+      try { localStorage.removeItem(CUIT_KEY); } catch {}
+      CLIENT = null;
+      renderAccount(); renderReorderCard(null); decoratePrices(); renderOrder();
+    }
 
     // ---- init ----
+    el('reorderSlot').innerHTML = '<div id="accountBox"></div><div id="reorderCard"></div>';
+    renderAccount();
+    let savedCuit = null;
+    try { savedCuit = localStorage.getItem(CUIT_KEY); } catch {}
+    if (savedCuit) identify(savedCuit, false);
     syncAll();
     renderOrder();
   </script>

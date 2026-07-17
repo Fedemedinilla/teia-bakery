@@ -25,6 +25,10 @@ import Base from '../layouts/Base.astro';
         <form id="form" class="card co-form" novalidate>
           <h2>Tus datos</h2>
 
+          <label for="f-cuit">CUIT del comercio</label>
+          <input id="f-cuit" name="cuit" required inputmode="numeric" autocomplete="off" placeholder="Ej: 30-12345678-6" />
+          <p class="field-hint" id="cuitHint">Si ya pediste antes, con tu CUIT te completamos todo. 🙌</p>
+
           <label for="f-name">Nombre / Comercio</label>
           <input id="f-name" name="client_name" required autocomplete="organization" placeholder="Ej: Café de la Esquina" />
 
@@ -45,6 +49,7 @@ import Base from '../layouts/Base.astro';
           <div class="card co-summary__card">
             <h2>Tu pedido</h2>
             <ul class="order__items co-items" id="cart"></ul>
+            <div class="order__disc" id="coDisc" hidden>✓ Descuento fiel −10% aplicado</div>
             <div class="co-total"><span>Total</span><b id="coTotal">$0</b></div>
             <p class="co-trust">🤝 Sin pago online — coordinás el pago con Teia al recibir.</p>
             <button class="btn btn--block" type="submit" form="form" id="submitBtn">Enviar pedido</button>
@@ -66,6 +71,38 @@ import Base from '../layouts/Base.astro';
     try { const raw = JSON.parse(localStorage.getItem('teia_cart') || '[]'); cart = Array.isArray(raw) ? raw : []; }
     catch { cart = []; }
     const total = () => cart.reduce((s, i) => s + i.price * i.qty, 0);
+
+    // Cuenta por CUIT: autocompleta los datos y muestra el descuento fiel del cliente.
+    // Solo VISTA — el server re-lee precios y aplica el % por su cuenta al crear la orden.
+    let CLIENT = null;
+    const pct = () => (CLIENT && !CLIENT.unknown && Number(CLIENT.discount_pct)) || 0;
+    const net = (n) => Math.round(n * (1 - pct() / 100));
+
+    async function identify(cuitRaw) {
+      const raw = String(cuitRaw || '').trim();
+      if (raw.replace(/\D/g, '').length !== 11) return;
+      try {
+        const r = await fetch('/api/client', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cuit: raw }),
+        });
+        const o = await r.json().catch(() => ({}));
+        if (!r.ok) return;
+        try { localStorage.setItem('teia_cuit', raw); } catch {}
+        const hint = el('cuitHint');
+        if (o.unknown) {
+          CLIENT = { cuit: raw, unknown: true, discount_pct: 0 };
+          if (hint) hint.textContent = '✓ CUIT nuevo: completá tus datos una sola vez — quedan guardados para la próxima.';
+        } else {
+          CLIENT = { ...o.client, cuit: raw };
+          const form = el('form');
+          form.elements.client_name.value = o.client.business_name || '';
+          form.elements.client_contact.value = o.client.client_contact || '';
+          form.elements.delivery_address.value = o.client.delivery_address || '';
+          if (hint) hint.textContent = `✓ ¡Hola, ${o.client.business_name}! Tus datos ya están cargados.`;
+        }
+        render();
+      } catch {}
+    }
 
     function save() { localStorage.setItem('teia_cart', JSON.stringify(cart)); render(); }
     function change(id, d) {
@@ -92,15 +129,18 @@ import Base from '../layouts/Base.astro';
           `<span class="oi__qv">${i.qty}</span>` +
           `<button class="oi__step" type="button" data-inc="${id}" aria-label="Sumar uno">+</button></span>` +
           (i.pack ? `<span class="oi__pack">${esc(i.pack)}</span>` : '') +
-          `<span class="oi__line">${money(i.price * i.qty)}</span></div></li>`;
+          `<span class="oi__line">${money(net(i.price * i.qty))}</span></div></li>`;
       }).join('');
 
       el('cart').querySelectorAll('[data-inc]').forEach((b) => (b.onclick = () => change(b.dataset.inc, +1)));
       el('cart').querySelectorAll('[data-dec]').forEach((b) => (b.onclick = () => change(b.dataset.dec, -1)));
       el('cart').querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => removeItem(b.dataset.rm)));
 
-      el('coTotal').textContent = money(total());
-      el('submitBtn').textContent = 'Enviar pedido · ' + money(total());
+      const tNet = Math.round(total() * (1 - pct() / 100)); // misma fórmula que el server
+      const disc = el('coDisc');
+      if (disc) disc.hidden = pct() === 0;
+      el('coTotal').textContent = money(tNet);
+      el('submitBtn').textContent = 'Enviar pedido · ' + money(tNet);
     }
 
     el('form').addEventListener('submit', async (e) => {
@@ -108,11 +148,11 @@ import Base from '../layouts/Base.astro';
       const form = e.target;
       const msg = el('msg'), btn = el('submitBtn');
       // validación amable (campos requeridos)
-      const missing = ['client_name', 'client_contact', 'delivery_address'].find((n) => !form.elements[n].value.trim());
+      const missing = ['cuit', 'client_name', 'client_contact', 'delivery_address'].find((n) => !form.elements[n].value.trim());
       if (missing) {
         const field = form.elements[missing];
         field.focus();
-        msg.hidden = false; msg.className = 'co-msg err'; msg.textContent = 'Completá tu nombre, contacto y dirección para enviar el pedido.';
+        msg.hidden = false; msg.className = 'co-msg err'; msg.textContent = 'Completá tu CUIT, nombre, contacto y dirección para enviar el pedido.';
         return;
       }
       const fd = Object.fromEntries(new FormData(form).entries());
@@ -124,13 +164,14 @@ import Base from '../layouts/Base.astro';
         });
         const out = await res.json().catch(() => ({}));
         if (res.ok && out.ok) {
-          try { localStorage.setItem('teia_last_order', JSON.stringify({ order_number: out.order_number || '', items: cart })); } catch {}
-          localStorage.removeItem('teia_cart');
+          localStorage.removeItem('teia_cart'); // el "último pedido" ahora vive en la cuenta (server)
           el('root').innerHTML =
             '<div class="success-state card">' +
             '<div class="success-state__check" aria-hidden="true">✓</div>' +
             '<h1>¡Pedido enviado!</h1>' +
-            '<p class="success-state__num">Pedido <b>' + esc(out.order_number || '') + '</b></p>' +
+            '<p class="success-state__num">Pedido <b>' + esc(out.order_number || '') + '</b>' +
+            (out.total ? ' · Total <b>' + money(out.total) + '</b>' : '') +
+            (Number(out.discount_pct) > 0 ? ' <span class="order__disc" style="display:inline">✓ con descuento fiel −10%</span>' : '') + '</p>' +
             '<p class="success-state__s">Teia lo revisa y te confirma el día de entrega por WhatsApp. ¡Gracias!</p>' +
             '<a class="btn" href="/catalogo">Volver al catálogo</a>' +
             '</div>';
@@ -148,5 +189,12 @@ import Base from '../layouts/Base.astro';
     });
 
     render();
+
+    // Identificación: CUIT recordado del catálogo, o el que escriban acá (al salir del campo).
+    const cuitField = el('f-cuit');
+    let savedCuit = null;
+    try { savedCuit = localStorage.getItem('teia_cuit'); } catch {}
+    if (savedCuit && cuitField) { cuitField.value = savedCuit; identify(savedCuit); }
+    cuitField?.addEventListener('change', () => identify(cuitField.value));
   </script>
 </Base>

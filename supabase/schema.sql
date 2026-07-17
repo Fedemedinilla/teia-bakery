@@ -19,9 +19,25 @@ create table if not exists teia_products (
   created_at          timestamptz not null default now()
 );
 
+-- Cuentas de clientes mayoristas: el CUIT es la identidad. Se crean solas con el primer
+-- pedido; Mica las administra (datos + descuento fiel del cliente) desde /administradora.
+-- (Va ANTES de teia_orders: la FK client_id la referencia.)
+create table if not exists teia_clients (
+  id               bigint generated always as identity primary key,
+  cuit             text not null unique,     -- normalizado: solo dígitos (11, verificador validado en la app)
+  business_name    text not null,            -- nombre del comercio/empresa
+  client_contact   text default '',          -- WhatsApp o email
+  delivery_address text default '',
+  discount_pct     int  not null default 0,  -- descuento fiel del CLIENTE (se snapshotea en cada orden)
+  notes            text default '',          -- notas internas de Mica
+  created_at       timestamptz not null default now(),
+  last_order_at    timestamptz
+);
+
 create table if not exists teia_orders (
   id               bigint generated always as identity primary key,
   order_number     text unique,               -- ej. "TEIA-0042"
+  client_id        bigint references teia_clients(id) on delete set null, -- la cuenta (el pedido sobrevive si se borra)
   client_name      text not null,
   client_contact   text not null,             -- WhatsApp o email
   delivery_address text not null,
@@ -43,6 +59,7 @@ create table if not exists teia_orders (
 
 -- MIGRACIÓN para bases que ya existían antes de estas columnas (correr en el SQL Editor;
 -- en una base nueva son no-ops porque el create de arriba ya las trae):
+alter table teia_orders add column if not exists client_id bigint references teia_clients(id) on delete set null;
 alter table teia_orders add column if not exists discount_pct       int not null default 0;
 alter table teia_orders add column if not exists archive_status     text;
 alter table teia_orders add column if not exists archive_error      text;
@@ -63,6 +80,7 @@ create table if not exists teia_order_items (
 
 create index if not exists idx_teia_orders_status     on teia_orders(status);
 create index if not exists idx_teia_order_items_order on teia_order_items(order_id);
+create index if not exists idx_teia_orders_client     on teia_orders(client_id);
 
 -- RLS: la app pega desde el server con la service_role key (la bypassa). Igual ACTIVAR RLS
 -- para que la anon key no pueda leer/escribir nada directo (sin policies = todo denegado a anon).
@@ -78,6 +96,7 @@ alter table teia_products    enable row level security;
 alter table teia_orders      enable row level security;
 alter table teia_order_items enable row level security;
 alter table teia_categories  enable row level security;
+alter table teia_clients     enable row level security;
 
 -- Storage: bucket PÚBLICO para las fotos de producto (subida desde /administradora con la
 -- service_role key; lectura pública vía URL). Correr una vez.

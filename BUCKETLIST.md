@@ -52,12 +52,35 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
 - **Precio** cerrado (US$700 build + US$55/mes; propuesta PDF sobria ya entregada) + scope por escrito.
 - **Testimonio** + permiso para mostrarlo en portfolio/LinkedIn/IG.
 
-## 📩 Pedidos de Mica (WhatsApp 2026-07-06) — scope a decidir con Federico
-1. **Dos listas de precios** (una para Chungo, otra mayorista general) — propuesta: tabla
-   `teia_clients` (nombre, contacto, dirección, lista de precios, token) + segundo precio por
-   producto + **link propio por cliente** (`/catalogo?c=<token>`) que muestra su lista.
-2. **Datos del cliente pre-cargados** — el mismo link propio pre-llena nombre/dirección en el
-   checkout (resuelve 1 y 2 con la misma pieza). Complementa el last-order por WhatsApp que ya existe.
+## ✅ CUENTAS POR CUIT — CONSTRUIDO 2026-07-17 (decisión de Federico; reemplaza el plan de tokens)
+- **Identidad = CUIT** (validado con dígito verificador mod-11 real, `src/lib/cuit.ts` + test con
+  CUITs públicos). Tabla `teia_clients` + `teia_orders.client_id` (FK on delete set null).
+- **Cliente:** catálogo público; "Ingresá con tu CUIT" arriba → banner con su comercio + recompra
+  del server (cross-device). **Checkout: CUIT OBLIGATORIO**, autocompleta datos de la cuenta;
+  cuenta nueva se crea sola con el primer pedido. CUIT recordado en el dispositivo.
+- **Descuento fiel POR CLIENTE:** Mica lo prende en la pestaña **Clientes**; el cliente identificado
+  ve TODO el catálogo con precio de lista tachado + precio neto (pedido de Federico: "aire de
+  cliente de confianza"). El % lo aplica SOLO el server al crear la orden (nunca viaja del browser)
+  y queda snapshoteado en la orden. Mínimo $40k se evalúa sobre precio de LISTA. El toggle por
+  pedido sigue como override de Mica.
+- **Panel /administradora → pestaña Clientes:** CUIT = comercio, badges (fiel −10%, nº pedidos),
+  detalle editable (datos + notas internas + descuento) + **historial de pedidos de ese CUIT** con
+  links a remitos + alta manual opcional. Deep-link `#clientes`.
+- **Rollback ejecutado (sin código muerto):** borrados `/api/last-order.ts`, el buscador por
+  WhatsApp del catálogo y `teia_last_order` (localStorage). El fix de email del Pack 2 quedó
+  superado por esto.
+- **⚠️ SQL requerido en DEMOS para que el checkout funcione en prod** (sin la tabla, /api/order
+  responde 503): sección `teia_clients` + `client_id` de `supabase/schema.sql`.
+- Endpoints nuevos: `/api/client` (público, lookup por CUIT — expone datos del propio comercio,
+  decisión consciente igual que el last-order que reemplaza) y `/api/admin/client`.
+- Verificado en demo: API 4 casos, strikethrough, banner, recompra neta, checkout autofill +
+  total neto + envío, pestaña Clientes con historial.
+
+## 📩 Pedidos de Mica (WhatsApp 2026-07-06) — estado
+1. **Dos listas de precios** (Chungo vs. general) — ⚠️ ABIERTO: el descuento por cliente cubre
+   "precios especiales" como %, pero si Chungo necesita PRECIOS por producto distintos, falta
+   `price_list` por cliente + segundo precio (definir en el Meet). El esquema ya lo soporta.
+2. ~~Datos pre-cargados~~ — **HECHO** con las cuentas CUIT (arriba).
 3. **Drive por mes/año — CONFIRMADO por la clienta (2026-07-16); SÍ es posible.** El descarte
    anterior era del camino service account (los archivos quedan a nombre de la SA, que no tiene
    cuota en Gmail). **Ruta propuesta (pendiente de ok de Federico): OAuth con la cuenta de Mica,

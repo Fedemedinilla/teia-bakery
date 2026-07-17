@@ -3,7 +3,8 @@ export const prerender = false;
 import Base from '../layouts/Base.astro';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
 import { sbSelect, supaConfigured } from '../lib/supabase';
-import { DEMO_PRODUCTS, DEMO_ORDERS, DEMO_ORDER_ITEMS } from '../lib/demo';
+import { fmtCuit } from '../lib/cuit';
+import { DEMO_PRODUCTS, DEMO_ORDERS, DEMO_ORDER_ITEMS, DEMO_CLIENTS } from '../lib/demo';
 
 // Gate: in real mode (Supabase configured) require the panel password. In demo mode it's open.
 const configured = supaConfigured();
@@ -12,7 +13,10 @@ if (configured && !isTeiaAdmin(Astro.request)) {
 }
 
 const products = configured ? await sbSelect('teia_products?order=sort_order.asc,name.asc&select=*') : DEMO_PRODUCTS;
-const orders = configured ? await sbSelect('teia_orders?order=created_at.desc&select=*&limit=50') : DEMO_ORDERS;
+const orders = configured ? await sbSelect('teia_orders?order=created_at.desc&select=*&limit=200') : DEMO_ORDERS;
+
+// Cuentas de clientes (pestaña Clientes): CUIT = comercio, con su descuento y su historial.
+const clients = configured ? await sbSelect('teia_clients?order=business_name.asc&select=*') : DEMO_CLIENTS;
 
 // Ítems de cada pedido (para mostrar QUÉ se pidió + editar cantidades).
 const orderIds = (orders as any[]).map((o) => o.id);
@@ -24,6 +28,10 @@ for (const it of orderItems as any[]) { (itemsByOrder[it.order_id] ||= []).push(
 
 // Marca si el pedido ya tiene sus remitos archivados (links vs botón "Reintentar").
 const orderRows = (orders as any[]).map((o) => ({ ...o, archived: o.archive_status === 'archivado' && !!o.remito_cliente_url }));
+
+// Historial por cuenta (de los 200 pedidos más recientes ya traídos).
+const ordersByClient: Record<string, any[]> = {};
+for (const o of orderRows) { if (o.client_id) (ordersByClient[o.client_id] ||= []).push(o); }
 
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 
@@ -59,6 +67,7 @@ const SHEET_URL = '';
 
     <div class="tabs" role="tablist">
       <button class="tab is-active" data-tab="pedidos" type="button">Pedidos</button>
+      <button class="tab" data-tab="clientes" type="button">Clientes</button>
       <button class="tab" data-tab="productos" type="button">Productos</button>
       <button class="tab" data-tab="nuevo" type="button">＋ Nuevo producto</button>
       <button class="tab" data-tab="rubros" type="button">Rubros</button>
@@ -141,6 +150,77 @@ const SHEET_URL = '';
           </div>
         </div>
       ))}
+    </section>
+
+    <!-- CLIENTES (cuentas por CUIT) -->
+    <section class="panel" data-panel="clientes" hidden>
+      {clients.length === 0 && (
+        <p class="card muted">Sin cuentas todavía — se crean solas con el primer pedido de cada CUIT.</p>
+      )}
+      {(clients as any[]).map((c: any) => (
+        <div class="card clicard" data-id={c.id}>
+          <div class="clicard__head">
+            <div>
+              <span class="clicard__name">{c.business_name}</span>
+              <span class="clicard__cuit">CUIT {fmtCuit(c.cuit)}</span>
+            </div>
+            <div class="clicard__badges">
+              {Number(c.discount_pct) > 0 && <span class="badge badge--ok">fiel −{c.discount_pct}%</span>}
+              <span class="badge badge--wait">{(ordersByClient[c.id] || []).length} pedidos</span>
+              <button class="btn btn--ghost cli-toggle" type="button">Ver cuenta ▾</button>
+            </div>
+          </div>
+
+          <div class="clicard__body" hidden>
+            <div class="grid2">
+              <div><label>Comercio</label><input class="cf-name" value={c.business_name} /></div>
+              <div><label>Contacto</label><input class="cf-contact" value={c.client_contact || ''} /></div>
+            </div>
+            <label>Dirección de entrega</label>
+            <input class="cf-addr" value={c.delivery_address || ''} />
+            <div class="grid2">
+              <div><label>CUIT</label><input class="cf-cuit" value={fmtCuit(c.cuit)} /></div>
+              <div><label>Notas internas</label><input class="cf-notes" value={c.notes || ''} /></div>
+            </div>
+            <label class="check">
+              <input type="checkbox" class="cf-disc" checked={Number(c.discount_pct) === 10} />
+              Descuento fiel −10% <span class="ordcard__disc-hint">(sus pedidos nuevos llegan rebajados y ve el catálogo con los precios tachados)</span>
+            </label>
+            <div class="ordcard__actions">
+              <button class="btn save-cli" type="button">Guardar cuenta</button>
+              <button class="btn btn--danger del-cli" type="button" data-name={c.business_name}>Borrar cuenta</button>
+            </div>
+
+            <p class="clicard__hist-t">Historial de pedidos</p>
+            <ul class="clicard__hist">
+              {(ordersByClient[c.id] || []).map((o: any) => (
+                <li>
+                  <span>{o.order_number || `#${o.id}`}</span>
+                  <span class={`badge badge--${o.status === 'confirmado' ? 'ok' : 'wait'}`}>{o.status}</span>
+                  <span class="muted">{String(o.created_at || '').slice(0, 10)}</span>
+                  {Number(o.discount_pct) > 0 && <span class="muted">−{o.discount_pct}%</span>}
+                  <b>{money(o.total)}</b>
+                  {o.archived && <a class="arch-link" href={o.remito_cliente_url} target="_blank" rel="noopener">📄 remito</a>}
+                </li>
+              ))}
+              {(ordersByClient[c.id] || []).length === 0 && <li class="muted">Sin pedidos todavía.</li>}
+            </ul>
+          </div>
+        </div>
+      ))}
+
+      <div class="card form-card" style="margin-top:14px">
+        <h2 style="margin-top:0;font-size:16px">＋ Nueva cuenta (opcional)</h2>
+        <p class="hint">Normalmente no hace falta: la cuenta se crea sola con el primer pedido del CUIT. Usala para precargar un cliente (por ejemplo, para activarle el descuento antes de que pida).</p>
+        <form id="cliform">
+          <div class="grid2">
+            <div><label for="cli-cuit">CUIT</label><input id="cli-cuit" name="cuit" required placeholder="30-12345678-6" autocomplete="off" /></div>
+            <div><label for="cli-name">Comercio</label><input id="cli-name" name="business_name" required autocomplete="off" /></div>
+          </div>
+          <div class="form-actions"><button class="btn" type="submit">Crear cuenta</button></div>
+          <p id="climsg" class="muted"></p>
+        </form>
+      </div>
     </section>
 
     <!-- PRODUCTOS -->
@@ -536,6 +616,63 @@ const SHEET_URL = '';
       });
     });
 
+    // ---- clientes: cuentas por CUIT (editar datos, descuento fiel, borrar) ----
+    document.querySelectorAll('.clicard').forEach((card) => {
+      const body = card.querySelector('.clicard__body');
+      const toggle = card.querySelector('.cli-toggle');
+      toggle?.addEventListener('click', () => {
+        body.hidden = !body.hidden;
+        toggle.textContent = body.hidden ? 'Ver cuenta ▾' : 'Cerrar ▴';
+      });
+      card.querySelector('.save-cli')?.addEventListener('click', async () => {
+        const btn = card.querySelector('.save-cli');
+        const v = (sel) => { const e = card.querySelector(sel); return e ? e.value : ''; };
+        btn.textContent = 'Guardando…'; btn.disabled = true;
+        const r = await fetch('/api/admin/client', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: card.dataset.id,
+            business_name: v('.cf-name'), client_contact: v('.cf-contact'),
+            delivery_address: v('.cf-addr'), notes: v('.cf-notes'), cuit: v('.cf-cuit'),
+            discount_pct: card.querySelector('.cf-disc')?.checked ? 10 : 0,
+          }),
+        });
+        if (r.ok) location.reload();
+        else {
+          const o = await r.json().catch(() => ({}));
+          alert((o && o.error) || 'No se pudo guardar la cuenta.');
+          btn.textContent = 'Guardar cuenta'; btn.disabled = false;
+        }
+      });
+      card.querySelector('.del-cli')?.addEventListener('click', async () => {
+        const b = card.querySelector('.del-cli');
+        if (!confirm('¿Borrar la cuenta de "' + b.dataset.name + '"? Sus pedidos NO se borran (quedan sin cuenta). No se puede deshacer.')) return;
+        b.textContent = '…'; b.disabled = true;
+        const r = await fetch('/api/admin/client', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: card.dataset.id }),
+        });
+        if (r.ok) location.reload();
+        else { b.textContent = 'Error'; b.disabled = false; }
+      });
+    });
+    const cliform = document.getElementById('cliform');
+    if (cliform) {
+      const climsg = document.getElementById('climsg');
+      cliform.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        climsg.textContent = 'Creando…';
+        const r = await fetch('/api/admin/client', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cuit: cliform.elements.namedItem('cuit').value,
+            business_name: cliform.elements.namedItem('business_name').value,
+          }),
+        });
+        if (r.ok) { location.hash = 'clientes'; location.reload(); }
+        else { const o = await r.json().catch(() => ({})); climsg.textContent = (o && o.error) || 'No se pudo crear.'; }
+      });
+    }
+
     // ---- rubros / categorías ----
     const catform = document.getElementById('catform');
     if (catform) {
@@ -565,9 +702,9 @@ const SHEET_URL = '';
       })
     );
 
-    // deep-link por hash (#pedidos / #productos / #nuevo / #rubros)
+    // deep-link por hash (#pedidos / #clientes / #productos / #nuevo / #rubros)
     const initTab = (location.hash || '').slice(1);
-    if (['pedidos', 'productos', 'nuevo', 'rubros'].includes(initTab)) { if (initTab === 'nuevo') resetForm(); showTab(initTab); }
+    if (['pedidos', 'clientes', 'productos', 'nuevo', 'rubros'].includes(initTab)) { if (initTab === 'nuevo') resetForm(); showTab(initTab); }
 
     updatePreview();
   </script>

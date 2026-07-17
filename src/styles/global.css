@@ -196,6 +196,22 @@ h1.title { font-family: var(--font-display); font-weight: 600; font-size: clamp(
 .reorder-lookup__msg { font-size: 13px; color: var(--ink-2); margin: 8px 0 0; }
 .reorder-lookup__msg.ok { color: var(--good); font-weight: 600; }
 
+/* precio de lista tachado cuando el cliente identificado tiene descuento fiel */
+.price s { color: var(--ink-3); font-weight: 400; font-size: 0.82em; margin-right: 6px; text-decoration-thickness: 1px; }
+.order__disc { font-size: 12.5px; font-weight: 600; color: var(--good); margin: 10px 0 -4px; }
+
+/* --- Clientes (cuentas por CUIT) en /administradora --- */
+.clicard__head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.clicard__name { font-weight: 700; margin-right: 10px; }
+.clicard__cuit { font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.clicard__badges { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.clicard__body { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.clicard__hist-t { font-weight: 700; font-size: 13px; margin: 18px 0 4px; }
+.clicard__hist { list-style: none; margin: 0; padding: 0; }
+.clicard__hist li { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; flex-wrap: wrap; }
+.clicard__hist li:last-child { border-bottom: 0; }
+.clicard__hist li b { margin-left: auto; font-variant-numeric: tabular-nums; }
+
 /* ---- checkout (/pedido) ---- */
 .checkout { width: 100%; max-width: 940px; margin: 0 auto; padding: 24px 16px 90px; }
 .co-title { font-size: clamp(1.7rem, 1.4rem + 1.4vw, 2.3rem); margin: 8px 0 4px; }
