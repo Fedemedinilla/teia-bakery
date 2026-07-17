@@ -61,7 +61,10 @@ import Base from '../layouts/Base.astro';
     const el = (id) => document.getElementById(id);
     const sameId = (a, b) => String(a) === String(b);
 
-    let cart = JSON.parse(localStorage.getItem('teia_cart') || '[]');
+    // Parse defensivo: un teia_cart corrupto no puede dejar el checkout en blanco para siempre.
+    let cart;
+    try { const raw = JSON.parse(localStorage.getItem('teia_cart') || '[]'); cart = Array.isArray(raw) ? raw : []; }
+    catch { cart = []; }
     const total = () => cart.reduce((s, i) => s + i.price * i.qty, 0);
 
     function save() { localStorage.setItem('teia_cart', JSON.stringify(cart)); render(); }

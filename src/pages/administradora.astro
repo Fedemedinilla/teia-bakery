@@ -137,7 +137,7 @@ const SHEET_URL = '';
             {o.status === 'pendiente' && <button class="btn save-ord" type="button">Guardar</button>}
             {o.status === 'pendiente' && <button class="btn btn--ghost cancel-ord" type="button">Cancelar</button>}
             {o.status === 'pendiente' && <button class="btn confirm" data-id={o.id}>Confirmar ✓</button>}
-            <button class="btn btn--danger del-ord" type="button" data-num={o.order_number || `#${o.id}`}>Borrar</button>
+            <button class="btn btn--danger del-ord" type="button" data-num={o.order_number || `#${o.id}`} data-st={o.status}>Borrar</button>
           </div>
         </div>
       ))}
@@ -288,8 +288,16 @@ const SHEET_URL = '';
         const r = await fetch('/api/admin/confirm', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id }),
         });
-        if (r.ok) location.reload();
-        else { b.textContent = 'Error — reintentá'; b.disabled = false; }
+        if (r.ok) {
+          // El server avisa si el pedido superaba el stock o si algo quedó bajo el mínimo —
+          // antes esta respuesta se descartaba y la sobreventa era invisible.
+          const o = await r.json().catch(() => ({}));
+          const avisos = [];
+          if (o.shortages && o.shortages.length) avisos.push('⚠️ STOCK INSUFICIENTE (quedó en 0):\n· ' + o.shortages.join('\n· '));
+          if (o.low_stock && o.low_stock.length) avisos.push('Queda poco stock: ' + o.low_stock.join(', '));
+          if (avisos.length) alert('Pedido confirmado.\n\n' + avisos.join('\n\n'));
+          location.reload();
+        } else { b.textContent = 'Error — reintentá'; b.disabled = false; }
       })
     );
 
@@ -517,7 +525,8 @@ const SHEET_URL = '';
 
       card.querySelector('.del-ord')?.addEventListener('click', async () => {
         const b = card.querySelector('.del-ord');
-        if (!confirm('¿Borrar el pedido ' + (b.dataset.num || '') + '? No se puede deshacer.')) return;
+        const extra = b.dataset.st === 'confirmado' ? ' Se repone el stock que había descontado.' : '';
+        if (!confirm('¿Borrar el pedido ' + (b.dataset.num || '') + '?' + extra + ' No se puede deshacer.')) return;
         b.textContent = '…';
         const r = await fetch('/api/admin/order', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: card.dataset.id }),

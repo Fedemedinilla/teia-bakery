@@ -37,12 +37,15 @@ export const POST: APIRoute = async ({ request }) => {
     return json({ error: 'No se pudo leer el pedido. Probá de nuevo.' }, 500);
   }
   const lowStock: string[] = [];
+  const shortages: string[] = []; // pedidos por encima del stock: Mica tiene que enterarse
   for (const it of items as any[]) {
     if (!it.product_id) continue;
-    const prods = await sbSelect(`teia_products?id=eq.${it.product_id}&select=id,name,stock,low_stock_threshold`);
-    const p = prods[0] as any;
+    const prods = await sbSelectStrict(`teia_products?id=eq.${it.product_id}&select=id,name,stock,low_stock_threshold`);
+    const p = prods && (prods as any[])[0];
     if (!p) continue;
-    const newStock = Math.max(0, Number(p.stock) - Number(it.qty));
+    const stock = Number(p.stock), qty = Number(it.qty);
+    if (qty > stock) shortages.push(`${p.name}: pedía ${qty} y había ${stock}`);
+    const newStock = Math.max(0, stock - qty);
     await sbPatch(`teia_products?id=eq.${p.id}`, { stock: newStock });
     if (newStock <= Number(p.low_stock_threshold)) lowStock.push(`${p.name} (${newStock})`);
   }
@@ -54,5 +57,5 @@ export const POST: APIRoute = async ({ request }) => {
   // Low-stock alert. For now logged; next step = email via Resend to Teia.
   if (lowStock.length) console.warn('[teia] poco stock tras confirmar', order.order_number, '→', lowStock.join(', '));
 
-  return json({ ok: true, low_stock: lowStock });
+  return json({ ok: true, low_stock: lowStock, shortages });
 };

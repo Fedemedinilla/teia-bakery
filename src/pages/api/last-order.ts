@@ -28,8 +28,13 @@ export const POST: APIRoute = async ({ request }) => {
   // pastelería alcanza; si crece mucho, conviene una columna normalizada + índice.
   const orders = await sbSelect('teia_orders?select=id,order_number,client_contact,created_at&order=created_at.desc&limit=1000');
   const match = (orders as any[]).find((o) => {
-    const c = String(o.client_contact || '');
-    return isEmail ? c.toLowerCase().includes(needle) : normPhone(c) === needle;
+    const c = String(o.client_contact || '').trim().toLowerCase();
+    if (!isEmail) return normPhone(c) === needle;
+    // Igualdad EXACTA (no substring: 'ana@x.com' no debe matchear 'mariana@x.com').
+    // Tolera contactos guardados como "Nombre <mail@x.com>" o "mail@x.com / 11 5555".
+    if (c === needle) return true;
+    const tok = c.split(/[\s,;<>()\/]+/).find((t) => t.includes('@'));
+    return tok === needle;
   });
   if (!match) return json({ ok: false, error: 'No encontramos pedidos con ese contacto.' });
 

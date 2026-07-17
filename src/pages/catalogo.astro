@@ -140,7 +140,7 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
 
     let cart = load();
     let modalId = null;
-    function load() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } }
+    function load() { try { const raw = JSON.parse(localStorage.getItem(KEY)); return Array.isArray(raw) ? raw : []; } catch { return []; } }
     function persist() { try { localStorage.setItem(KEY, JSON.stringify(cart)); } catch {} }
     function find(id) { return cart.find((x) => sameId(x.id, id)); }
     function total() { return cart.reduce((s, i) => s + i.price * i.qty, 0); }
@@ -316,12 +316,29 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
       return demoLast || null;
     }
     function loadIntoCart(items) {
+      // El pedido guardado puede tener meses: los precios/nombres se toman del CATÁLOGO actual
+      // (el DOM ya los tiene), y lo borrado/oculto/sin stock se saltea avisando — así el total
+      // que ve el cliente es el que se va a grabar.
+      let salteados = 0;
       items.forEach((i) => {
+        const node = document.querySelector('.item[data-id="' + CSS.escape(String(i.id)) + '"]');
+        if (!node || !node.querySelector('.buy-ctl')) { salteados++; return; }
+        const m = meta(node);
+        const qty = Math.max(1, parseInt(i.qty) || 1);
         const ex = find(i.id);
-        if (ex) ex.qty += i.qty;
-        else cart.push({ id: i.id, name: i.name, price: i.price, pack: i.pack, qty: i.qty });
+        if (ex) ex.qty += qty;
+        else cart.push({ id: m.id, name: m.name, price: m.price, pack: m.pack, cat: m.cat, qty });
       });
       persist(); syncAll(); renderOrder();
+      const btn = el('reorderBtn');
+      if (btn) { btn.disabled = true; btn.textContent = '✓ En el carrito'; } // doble click ya no duplica
+      const note = el('reorderNote');
+      if (note) {
+        note.hidden = !salteados;
+        if (salteados) note.textContent = salteados === 1
+          ? '1 producto de tu pedido anterior ya no está disponible y no se cargó.'
+          : salteados + ' productos de tu pedido anterior ya no están disponibles y no se cargaron.';
+      }
       if (window.innerWidth < 900) openSheet();
     }
     function renderReorderCard(lo) {
@@ -333,7 +350,8 @@ const demoLast = configured ? null : DEMO_LAST_ORDER;
       box.innerHTML =
         `<div class="reorder"><div><div class="reorder__t">↻ Repetir último pedido</div>` +
         `<div class="reorder__s">${esc(lo.order_number || '')} · ${c} ítems · ${fmt(t)}</div></div>` +
-        `<button class="reorder__btn" type="button" id="reorderBtn">Cargar</button></div>`;
+        `<button class="reorder__btn" type="button" id="reorderBtn">Cargar</button></div>` +
+        `<p class="reorder-lookup__msg" id="reorderNote" hidden></p>`;
       el('reorderBtn').addEventListener('click', () => loadIntoCart(lo.items));
     }
 

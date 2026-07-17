@@ -9,7 +9,10 @@ export function basicAuthOk(request: Request, expected: string | undefined): boo
   if (!h.startsWith('Basic ')) return false;
   try {
     const provided = atob(h.slice(6)).split(':').slice(1).join(':');
-    const a = Buffer.from(provided);
+    // atob devuelve la vista latin1 de los bytes UTF-8 que mandó el navegador: decodificar
+    // como 'latin1' recupera esos bytes exactos. Con el default ('utf8') una clave con
+    // ñ/acentos se re-codificaba distinto y NUNCA validaba (lockout del panel).
+    const a = Buffer.from(provided, 'latin1');
     const b = Buffer.from(expected);
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   } catch {

@@ -1,7 +1,7 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
-import { sbSelect, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
+import { sbSelect, sbSelectStrict, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -17,8 +17,23 @@ export const POST: APIRoute = async ({ request }) => {
   const orderId = Number(b?.id);
   if (!orderId) return json({ error: 'id inválido.' }, 400);
 
-  // Borrar el pedido (la FK on delete cascade elimina sus ítems). No restaura stock.
+  // Borrar el pedido (la FK on delete cascade elimina sus ítems). Si estaba CONFIRMADO,
+  // primero se repone el stock que el confirm descontó — si no, el catálogo queda mintiendo
+  // "sin stock" sobre mercadería que nunca se va a entregar.
   if (b?.action === 'delete') {
+    const rows = await sbSelectStrict(`teia_orders?id=eq.${orderId}&select=status`);
+    if (rows === null) return json({ error: 'No se pudo borrar. Probá de nuevo.' }, 500);
+    if (!(rows as any[]).length) return json({ error: 'El pedido no existe.' }, 404);
+    if ((rows as any[])[0].status === 'confirmado') {
+      const its = await sbSelectStrict(`teia_order_items?order_id=eq.${orderId}&select=product_id,qty`);
+      if (its === null) return json({ error: 'No se pudo leer el pedido para reponer el stock. Probá de nuevo.' }, 500);
+      for (const it of its as any[]) {
+        if (!it.product_id) continue;
+        const prods = await sbSelectStrict(`teia_products?id=eq.${it.product_id}&select=id,stock`);
+        const p = prods && (prods as any[])[0];
+        if (p) await sbPatch(`teia_products?id=eq.${p.id}`, { stock: Number(p.stock) + Number(it.qty) });
+      }
+    }
     const ok = await sbDelete(`teia_orders?id=eq.${orderId}`);
     return ok ? json({ ok: true }) : json({ error: 'No se pudo borrar.' }, 500);
   }

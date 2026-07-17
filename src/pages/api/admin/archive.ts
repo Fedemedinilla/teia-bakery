@@ -2,7 +2,7 @@ export const prerender = false;
 import type { APIRoute } from 'astro';
 import crypto from 'node:crypto';
 import { isTeiaAdmin } from '../../../lib/auth';
-import { sbSelect, sbPatch, sbUpload, env, supaConfigured } from '../../../lib/supabase';
+import { sbSelectStrict, sbPatch, sbUpload, env, supaConfigured } from '../../../lib/supabase';
 import { buildRemito } from '../../../lib/remito';
 
 const json = (o: any, s = 200) =>
@@ -27,12 +27,18 @@ function pathToken(id: number): string {
 // NUNCA lanza: captura sus errores y los deja en archive_status='error' + archive_error.
 // (Fase 2: acá se sumará el espejo al Google Sheet, una vez lista la service account.)
 export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: string; cliente?: string; interno?: string }> {
-  const orders = await sbSelect(`teia_orders?id=eq.${id}&select=*`);
+  // Lecturas ESTRICTAS: null = no se pudo leer (red/5xx). Antes un fallo transitorio acá
+  // devolvía [] y el remito salía VACÍO pero quedaba marcado 'archivado' para siempre.
+  const orders = await sbSelectStrict(`teia_orders?id=eq.${id}&select=*`);
+  if (orders === null) return { ok: false, error: 'No se pudo leer el pedido. Reintentá.' };
   const order = (orders as any[])[0];
   if (!order) return { ok: false, error: 'El pedido no existe.' };
-  const items = await sbSelect(`teia_order_items?order_id=eq.${id}&select=*&order=id.asc`);
+  const items = await sbSelectStrict(`teia_order_items?order_id=eq.${id}&select=*&order=id.asc`);
 
   try {
+    // Todo pedido real tiene ≥1 ítem (la creación rechaza carritos vacíos): acá items vacío
+    // o null = fallo de lectura → error retryable (queda para el botón Reintentar y el sweep).
+    if (items === null || !(items as any[]).length) throw new Error('No se pudieron leer los ítems del pedido.');
     const version = Number(order.version) || 1;
     const token = pathToken(id);
     const upload = (variant: 'cliente' | 'interno') => withRetry(async () => {

@@ -1,6 +1,6 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
-import { sbSelectStrict, sbInsert, sbPatch, supaConfigured, env } from '../../lib/supabase';
+import { sbSelectStrict, sbInsert, sbPatch, sbDelete, supaConfigured, env } from '../../lib/supabase';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -76,9 +76,19 @@ export const POST: APIRoute = async ({ request }) => {
   const order = created && created[0];
   if (!order) return json({ error: 'No se pudo crear el pedido.' }, 500);
 
+  // Ítems PRIMERO y chequeado (sin ítems no hay pedido): si el insert falla, se borra el
+  // encabezado huérfano y el cliente recibe un error real en vez de "¡Pedido enviado!".
+  const inserted = await sbInsert('teia_order_items', orderItems.map((it: any) => ({ ...it, order_id: order.id })));
+  if (!inserted) {
+    await sbDelete(`teia_orders?id=eq.${order.id}`);
+    return json({ error: 'No se pudo guardar el pedido. Probá de nuevo en un momento.' }, 500);
+  }
+
   const order_number = 'TEIA-' + String(order.id).padStart(4, '0');
-  await sbPatch(`teia_orders?id=eq.${order.id}`, { order_number });
-  await sbInsert('teia_order_items', orderItems.map((it: any) => ({ ...it, order_id: order.id })));
+  // El número es cosmético (el panel cae a #id si falta): con un reintento alcanza.
+  if (!(await sbPatch(`teia_orders?id=eq.${order.id}`, { order_number }))) {
+    await sbPatch(`teia_orders?id=eq.${order.id}`, { order_number });
+  }
 
   return json({ ok: true, order_number });
 };
