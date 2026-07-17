@@ -195,7 +195,14 @@ const SHEET_URL = '';
             <ul class="clicard__hist">
               {(ordersByClient[c.id] || []).map((o: any) => (
                 <li>
-                  <span>{o.order_number || `#${o.id}`}</span>
+                  <button class="oh-view" type="button" data-o={JSON.stringify({
+                    num: o.order_number || `#${o.id}`, status: o.status,
+                    date: String(o.created_at || '').slice(0, 10), ddate: o.delivery_date || '',
+                    address: o.delivery_address || '', total: o.total, pct: o.discount_pct || 0,
+                    notes: o.notes || '', archived: o.archived,
+                    rc: o.remito_cliente_url || '', ri: o.remito_interno_url || '',
+                    items: (itemsByOrder[o.id] || []).map((it: any) => ({ n: it.name, p: it.pack_label, q: it.qty, t: it.line_total })),
+                  })}>{o.order_number || `#${o.id}`}</button>
                   <span class={`badge badge--${o.status === 'confirmado' ? 'ok' : 'wait'}`}>{o.status}</span>
                   <span class="muted">{String(o.created_at || '').slice(0, 10)}</span>
                   {Number(o.discount_pct) > 0 && <span class="muted">−{o.discount_pct}%</span>}
@@ -222,6 +229,22 @@ const SHEET_URL = '';
         </form>
       </div>
     </section>
+
+    <!-- modal de detalle de pedido (se abre desde el historial de cada cliente) -->
+    <div class="pmodal" id="omodal" hidden>
+      <div class="pmodal__backdrop" data-oclose></div>
+      <div class="pmodal__card" role="dialog" aria-modal="true">
+        <button class="pmodal__x" type="button" data-oclose aria-label="Cerrar">×</button>
+        <div class="pmodal__body">
+          <h3 id="om-num"></h3>
+          <p class="muted" id="om-meta" style="margin:4px 0 0"></p>
+          <ul class="om-items" id="om-items"></ul>
+          <div id="om-totals"></div>
+          <p class="muted" id="om-notes" hidden></p>
+          <p id="om-links" hidden style="margin-top:10px"></p>
+        </div>
+      </div>
+    </div>
 
     <!-- PRODUCTOS -->
     <section class="panel" data-panel="productos" hidden>
@@ -672,6 +695,41 @@ const SHEET_URL = '';
         else { const o = await r.json().catch(() => ({})); climsg.textContent = (o && o.error) || 'No se pudo crear.'; }
       });
     }
+
+    // ---- modal de detalle de pedido (historial del cliente) ----
+    const omodal = document.getElementById('omodal');
+    const oEsc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    function openOrderModal(d) {
+      document.getElementById('om-num').textContent = d.num;
+      const meta = [d.status, d.date, d.ddate ? 'entrega: ' + d.ddate : '', d.address].filter(Boolean).join(' · ');
+      document.getElementById('om-meta').textContent = meta;
+      document.getElementById('om-items').innerHTML = (d.items || []).map((it) =>
+        `<li><span>${oEsc(it.n)} <small class="muted">${oEsc(it.p || '')}</small></span><span class="muted">× ${it.q}</span><b>${money(it.t)}</b></li>`
+      ).join('') || '<li class="muted">Sin detalle de ítems.</li>';
+      const pct = Number(d.pct) || 0;
+      const sub = (d.items || []).reduce((s, it) => s + (Number(it.t) || 0), 0);
+      document.getElementById('om-totals').innerHTML = pct > 0
+        ? `<p class="om-line muted"><span>Subtotal</span><b>${money(sub)}</b></p>` +
+          `<p class="om-line om-line--disc"><span>Descuento fiel −${pct}%</span><b>−${money(sub - (Number(d.total) || 0))}</b></p>` +
+          `<p class="om-line om-line--total"><span>Total</span><b>${money(d.total)}</b></p>`
+        : `<p class="om-line om-line--total"><span>Total</span><b>${money(d.total)}</b></p>`;
+      const notes = document.getElementById('om-notes');
+      notes.hidden = !d.notes;
+      if (d.notes) notes.textContent = '📝 ' + d.notes;
+      const links = document.getElementById('om-links');
+      links.hidden = !d.archived;
+      if (d.archived) {
+        links.innerHTML =
+          `<a class="arch-link" href="${oEsc(d.rc)}" target="_blank" rel="noopener">📄 Remito cliente</a> · ` +
+          `<a class="arch-link" href="${oEsc(d.ri)}" target="_blank" rel="noopener">📄 Hoja interna</a>`;
+      }
+      omodal.hidden = false;
+    }
+    document.querySelectorAll('.oh-view').forEach((b) =>
+      b.addEventListener('click', () => { try { openOrderModal(JSON.parse(b.dataset.o)); } catch {} })
+    );
+    omodal?.querySelectorAll('[data-oclose]').forEach((b) => b.addEventListener('click', () => (omodal.hidden = true)));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && omodal && !omodal.hidden) omodal.hidden = true; });
 
     // ---- rubros / categorías ----
     const catform = document.getElementById('catform');

@@ -211,6 +211,14 @@ h1.title { font-family: var(--font-display); font-weight: 600; font-size: clamp(
 .clicard__hist li { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; flex-wrap: wrap; }
 .clicard__hist li:last-child { border-bottom: 0; }
 .clicard__hist li b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.oh-view { border: 0; background: none; padding: 0; font: inherit; font-weight: 700; color: var(--accent); cursor: pointer; }
+.oh-view:hover { text-decoration: underline; text-underline-offset: 2px; }
+.om-items { list-style: none; margin: 14px 0 10px; padding: 0; }
+.om-items li { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.om-items li b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.om-line { display: flex; justify-content: space-between; margin: 5px 0; font-size: 13.5px; }
+.om-line--disc { color: var(--good); font-weight: 600; }
+.om-line--total { font-size: 15px; font-weight: 700; }
 
 /* ---- checkout (/pedido) ---- */
 .checkout { width: 100%; max-width: 940px; margin: 0 auto; padding: 24px 16px 90px; }
