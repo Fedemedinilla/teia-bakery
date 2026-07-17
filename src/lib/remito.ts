@@ -14,6 +14,25 @@ export type RemitoVariant = 'cliente' | 'interno';
 
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 
+// WinAnsi (CP1252) es lo ÚNICO que las fuentes estándar de pdf-lib saben dibujar; un solo
+// carácter fuera (emoji, ★, CJK) tira "WinAnsi cannot encode" y deja el pedido en
+// archive_status='error' para siempre. Todo texto pasa por acá antes de medirse o dibujarse:
+// NFC compone acentos sueltos de teclados móviles, los saltos de línea pasan a espacio,
+// el '−' tipográfico pasa a '-', y lo no representable se elimina.
+const CP1252_EXTRAS =
+  '€‚ƒ„…†‡ˆ‰Š‹ŒŽ' +
+  '‘’“”•–—˜™š›œžŸ';
+const NON_WINANSI = new RegExp('[^\\x20-\\x7E\\u00A0-\\u00FF' + CP1252_EXTRAS + ']', 'g');
+function safe(s: any): string {
+  return String(s ?? '')
+    .normalize('NFC')
+    .replace(/[\r\n\f\t]+/g, ' ')
+    .replace(/−/g, '-')
+    .replace(NON_WINANSI, '')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+}
+
 function fmtDate(s?: string): string {
   if (!s) return '—';
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s)); // fecha "solo día" → sin corrimiento de zona
@@ -23,7 +42,7 @@ function fmtDate(s?: string): string {
 }
 
 function clip(font: PDFFont, s: string, size: number, maxW: number): string {
-  s = String(s || '');
+  s = safe(s);
   if (font.widthOfTextAtSize(s, size) <= maxW) return s;
   while (s.length > 1 && font.widthOfTextAtSize(s + '…', size) > maxW) s = s.slice(0, -1);
   return s + '…';
@@ -39,9 +58,11 @@ export async function buildRemito(order: any, items: any[], variant: RemitoVaria
 
   const M = 48;
   const text = (s: string, x: number, y: number, font: PDFFont, size: number, color = INK) =>
-    page.drawText(s ?? '', { x, y, size, font, color });
-  const right = (s: string, xR: number, y: number, font: PDFFont, size: number, color = INK) =>
-    page.drawText(s ?? '', { x: xR - font.widthOfTextAtSize(s ?? '', size), y, size, font, color });
+    page.drawText(safe(s), { x, y, size, font, color });
+  const right = (s: string, xR: number, y: number, font: PDFFont, size: number, color = INK) => {
+    const t = safe(s);
+    page.drawText(t, { x: xR - font.widthOfTextAtSize(t, size), y, size, font, color });
+  };
   const hr = (y: number, thickness = 0.75, color = LINE) =>
     page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness, color });
 
@@ -103,8 +124,8 @@ export async function buildRemito(order: any, items: any[], variant: RemitoVaria
     right('Subtotal', cUnit, y, helv, 10, INK2);
     right(money(subtotal), cSub, y, helv, 10, INK2);
     y -= 16;
-    right(`Descuento fiel (−${pct}%)`, cUnit, y, helv, 10, ACCENT);
-    right('−' + money(subtotal - Number(order.total)), cSub, y, helv, 10, ACCENT);
+    right(`Descuento fiel (-${pct}%)`, cUnit, y, helv, 10, ACCENT);
+    right('-' + money(subtotal - Number(order.total)), cSub, y, helv, 10, ACCENT);
     y -= 18;
   }
   right('Total', cUnit, y, helvB, 12, INK);

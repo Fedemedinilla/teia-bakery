@@ -37,6 +37,38 @@ export async function sbSelect<T = any>(path: string): Promise<T[]> {
   }
 }
 
+// SELECT estricto — igual que sbSelect pero distingue el fallo: null si el request falló
+// (red/5xx), [] solo cuando el server respondió OK sin filas. Para flujos donde "no hay filas"
+// y "no pude leer" no pueden confundirse (plata, stock, archivado).
+export async function sbSelectStrict<T = any>(path: string): Promise<T[] | null> {
+  if (!supaConfigured()) return null;
+  try {
+    const r = await fetch(sb(path), { headers: sbHeaders() });
+    if (!r.ok) return null;
+    return (await r.json()) as T[];
+  } catch {
+    return null;
+  }
+}
+
+// PATCH que devuelve las filas afectadas (return=representation), o null si el request falló.
+// Con un filtro condicional (ej. `&status=eq.pendiente`) funciona como claim atómico:
+// [] = otra request ganó la carrera (o el filtro no matcheó), null = fallo de transporte.
+export async function sbPatchReturning<T = any>(path: string, body: unknown): Promise<T[] | null> {
+  if (!supaConfigured()) return null;
+  try {
+    const r = await fetch(sb(path), {
+      method: 'PATCH',
+      headers: sbHeaders({ Prefer: 'return=representation' }),
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) return null;
+    return (await r.json()) as T[];
+  } catch {
+    return null;
+  }
+}
+
 // INSERT — returns the created row(s) (return=representation), or null on failure.
 export async function sbInsert<T = any>(table: string, body: unknown): Promise<T[] | null> {
   if (!supaConfigured()) return null;

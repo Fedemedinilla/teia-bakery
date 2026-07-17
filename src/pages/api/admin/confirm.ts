@@ -1,7 +1,7 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
-import { sbSelect, sbPatch, supaConfigured } from '../../../lib/supabase';
+import { sbSelectStrict, sbPatch, sbPatchReturning, supaConfigured } from '../../../lib/supabase';
 import { archiveOrder } from './archive';
 
 const json = (o: any, s = 200) =>
@@ -19,12 +19,23 @@ export const POST: APIRoute = async ({ request }) => {
   const id = Number(body?.id);
   if (!id) return json({ error: 'id' }, 400);
 
-  const orders = await sbSelect(`teia_orders?id=eq.${id}&select=*`);
-  const order = orders[0];
-  if (!order) return json({ error: 'no existe' }, 404);
-  if (order.status !== 'pendiente') return json({ error: 'ya procesado' }, 409);
+  // Claim ATÓMICO: pendiente → confirmado en un solo PATCH condicional. Si llegan dos requests
+  // en paralelo (doble click), solo una recibe la fila; la otra ve [] y aborta SIN tocar stock.
+  // (El chequeo-de-status-y-después-patch anterior dejaba pasar a las dos → stock descontado 2×.)
+  const claimed = await sbPatchReturning<any>(`teia_orders?id=eq.${id}&status=eq.pendiente`, {
+    status: 'confirmado', confirmed_at: new Date().toISOString(),
+  });
+  if (claimed === null) return json({ error: 'No se pudo confirmar. Probá de nuevo.' }, 500);
+  if (!claimed.length) return json({ error: 'ya procesado (o no existe)' }, 409);
+  const order = claimed[0];
 
-  const items = await sbSelect(`teia_order_items?order_id=eq.${id}&select=product_id,qty`);
+  // Ítems con select estricto: si la lectura falla, se revierte el claim para no dejar un
+  // pedido "confirmado" sin stock descontado ni remitos.
+  const items = await sbSelectStrict(`teia_order_items?order_id=eq.${id}&select=product_id,qty`);
+  if (items === null) {
+    await sbPatch(`teia_orders?id=eq.${id}`, { status: 'pendiente', confirmed_at: null });
+    return json({ error: 'No se pudo leer el pedido. Probá de nuevo.' }, 500);
+  }
   const lowStock: string[] = [];
   for (const it of items as any[]) {
     if (!it.product_id) continue;
@@ -35,8 +46,6 @@ export const POST: APIRoute = async ({ request }) => {
     await sbPatch(`teia_products?id=eq.${p.id}`, { stock: newStock });
     if (newStock <= Number(p.low_stock_threshold)) lowStock.push(`${p.name} (${newStock})`);
   }
-
-  await sbPatch(`teia_orders?id=eq.${id}`, { status: 'confirmado', confirmed_at: new Date().toISOString() });
 
   // Archivar (app-native): genera los 2 remitos → Supabase Storage + estado. No bloquea el
   // confirm: archiveOrder captura sus propios errores (quedan en archive_status='error').

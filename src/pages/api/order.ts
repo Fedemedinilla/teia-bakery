@@ -1,6 +1,6 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
-import { sbSelect, sbInsert, sbPatch, supaConfigured } from '../../lib/supabase';
+import { sbSelectStrict, sbInsert, sbPatch, supaConfigured, env } from '../../lib/supabase';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -23,26 +23,49 @@ export const POST: APIRoute = async ({ request }) => {
   const delivery_address = String(body?.delivery_address || '').slice(0, 300).trim();
   if (!client_name || !client_contact || !delivery_address) return json({ error: 'Faltan datos del pedido.' }, 400);
 
-  const ids = items.map((i: any) => Number(i.id)).filter(Boolean);
-  const prods = ids.length ? await sbSelect(`teia_products?id=in.(${ids.join(',')})&select=id,name,pack_label,price`) : [];
+  // Los ids tienen que ser enteros: un id inválido haría que PostgREST rechace el in.() ENTERO
+  // y el pedido se cotizaría sin precios. Mejor rebotar el carrito de entrada.
+  const rawIds = items.map((i: any) => Number(i.id));
+  if (rawIds.some((n: number) => !Number.isInteger(n) || n <= 0)) return json({ error: 'El carrito tiene productos inválidos. Volvé al catálogo y armalo de nuevo.' }, 400);
+  const ids = [...new Set(rawIds)];
+
+  // Select ESTRICTO: null = no se pudo leer (red/5xx) y se aborta — jamás cotizar a $0 por un
+  // fallo transitorio. Solo se venden productos existentes y visibles (active).
+  const prods = await sbSelectStrict(`teia_products?id=in.(${ids.join(',')})&active=is.true&select=id,name,pack_label,price`);
+  if (prods === null) return json({ error: 'No pudimos procesar el pedido en este momento. Esperá un minuto y probá de nuevo.' }, 503);
   const byId: Record<string, any> = Object.fromEntries(prods.map((p: any) => [String(p.id), p]));
+
+  // Producto borrado u ocultado después de armar el carrito (o cargado por la recompra):
+  // avisar QUÉ falta en vez de grabar esa línea a $0 en silencio.
+  const missing = items.filter((i: any) => !byId[String(Number(i.id))]);
+  if (missing.length) {
+    const names = missing.map((i: any) => String(i.name || 'un producto').slice(0, 60)).join(', ');
+    return json({ error: `Estos productos ya no están disponibles: ${names}. Quitalos del pedido y volvé a enviarlo.` }, 409);
+  }
 
   let total = 0;
   const orderItems = items.map((i: any) => {
-    const p = byId[String(i.id)];
+    const p = byId[String(Number(i.id))];
     const qty = Math.min(9999, Math.max(1, parseInt(i.qty) || 1));
-    const unit_price = Number(p?.price || 0);
+    const unit_price = Number(p.price) || 0;
     const line_total = unit_price * qty;
     total += line_total;
     return {
-      product_id: p?.id || null,
-      name: p?.name || String(i.name || '').slice(0, 160),
-      pack_label: p?.pack_label || '',
+      product_id: p.id,
+      name: p.name,
+      pack_label: p.pack_label || '',
       qty,
       unit_price,
       line_total,
     };
   });
+
+  // Pedido mínimo también en el server: la UI del catálogo lo muestra, pero desde /pedido se
+  // pueden bajar cantidades y sin este chequeo entraría cualquier monto.
+  const MIN_ORDER = Number(env('TEIA_MIN_ORDER')) || 40000;
+  if (total < MIN_ORDER) {
+    return json({ error: `El pedido mínimo mayorista es de $${MIN_ORDER.toLocaleString('es-AR')}. Sumá productos para llegar.` }, 400);
+  }
 
   const created = await sbInsert<any>('teia_orders', {
     client_name, client_contact, delivery_address,

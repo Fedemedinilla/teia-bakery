@@ -283,12 +283,13 @@ const SHEET_URL = '';
     // ---- confirmar pedido ----
     document.querySelectorAll('.confirm').forEach((b) =>
       b.addEventListener('click', async () => {
+        b.disabled = true; // doble click acá = stock descontado dos veces
         b.textContent = '…';
         const r = await fetch('/api/admin/confirm', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id }),
         });
         if (r.ok) location.reload();
-        else b.textContent = 'Error';
+        else { b.textContent = 'Error — reintentá'; b.disabled = false; }
       })
     );
 

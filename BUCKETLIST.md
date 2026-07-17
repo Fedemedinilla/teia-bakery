@@ -77,7 +77,8 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
 ## 🔧 Auditoría de código (2026-07-16) — fixes pendientes
 Auditoría multi-agente (7 lentes + jueces adversariales): 60 hallazgos crudos → 30 confirmados leyendo el código. Ningún crítico; 5 rompen operación real.
 
-**Pack 1 — ALTA (rompen la operación; arreglar antes que nada):**
+**Pack 1 — ALTA — ✅ ARREGLADO 2026-07-17** (commit con harness `scripts/test-remito.ts`: caso hostil
+crasheaba con el código viejo y pasa con el fix; falta verlo en prod tras el push):
 1. `remito.ts:106-107` — el '−' (U+2212) no existe en WinAnsi → **TODO pedido con descuento fiel falla el archivado para siempre** (retry y sweep inútiles). Fix: guion ASCII.
 2. `remito.ts` — texto del cliente sin sanitizar: un **emoji en notas/nombre/dirección** → `archive_status='error'` irrecuperable (post-confirmación no se puede editar). Fix: sanitizar a CP1252 en `text()/right()/clip()`.
 3. `api/order.ts:34` — producto no resuelto se graba a **$0 en silencio** (producto borrado/oculto, o fallo transitorio de Supabase → pedido ENTERO a $0). Fix: validar ids enteros + `active=is.true` + responder 409 si falta algo.
