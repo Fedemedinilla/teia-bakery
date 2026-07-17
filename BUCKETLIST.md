@@ -74,6 +74,30 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
    nombre de ella o hosting bajo KyndredAI dentro del mensual (ver checklist de handoff).
 6. **Guía de uso** no técnica (cambiar precios, productos, confirmar pedidos) + llamada corta.
 
+## 🔧 Auditoría de código (2026-07-16) — fixes pendientes
+Auditoría multi-agente (7 lentes + jueces adversariales): 60 hallazgos crudos → 30 confirmados leyendo el código. Ningún crítico; 5 rompen operación real.
+
+**Pack 1 — ALTA (rompen la operación; arreglar antes que nada):**
+1. `remito.ts:106-107` — el '−' (U+2212) no existe en WinAnsi → **TODO pedido con descuento fiel falla el archivado para siempre** (retry y sweep inútiles). Fix: guion ASCII.
+2. `remito.ts` — texto del cliente sin sanitizar: un **emoji en notas/nombre/dirección** → `archive_status='error'` irrecuperable (post-confirmación no se puede editar). Fix: sanitizar a CP1252 en `text()/right()/clip()`.
+3. `api/order.ts:34` — producto no resuelto se graba a **$0 en silencio** (producto borrado/oculto, o fallo transitorio de Supabase → pedido ENTERO a $0). Fix: validar ids enteros + `active=is.true` + responder 409 si falta algo.
+4. `confirm.ts` + `administradora.astro:284` — **doble click en Confirmar descuenta stock 2 veces** (el botón no se deshabilita y el status se chequea antes del patch). Fix: claim atómico (`PATCH ...&status=eq.pendiente` + representation) + `disabled` en el botón.
+5. `api/order.ts` — el **pedido mínimo no se valida server-side** (desde /pedido se puede bajar el carrito por debajo de $40.000). Fix: chequear `TEIA_MIN_ORDER` tras re-precificar.
+
+**Pack 2 — MEDIA:**
+6. `last-order.ts:32` — match de email por `includes` → devuelve el pedido de OTRO cliente (`ana@x.com` matchea `mariana@x.com`; `@gmail.com` enumera). Fix: igualdad exacta normalizada.
+7. `archive.ts:33` — fallo transitorio leyendo ítems → **remito VACÍO marcado 'archivado'** definitivo. Fix: abortar si 0 ítems (todo pedido real tiene ≥1).
+8. `api/order.ts:57-58` — insert de ítems y patch de order_number sin chequear → pedido sin ítems con "¡Pedido enviado!". Fix: chequear + borrar el header huérfano + 500.
+9. Borrar pedido CONFIRMADO no repone stock, el botón aparece en cualquier estado y el diálogo no lo avisa (`admin/order.ts:21`, `administradora.astro:140`).
+10. La respuesta de Confirmar (aviso `low_stock` + clamp silencioso a 0 si qty>stock) se descarta con `location.reload()` → **sobreventa sin aviso** (`administradora.astro:287`).
+11. Remito: sin paginación (>~21 ítems se pisan con el pie), notas clipeadas a 1 línea (~90 de 500 chars), contacto sin clip, y `fmtDate` usa el día UTC de `confirmed_at` (confirmar 21:00-23:59 ART = día siguiente).
+12. `auth.ts:12` — password con ñ/acentos NUNCA valida (atob latin1 vs Buffer utf8). Fix: `Buffer.from(provided,'latin1')`.
+13. Recompra: `teia_last_order` guarda precios del día del pedido → meses después carga precios viejos (total visto ≠ grabado) y productos que ya no existen (alimenta el bug 3); "Cargar" duplica cantidades al doble click. `pedido.astro:64` — `JSON.parse` sin try/catch → checkout en blanco permanente si el localStorage se corrompe.
+
+**Pack 3 — BAJA (pulido):** edición admin (qty vacío borra la línea sin aviso; sin cap 9999; escrituras sin chequear; select degradado pisa total con $0 — aplica también al toggle de descuento; `Math.round` pisa centavos; edita confirmados si se llama directo), `category.ts:27` todo fallo dice "Ya existe", pedido sin ítems sigue confirmable (remito vacío), `Base.astro:35` `querySelector('#3-leches')` tira SyntaxError (rubros que empiezan con número), HEIC no decodificable se sube igual (imagen rota), el `<input>` de notas del panel aplasta los saltos de línea del textarea, README desactualizado (n8n/Drive/N8N_WEBHOOK_URL; faltan sweep y env nuevas), sweep: 5 errores permanentes viejos bloquean el reintento del resto (`order=id.asc&limit=5`).
+
+**Config (Federico):** setear `CRON_SECRET` en Vercel — sin ella el sweep queda abierto (por diseño, pero recomendada).
+
 ## 🔵 Fase 2 (nice-to-have)
 - **Resumen semanal con IA** (código calcula números exactos desde la DB → Claude redacta el informe) — el gancho vendible.
 - Lista de **clientes fieles** que pre-tilda el descuento −10% (match por teléfono; Mica siempre confirma).
