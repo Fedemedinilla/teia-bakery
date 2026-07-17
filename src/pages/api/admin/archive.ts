@@ -25,7 +25,7 @@ function pathToken(id: number): string {
 
 // Genera los 2 remitos, los sube a Supabase Storage y guarda las URLs + estado en el pedido.
 // NUNCA lanza: captura sus errores y los deja en archive_status='error' + archive_error.
-// (Fase 2: acá se sumará el espejo al Google Sheet, una vez lista la service account.)
+// (Próximo: acá se sumará el espejo Sheet/Drive — ruta OAuth drive.file, ver BUCKETLIST.)
 export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: string; cliente?: string; interno?: string }> {
   // Lecturas ESTRICTAS: null = no se pudo leer (red/5xx). Antes un fallo transitorio acá
   // devolvía [] y el remito salía VACÍO pero quedaba marcado 'archivado' para siempre.

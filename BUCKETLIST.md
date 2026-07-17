@@ -9,8 +9,8 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
 
 ## ✅ Hecho (el grueso de la app)
 - **/catalogo** — fusión "anti-Tiendanube": carta por rubros + "Agregar"→stepper + panel de pedido en vivo
-  (medidor de mínimo) + modal de detalle de producto + recompra (localStorage **+ búsqueda por WhatsApp
-  cross-device** vía `/api/last-order`) + scroll-spy + Lenis smooth scroll.
+  (medidor de mínimo) + modal de detalle de producto + recompra ~~por WhatsApp~~ → **por cuenta CUIT**
+  (2026-07-17) + scroll-spy + Lenis smooth scroll.
 - **/pedido** — checkout rediseñado (bible UX/UI): 2 columnas, resumen sticky editable, validación amable,
   estados vacío/éxito pulidos. El cliente NO pone fecha de entrega (la confirma Mica por WhatsApp).
 - **/administradora** (con clave):
@@ -129,4 +129,4 @@ paginación verificada con pdf-parse: 2 hojas, encabezado de continuación, nota
 - Estados **entregado / anulado** (anular reajusta stock).
 - **Email** de aviso de poco stock + email de alerta cuando un archivado falla 3× (hoy solo estado en panel).
 - Auto-edición del cliente hasta 24h antes del envío (hoy lo edita Mica).
-- Endurecer `/api/last-order` si hiciera falta (hoy: cualquiera con un teléfono ve el último pedido de ese teléfono — baja sensibilidad, decisión consciente).
+- Endurecer `/api/client` si hiciera falta (hoy: cualquiera con el CUIT de un comercio ve sus datos de entrega, descuento y último pedido — baja sensibilidad, decisión consciente; heredado del criterio del viejo last-order).
