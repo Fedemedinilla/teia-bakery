@@ -39,7 +39,11 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
 3. **Espejo al Google Sheet** — pedidos + productos reflejados (incluso borrados; rebuild por cron) con
    columna de links a los remitos. *(Necesita 1.)*
 4. ~~Barrido nocturno~~ — **HECHO 2026-07-08** (`/api/cron/sweep`, ver arriba); falta verlo correr en prod.
-5. **Test end-to-end en prod**: pedido → confirmar → 2 PDF + fila en Sheet + descuento fiel en remito.
+5. ~~Test end-to-end en prod~~ — **HECHO 2026-07-17** (flujo cuentas CUIT completo): pedido hostil →
+   cuenta auto-creada → Mica activa descuento en Clientes → 2º pedido llega con −10% server-side
+   (verificado por API: total 43200/48000) → confirmar → 2 PDFs verificados con parser (desglose
+   Subtotal/Descuento/Total exacto, emoji filtrados, UTF-8 intacto) → borrar repone stock → cuenta
+   borrada. Falta solo la "fila en Sheet" (el espejo aún no existe — ver OAuth).
 
 ## 🟡 Para el go-live oficial (handoff a Teia)
 - Mover de DEMOS a un **proyecto Supabase del cliente** (aislado, su cuenta).
@@ -121,7 +125,10 @@ paginación verificada con pdf-parse: 2 hojas, encabezado de continuación, nota
 
 **Pack 3 — BAJA (pulido):** edición admin (qty vacío borra la línea sin aviso; sin cap 9999; escrituras sin chequear; select degradado pisa total con $0 — aplica también al toggle de descuento; `Math.round` pisa centavos; edita confirmados si se llama directo), `category.ts:27` todo fallo dice "Ya existe", pedido sin ítems sigue confirmable (remito vacío), `Base.astro:35` `querySelector('#3-leches')` tira SyntaxError (rubros que empiezan con número), HEIC no decodificable se sube igual (imagen rota), el `<input>` de notas del panel aplasta los saltos de línea del textarea, README desactualizado (n8n/Drive/N8N_WEBHOOK_URL; faltan sweep y env nuevas), sweep: 5 errores permanentes viejos bloquean el reintento del resto (`order=id.asc&limit=5`).
 
-**Config (Federico):** setear `CRON_SECRET` en Vercel — sin ella el sweep queda abierto (por diseño, pero recomendada).
+**Config (Federico):** ~~setear `CRON_SECRET`~~ — HECHA y verificada (sweep responde 401 sin auth).
+
+**Pulido nuevo detectado en el e2e:** borrar un pedido NO borra sus PDFs del bucket `teia-remitos`
+(quedan huérfanos en Storage — inofensivo y diminuto, pero decidir si el delete debe limpiarlos).
 
 ## 🔵 Fase 2 (nice-to-have)
 - **Resumen semanal con IA** (código calcula números exactos desde la DB → Claude redacta el informe) — el gancho vendible.
