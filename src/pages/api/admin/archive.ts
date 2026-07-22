@@ -60,10 +60,14 @@ export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: s
     // y el botón Reintentar / el barrido nocturno lo completan.
     if (gConfigured()) {
       await withRetry(async () => {
-        const folder = await ensureMonthClientPath(order.confirmed_at || order.created_at, order.client_name);
+        const when = order.confirmed_at || order.created_at;
+        const folder = await ensureMonthClientPath(when, order.client_name);
         const num = order.order_number || '#' + order.id;
-        await driveUploadPdf(folder, `${num} - Remito cliente.pdf`, bytesCliente);
-        await driveUploadPdf(folder, `${num} - Hoja interna.pdf`, bytesInterno);
+        // fecha en el nombre (DD-MM-AAAA, hora argentina) — pedido de la clienta
+        const fecha = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric' })
+          .format(new Date(when || Date.now())).replace(/\//g, '-');
+        await driveUploadPdf(folder, `${num} - ${fecha} - Remito cliente.pdf`, bytesCliente);
+        await driveUploadPdf(folder, `${num} - ${fecha} - Hoja interna.pdf`, bytesInterno);
       });
     }
 

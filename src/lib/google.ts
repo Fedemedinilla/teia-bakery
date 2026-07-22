@@ -130,15 +130,96 @@ async function ensureSpreadsheet(): Promise<{ id: string; url: string }> {
   return { id: o.spreadsheetId, url: o.spreadsheetUrl };
 }
 
-async function ensureTabs(sheetId: string, titles: string[]): Promise<void> {
-  const meta = await gFetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets(properties(title))`);
-  const have = new Set((meta.sheets || []).map((s: any) => s.properties.title));
+type TabMeta = { sheetId: number; title: string; bandedIds: number[] };
+
+async function sheetMeta(id: string): Promise<TabMeta[]> {
+  const meta = await gFetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets(properties(sheetId,title),bandedRanges(bandedRangeId))`);
+  return (meta.sheets || []).map((s: any) => ({
+    sheetId: s.properties.sheetId,
+    title: s.properties.title,
+    bandedIds: (s.bandedRanges || []).map((b: any) => b.bandedRangeId),
+  }));
+}
+
+async function batchUpdate(id: string, requests: any[]): Promise<void> {
+  if (!requests.length) return;
+  await gFetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests }),
+  });
+}
+
+async function ensureTabs(id: string, titles: string[]): Promise<TabMeta[]> {
+  let tabs = await sheetMeta(id);
+  const have = new Set(tabs.map((t) => t.title));
   const requests = titles.filter((t) => !have.has(t)).map((t) => ({ addSheet: { properties: { title: t } } }));
-  if (requests.length) {
-    await gFetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}:batchUpdate`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests }),
-    });
+  if (requests.length) { await batchUpdate(id, requests); tabs = await sheetMeta(id); }
+  return tabs;
+}
+
+// ---- diseño de la planilla (paleta cálida de la marca; idempotente en cada rebuild) ----
+const C_TERRA = { red: 0.69, green: 0.408, blue: 0.298 };  // #B0684C
+const C_WHITE = { red: 1, green: 1, blue: 1 };
+const C_CREAM = { red: 0.984, green: 0.957, blue: 0.91 };  // #FBF4E8
+const C_SOFT = { red: 0.941, green: 0.886, blue: 0.831 };  // #F0E2D4
+const C_INK = { red: 0.2, green: 0.16, blue: 0.122 };      // #33291F
+const MONEY = { type: 'NUMBER', pattern: '"$"#,##0' };
+
+// Formato de una pestaña de DATOS: reset total (mata formatos viejos si la tabla se achicó),
+// encabezado terracota congelado, filas cebradas crema/blanco, columnas de plata con $,
+// auto-ancho + anchos fijos con recorte para las columnas largas (notas, links).
+function tabFormat(t: TabMeta, rows: number, cols: number, moneyCols: number[], fixed: Record<number, number> = {}): any[] {
+  const reqs: any[] = [{ repeatCell: { range: { sheetId: t.sheetId }, cell: {}, fields: 'userEnteredFormat' } }];
+  for (const bid of t.bandedIds) reqs.push({ deleteBanding: { bandedRangeId: bid } });
+  reqs.push({ updateSheetProperties: { properties: { sheetId: t.sheetId, gridProperties: { frozenRowCount: 1 } }, fields: 'gridProperties.frozenRowCount' } });
+  reqs.push({ repeatCell: {
+    range: { sheetId: t.sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: cols },
+    cell: { userEnteredFormat: { backgroundColor: C_TERRA, textFormat: { foregroundColor: C_WHITE, bold: true, fontSize: 10 }, verticalAlignment: 'MIDDLE', padding: { top: 6, bottom: 6 } } },
+    fields: 'userEnteredFormat(backgroundColor,textFormat,verticalAlignment,padding)',
+  } });
+  if (rows > 1) {
+    reqs.push({ addBanding: { bandedRange: {
+      range: { sheetId: t.sheetId, startRowIndex: 1, endRowIndex: rows, startColumnIndex: 0, endColumnIndex: cols },
+      rowProperties: { firstBandColor: C_CREAM, secondBandColor: C_WHITE },
+    } } });
   }
+  for (const c of moneyCols) {
+    reqs.push({ repeatCell: {
+      range: { sheetId: t.sheetId, startRowIndex: 1, startColumnIndex: c, endColumnIndex: c + 1 },
+      cell: { userEnteredFormat: { numberFormat: MONEY } }, fields: 'userEnteredFormat.numberFormat',
+    } });
+  }
+  reqs.push({ autoResizeDimensions: { dimensions: { sheetId: t.sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: cols } } });
+  for (const [idx, px] of Object.entries(fixed)) {
+    reqs.push({ updateDimensionProperties: { range: { sheetId: t.sheetId, dimension: 'COLUMNS', startIndex: Number(idx), endIndex: Number(idx) + 1 }, properties: { pixelSize: px }, fields: 'pixelSize' } });
+    reqs.push({ repeatCell: { range: { sheetId: t.sheetId, startRowIndex: 1, startColumnIndex: Number(idx), endColumnIndex: Number(idx) + 1 }, cell: { userEnteredFormat: { wrapStrategy: 'CLIP' } }, fields: 'userEnteredFormat.wrapStrategy' } });
+  }
+  return reqs;
+}
+
+// Formato del Resumen: títulos de sección destacados, subencabezados en negrita, plata en $.
+function resumenFormat(t: TabMeta, sectionRows: number[], headRows: number[]): any[] {
+  const reqs: any[] = [{ repeatCell: { range: { sheetId: t.sheetId }, cell: {}, fields: 'userEnteredFormat' } }];
+  for (const bid of t.bandedIds) reqs.push({ deleteBanding: { bandedRangeId: bid } });
+  reqs.push({ updateSheetProperties: { properties: { sheetId: t.sheetId, gridProperties: { frozenRowCount: 0 } }, fields: 'gridProperties.frozenRowCount' } });
+  for (const r of sectionRows) {
+    reqs.push({ repeatCell: {
+      range: { sheetId: t.sheetId, startRowIndex: r, endRowIndex: r + 1, startColumnIndex: 0, endColumnIndex: 3 },
+      cell: { userEnteredFormat: { backgroundColor: C_SOFT, textFormat: { foregroundColor: C_INK, bold: true, fontSize: 11 }, padding: { top: 8, bottom: 6 } } },
+      fields: 'userEnteredFormat(backgroundColor,textFormat,padding)',
+    } });
+  }
+  for (const r of headRows) {
+    reqs.push({ repeatCell: {
+      range: { sheetId: t.sheetId, startRowIndex: r, endRowIndex: r + 1, startColumnIndex: 0, endColumnIndex: 3 },
+      cell: { userEnteredFormat: { textFormat: { bold: true } } }, fields: 'userEnteredFormat.textFormat',
+    } });
+  }
+  reqs.push({ repeatCell: {
+    range: { sheetId: t.sheetId, startColumnIndex: 2, endColumnIndex: 3 },
+    cell: { userEnteredFormat: { numberFormat: MONEY } }, fields: 'userEnteredFormat.numberFormat',
+  } });
+  reqs.push({ autoResizeDimensions: { dimensions: { sheetId: t.sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 3 } } });
+  return reqs;
 }
 
 async function writeTab(sheetId: string, tab: string, rows: any[][]): Promise<void> {
@@ -172,7 +253,9 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
   if (!orders || !items || !products || !clients) throw new Error('No se pudo leer la base para el espejo.');
 
   const { id: sheetId, url } = await ensureSpreadsheet();
-  await ensureTabs(sheetId, ['Pedidos', 'Ítems', 'Productos', 'Clientes', 'Resumen']);
+  const TITLES = ['Pedidos', 'Ítems', 'Productos', 'Clientes', 'Resumen'];
+  const tabs = await ensureTabs(sheetId, TITLES);
+  const tabOf = (title: string) => tabs.find((t) => t.title === title)!;
 
   const byOrder: Record<string, any[]> = {};
   for (const it of items as any[]) (byOrder[it.order_id] ||= []).push(it);
@@ -225,16 +308,43 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
   }
   const anual = new Map<string, number>();
   for (const [m, v] of porMes) anual.set(m.slice(0, 4), (anual.get(m.slice(0, 4)) || 0) + v.t);
-  await writeTab(sheetId, 'Resumen', [
-    ['POR MES (pedidos confirmados)', '', ''], ['Mes', 'Pedidos', 'Total'],
-    ...[...porMes.entries()].sort().map(([m, v]) => [m, v.n, v.t]),
-    [''], ['POR AÑO', '', ''], ['Año', 'Total', ''],
-    ...[...anual.entries()].sort().map(([y, t]) => [y, t, '']),
-    [''], ['POR CLIENTE', '', ''], ['Cliente', 'Pedidos', 'Total'],
-    ...[...porCliente.entries()].sort((a, b) => b[1].t - a[1].t).map(([c, v]) => [c, v.n, v.t]),
-    [''], ['POR PRODUCTO', '', ''], ['Producto', 'Unidades', 'Total'],
-    ...[...porProducto.entries()].sort((a, b) => b[1].t - a[1].t).map(([p, v]) => [p, v.u, v.t]),
-  ]);
+
+  // Resumen con índices rastreados para el diseño (títulos de sección y subencabezados).
+  const resumen: any[][] = [];
+  const sectionRows: number[] = [];
+  const headRows: number[] = [];
+  const section = (titulo: string, head: any[], rows: any[][]) => {
+    if (resumen.length) resumen.push(['']);
+    sectionRows.push(resumen.length); resumen.push([titulo, '', '']);
+    headRows.push(resumen.length); resumen.push(head);
+    resumen.push(...rows);
+  };
+  section('POR MES (pedidos confirmados)', ['Mes', 'Pedidos', 'Total'],
+    [...porMes.entries()].sort().map(([m, v]) => [m, v.n, v.t]));
+  section('POR AÑO', ['Año', '', 'Total'],
+    [...anual.entries()].sort().map(([y, t]) => [y, '', t]));
+  section('POR CLIENTE', ['Cliente', 'Pedidos', 'Total'],
+    [...porCliente.entries()].sort((a, b) => b[1].t - a[1].t).map(([c, v]) => [c, v.n, v.t]));
+  section('POR PRODUCTO', ['Producto', 'Unidades', 'Total'],
+    [...porProducto.entries()].sort((a, b) => b[1].t - a[1].t).map(([p, v]) => [p, v.u, v.t]));
+  await writeTab(sheetId, 'Resumen', resumen);
+
+  // ---- diseño (idempotente: reset + re-aplicación en cada rebuild) ----
+  const nOrders = (orders as any[]).length + 1;
+  const nItems = (items as any[]).length + 1;
+  const nProds = (products as any[]).length + 1;
+  const nClients = (clients as any[]).length + 1;
+  const fmt: any[] = [
+    ...tabFormat(tabOf('Pedidos'), nOrders, 13, [9], { 6: 200, 10: 240, 11: 170, 12: 170 }),
+    ...tabFormat(tabOf('Ítems'), nItems, 7, [5, 6]),
+    ...tabFormat(tabOf('Productos'), nProds, 6, [3]),
+    ...tabFormat(tabOf('Clientes'), nClients, 7, [], { 3: 200, 6: 220 }),
+    ...resumenFormat(tabOf('Resumen'), sectionRows, headRows),
+  ];
+  // la pestaña vacía que Sheets crea por defecto ("Hoja 1"/"Sheet1") sobra: afuera
+  const defaultTab = tabs.find((t) => !TITLES.includes(t.title) && /^(hoja|sheet)\s*\d+$/i.test(t.title));
+  if (defaultTab) fmt.push({ deleteSheet: { sheetId: defaultTab.sheetId } });
+  await batchUpdate(sheetId, fmt);
 
   return { url };
 }
