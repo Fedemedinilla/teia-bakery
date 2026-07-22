@@ -20,6 +20,9 @@ export const GET: APIRoute = async ({ request }) => {
   if (err) return html(`<h2>Google rechazó la conexión</h2><p><code>${err}</code></p><p><a href="/administradora">← Volver al panel</a></p>`, 400);
   if (!code) return html('<h2>Falta el código de Google.</h2><p><a href="/administradora">← Volver al panel</a></p>', 400);
 
+  // Misma construcción que en start.ts (https + host del proxy): el canje exige la MISMA
+  // redirect_uri que se usó en el consentimiento.
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || u.host;
   const r = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -27,7 +30,7 @@ export const GET: APIRoute = async ({ request }) => {
       code,
       client_id: env('GOOGLE_OAUTH_CLIENT_ID') || '',
       client_secret: env('GOOGLE_OAUTH_CLIENT_SECRET') || '',
-      redirect_uri: `${u.origin}/api/admin/google/callback`,
+      redirect_uri: `https://${host}/api/admin/google/callback`,
       grant_type: 'authorization_code',
     }),
   });

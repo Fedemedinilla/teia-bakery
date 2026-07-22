@@ -15,7 +15,10 @@ export const GET: APIRoute = async ({ request }) => {
       status: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });
   }
-  const redirect = `${new URL(request.url).origin}/api/admin/google/callback`;
+  // SIEMPRE https + host real del proxy: detrás del edge de Vercel la función ve la request
+  // como http, y para Google "http://..." ≠ la URI registrada en https → redirect_uri_mismatch.
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || new URL(request.url).host;
+  const redirect = `https://${host}/api/admin/google/callback`;
   const url =
     'https://accounts.google.com/o/oauth2/v2/auth?' +
     new URLSearchParams({
@@ -26,5 +29,12 @@ export const GET: APIRoute = async ({ request }) => {
       access_type: 'offline',
       prompt: 'consent',
     }).toString();
+  // ?debug=1 → muestra la URI exacta que se le manda a Google (para compararla letra por
+  // letra con la registrada en GCP si algo no matchea).
+  if (new URL(request.url).searchParams.get('debug')) {
+    return new Response(`redirect_uri que manda la app:\n${redirect}\n\nURL completa de consentimiento:\n${url}`, {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
   return Response.redirect(url, 302);
 };
