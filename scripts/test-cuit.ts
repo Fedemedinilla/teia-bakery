@@ -7,6 +7,8 @@ const casos: Array<[string, boolean]> = [
   ['30-70308853-4', true],   // Mercado Libre SRL (público)
   ['20-00000000-1', true],   // verificador calculado a mano
   ['20 00000000 1', true],   // con espacios
+  ['30-12345678-1', true],   // el EJEMPLO de los placeholders — si esto falla, el placeholder miente
+  ['30-12345678-6', false],  // el placeholder viejo roto (verificador incorrecto) — nunca volver
   ['33-69345023-8', false],  // verificador pisado
   ['123', false],
   ['20-11111111-1', false],

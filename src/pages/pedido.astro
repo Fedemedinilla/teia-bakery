@@ -26,7 +26,7 @@ import Base from '../layouts/Base.astro';
           <h2>Tus datos</h2>
 
           <label for="f-cuit">CUIT del comercio</label>
-          <input id="f-cuit" name="cuit" required inputmode="numeric" autocomplete="off" placeholder="Ej: 30-12345678-6" />
+          <input id="f-cuit" name="cuit" required inputmode="numeric" autocomplete="off" placeholder="Ej: 30-12345678-1" />
           <p class="field-hint" id="cuitHint">Si ya pediste antes, con tu CUIT te completamos todo. 🙌</p>
 
           <label for="f-name">Nombre / Comercio</label>
@@ -71,6 +71,17 @@ import Base from '../layouts/Base.astro';
     try { const raw = JSON.parse(localStorage.getItem('teia_cart') || '[]'); cart = Array.isArray(raw) ? raw : []; }
     catch { cart = []; }
     const total = () => cart.reduce((s, i) => s + i.price * i.qty, 0);
+
+    // Validación de CUIT en el navegador (mismo mod-11 que el server): feedback inmediato al
+    // salir del campo, en vez de recién al enviar. El server igual re-valida siempre.
+    const cuitOk = (s) => {
+      const d = String(s || '').replace(/\D/g, '');
+      if (d.length !== 11) return false;
+      const W = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+      const r = W.reduce((a, w, i) => a + w * Number(d[i]), 0) % 11;
+      const ver = r === 0 ? 0 : 11 - r;
+      return (ver === 10 ? 9 : ver) === Number(d[10]);
+    };
 
     // Cuenta por CUIT: autocompleta los datos y muestra el descuento fiel del cliente.
     // Solo VISTA — el server re-lee precios y aplica el % por su cuenta al crear la orden.
@@ -155,6 +166,12 @@ import Base from '../layouts/Base.astro';
         msg.hidden = false; msg.className = 'co-msg err'; msg.textContent = 'Completá tu CUIT, nombre, contacto y dirección para enviar el pedido.';
         return;
       }
+      if (!cuitOk(form.elements.cuit.value)) {
+        form.elements.cuit.focus();
+        msg.hidden = false; msg.className = 'co-msg err';
+        msg.textContent = 'Ese CUIT no parece válido — revisá los 11 números (el último es el verificador).';
+        return;
+      }
       const fd = Object.fromEntries(new FormData(form).entries());
       msg.hidden = false; msg.className = 'co-msg'; msg.textContent = 'Enviando…';
       btn.disabled = true;
@@ -195,6 +212,14 @@ import Base from '../layouts/Base.astro';
     let savedCuit = null;
     try { savedCuit = localStorage.getItem('teia_cuit'); } catch {}
     if (savedCuit && cuitField) { cuitField.value = savedCuit; identify(savedCuit); }
-    cuitField?.addEventListener('change', () => identify(cuitField.value));
+    cuitField?.addEventListener('change', () => {
+      const hint = el('cuitHint');
+      if (cuitField.value.trim() && !cuitOk(cuitField.value)) {
+        if (hint) { hint.textContent = '⚠️ Ese CUIT no parece válido — revisá los 11 números.'; hint.style.color = '#B0684C'; }
+        return;
+      }
+      if (hint) hint.style.color = '';
+      identify(cuitField.value);
+    });
   </script>
 </Base>
