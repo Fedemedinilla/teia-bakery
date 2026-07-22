@@ -92,7 +92,33 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
 - Verificado en demo: API 4 casos, strikethrough, banner, recompra neta, checkout autofill +
   total neto + envío, pestaña Clientes con historial.
 
-## 📩 Pedidos de Mica (WhatsApp 2026-07-06) — estado
+## 🎯 MEET 01 (2026-07-22) — NUEVA FASE DE DESARROLLO · deadline: VIERNES próximo
+*Trato CERRADO: Mica transfiere 50% hoy, 50% contra entrega. Detalle completo en `teia/MEET-01-resumen.md`.*
+
+**Los cambios (en orden de dependencia):**
+1. **Catálogo PRIVADO**: pantalla inicial de CUIT, sin invitados; solo entran CUITs dados de
+   alta. **Alta SOLO por Mica** desde el panel → ROLLBACK de la cuenta auto-creada al primer
+   pedido (CUIT desconocido en checkout = "pedile el alta a Teia").
+2. **Catálogo de CHUNGO** (la respuesta a la gran pregunta): catálogo SEPARADO con productos
+   Y precios propios; Chungo = varios locales, cada uno su CUIT; "lista VIP" de CUITs → entran
+   solo ahí, jamás se cruzan con el general. Botón "Ir al catálogo de Chungo" en el panel.
+3. **Descuento POR PEDIDO** (se saca de la ficha de cliente; muere el catálogo con precios
+   tachados — lo reemplaza conceptualmente el catálogo Chungo).
+4. **UN solo remito** (muere la hoja interna de preparación).
+5. **Botón COMPARTIR remito** (Web Share desde el celular → WhatsApp directo).
+6. **Muere "Repetir último pedido"**; queda el autocompletado de datos por CUIT.
+7. **Stats por cliente → carpetas Drive** (pedidos/productos/importes, semanal y mensual;
+   formato final cuando mande las screenshots de su Sheets).
+8. **Logo** en app y remito (cuando lo mande) — colores actuales aprobados.
+9. **Aviso de pedido nuevo a Mica** — ⚠️ canal SIN definir (ella asumió WhatsApp; hoy no hay
+   nada; decidir email vs alternativas ANTES del viernes).
+10. ⚠️ ACLARAR: la planilla es espejo SOLO lectura (en la meet sonó como si los precios se
+    pudieran editar ahí) — o se le explica o se evalúa sync inverso (no recomendado).
+
+**Pendientes de Mica:** 50% + logo + screenshots de su Sheets + CUITs de Chungo + su lista de
+productos. **Cuentas juntos:** viernes o lunes (mail de ella, dominio Tiendanube → subdominio).
+
+## 📩 Pedidos de Mica (WhatsApp 2026-07-06) — estado (superseded por MEET 01 donde contradiga)
 1. **Dos listas de precios** (Chungo vs. general) — ⚠️ ABIERTO: el descuento por cliente cubre
    "precios especiales" como %, pero si Chungo necesita PRECIOS por producto distintos, falta
    `price_list` por cliente + segundo precio (definir en el Meet). El esquema ya lo soporta.
