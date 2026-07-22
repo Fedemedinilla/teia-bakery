@@ -115,9 +115,9 @@ export async function driveUploadPdf(folderId: string, name: string, bytes: Uint
 }
 
 // ---- Sheets: planilla espejo auto-provisionada (marcada teia_role=sheet) ----
-async function ensureSpreadsheet(): Promise<{ id: string; url: string }> {
+async function ensureSpreadsheet(): Promise<{ id: string; url: string; created: boolean }> {
   const found = await driveFindOne(`appProperties has { key='teia_role' and value='sheet' }`);
-  if (found) return { id: found.id, url: found.webViewLink || `https://docs.google.com/spreadsheets/d/${found.id}` };
+  if (found) return { id: found.id, url: found.webViewLink || `https://docs.google.com/spreadsheets/d/${found.id}`, created: false };
   const o = await gFetch('https://sheets.googleapis.com/v4/spreadsheets', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ properties: { title: SHEET_NAME, locale: 'es_AR', timeZone: 'America/Argentina/Buenos_Aires' } }),
@@ -127,7 +127,7 @@ async function ensureSpreadsheet(): Promise<{ id: string; url: string }> {
   await gFetch(`https://www.googleapis.com/drive/v3/files/${o.spreadsheetId}?addParents=${root.id}&fields=id`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appProperties: { teia_role: 'sheet' } }),
   });
-  return { id: o.spreadsheetId, url: o.spreadsheetUrl };
+  return { id: o.spreadsheetId, url: o.spreadsheetUrl, created: true };
 }
 
 type TabMeta = { sheetId: number; title: string; bandedIds: number[] };
@@ -165,9 +165,10 @@ const C_INK = { red: 0.2, green: 0.16, blue: 0.122 };      // #33291F
 const MONEY = { type: 'NUMBER', pattern: '"$"#,##0' };
 
 // Formato de una pestaña de DATOS: reset total (mata formatos viejos si la tabla se achicó),
-// encabezado terracota congelado, filas cebradas crema/blanco, columnas de plata con $,
-// auto-ancho + anchos fijos con recorte para las columnas largas (notas, links).
-function tabFormat(t: TabMeta, rows: number, cols: number, moneyCols: number[], fixed: Record<number, number> = {}): any[] {
+// encabezado terracota congelado, filas cebradas crema/blanco, columnas de plata con $, y
+// recorte (CLIP) en las columnas largas. IMPORTANTE: los ANCHOS solo se tocan la PRIMERA vez
+// (withWidths=true al crear la planilla) — después son de la clienta y el rebuild no los pisa.
+function tabFormat(t: TabMeta, rows: number, cols: number, moneyCols: number[], fixed: Record<number, number> = {}, withWidths = false): any[] {
   const reqs: any[] = [{ repeatCell: { range: { sheetId: t.sheetId }, cell: {}, fields: 'userEnteredFormat' } }];
   for (const bid of t.bandedIds) reqs.push({ deleteBanding: { bandedRangeId: bid } });
   reqs.push({ updateSheetProperties: { properties: { sheetId: t.sheetId, gridProperties: { frozenRowCount: 1 } }, fields: 'gridProperties.frozenRowCount' } });
@@ -188,16 +189,20 @@ function tabFormat(t: TabMeta, rows: number, cols: number, moneyCols: number[], 
       cell: { userEnteredFormat: { numberFormat: MONEY } }, fields: 'userEnteredFormat.numberFormat',
     } });
   }
-  reqs.push({ autoResizeDimensions: { dimensions: { sheetId: t.sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: cols } } });
-  for (const [idx, px] of Object.entries(fixed)) {
-    reqs.push({ updateDimensionProperties: { range: { sheetId: t.sheetId, dimension: 'COLUMNS', startIndex: Number(idx), endIndex: Number(idx) + 1 }, properties: { pixelSize: px }, fields: 'pixelSize' } });
+  for (const idx of Object.keys(fixed)) {
     reqs.push({ repeatCell: { range: { sheetId: t.sheetId, startRowIndex: 1, startColumnIndex: Number(idx), endColumnIndex: Number(idx) + 1 }, cell: { userEnteredFormat: { wrapStrategy: 'CLIP' } }, fields: 'userEnteredFormat.wrapStrategy' } });
+  }
+  if (withWidths) {
+    reqs.push({ autoResizeDimensions: { dimensions: { sheetId: t.sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: cols } } });
+    for (const [idx, px] of Object.entries(fixed)) {
+      reqs.push({ updateDimensionProperties: { range: { sheetId: t.sheetId, dimension: 'COLUMNS', startIndex: Number(idx), endIndex: Number(idx) + 1 }, properties: { pixelSize: px }, fields: 'pixelSize' } });
+    }
   }
   return reqs;
 }
 
 // Formato del Resumen: títulos de sección destacados, subencabezados en negrita, plata en $.
-function resumenFormat(t: TabMeta, sectionRows: number[], headRows: number[]): any[] {
+function resumenFormat(t: TabMeta, sectionRows: number[], headRows: number[], withWidths = false): any[] {
   const reqs: any[] = [{ repeatCell: { range: { sheetId: t.sheetId }, cell: {}, fields: 'userEnteredFormat' } }];
   for (const bid of t.bandedIds) reqs.push({ deleteBanding: { bandedRangeId: bid } });
   reqs.push({ updateSheetProperties: { properties: { sheetId: t.sheetId, gridProperties: { frozenRowCount: 0 } }, fields: 'gridProperties.frozenRowCount' } });
@@ -218,7 +223,7 @@ function resumenFormat(t: TabMeta, sectionRows: number[], headRows: number[]): a
     range: { sheetId: t.sheetId, startColumnIndex: 2, endColumnIndex: 3 },
     cell: { userEnteredFormat: { numberFormat: MONEY } }, fields: 'userEnteredFormat.numberFormat',
   } });
-  reqs.push({ autoResizeDimensions: { dimensions: { sheetId: t.sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 3 } } });
+  if (withWidths) reqs.push({ autoResizeDimensions: { dimensions: { sheetId: t.sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 3 } } });
   return reqs;
 }
 
@@ -242,6 +247,17 @@ const mesDe = (s?: string) => {
   const p = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit' }).formatToParts(new Date(s));
   return `${p.find((x) => x.type === 'year')?.value}-${p.find((x) => x.type === 'month')?.value}`;
 };
+// Semana LUNES a DOMINGO en hora argentina, con etiqueta legible (no "Semana 29" ISO).
+const semanaDe = (s?: string): { k: string; label: string } => {
+  if (!s) return { k: '', label: '' };
+  const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(s));
+  const d = new Date(ymd + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return { k: '', label: '' };
+  const lunes = new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86400000);
+  const domingo = new Date(lunes.getTime() + 6 * 86400000);
+  const dm = (x: Date) => `${String(x.getUTCDate()).padStart(2, '0')}/${String(x.getUTCMonth() + 1).padStart(2, '0')}`;
+  return { k: lunes.toISOString().slice(0, 10), label: `Semana del ${dm(lunes)} al ${dm(domingo)} · ${lunes.getUTCFullYear()}` };
+};
 
 export async function mirrorToSheet(): Promise<{ url: string }> {
   const [orders, items, products, clients] = await Promise.all([
@@ -252,7 +268,7 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
   ]);
   if (!orders || !items || !products || !clients) throw new Error('No se pudo leer la base para el espejo.');
 
-  const { id: sheetId, url } = await ensureSpreadsheet();
+  const { id: sheetId, url, created } = await ensureSpreadsheet();
   const TITLES = ['Pedidos', 'Ítems', 'Productos', 'Clientes', 'Resumen'];
   const tabs = await ensureTabs(sheetId, TITLES);
   const tabOf = (title: string) => tabs.find((t) => t.title === title)!;
@@ -267,9 +283,21 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
       const cli = (clients as any[]).find((c) => c.id === o.client_id);
       return [numOf(o), fmtDia(o.created_at), o.status, o.client_name, cli ? cli.cuit : '', o.client_contact,
         o.delivery_address, o.delivery_date || 'a coordinar', Number(o.discount_pct) || 0, Number(o.total) || 0,
-        o.notes || '', o.remito_cliente_url || '', o.remito_interno_url || ''];
+        o.notes || '', '', ''];
     }),
   ]);
+
+  // Links a los remitos como fórmulas HYPERLINK (clickeables de verdad): son VALOR, no formato,
+  // así que el reset de estilos de cada rebuild no los puede despintar.
+  const linkRows = (orders as any[]).map((o) => [
+    o.remito_cliente_url ? `=HYPERLINK("${o.remito_cliente_url}";"📄 Remito")` : '',
+    o.remito_interno_url ? `=HYPERLINK("${o.remito_interno_url}";"📄 Interna")` : '',
+  ]);
+  if (linkRows.length) {
+    await gFetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${q(`'Pedidos'!L2:M${linkRows.length + 1}`)}?valueInputOption=USER_ENTERED`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: linkRows }),
+    });
+  }
 
   await writeTab(sheetId, 'Ítems', [
     ['Pedido', 'Fecha', 'Producto', 'Pack', 'Cantidad', 'P. unitario', 'Subtotal'],
@@ -292,11 +320,15 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
   // de la base; los pedidos anulados/borrados no aparecen porque ya no están en la base).
   const conf = (orders as any[]).filter((o) => o.status === 'confirmado' || o.status === 'entregado');
   const porMes = new Map<string, { n: number; t: number }>();
+  const porSemana = new Map<string, { label: string; n: number; t: number }>();
   const porCliente = new Map<string, { n: number; t: number }>();
   for (const o of conf) {
-    const m = mesDe(o.confirmed_at || o.created_at);
+    const cuando = o.confirmed_at || o.created_at;
+    const m = mesDe(cuando);
+    const w = semanaDe(cuando);
     const c = o.client_name || '—';
     porMes.set(m, { n: (porMes.get(m)?.n || 0) + 1, t: (porMes.get(m)?.t || 0) + (Number(o.total) || 0) });
+    if (w.k) porSemana.set(w.k, { label: w.label, n: (porSemana.get(w.k)?.n || 0) + 1, t: (porSemana.get(w.k)?.t || 0) + (Number(o.total) || 0) });
     porCliente.set(c, { n: (porCliente.get(c)?.n || 0) + 1, t: (porCliente.get(c)?.t || 0) + (Number(o.total) || 0) });
   }
   const confIds = new Set(conf.map((o) => o.id));
@@ -319,6 +351,8 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
     headRows.push(resumen.length); resumen.push(head);
     resumen.push(...rows);
   };
+  section('POR SEMANA (pedidos confirmados)', ['Semana', 'Pedidos', 'Total'],
+    [...porSemana.entries()].sort().map(([, v]) => [v.label, v.n, v.t]));
   section('POR MES (pedidos confirmados)', ['Mes', 'Pedidos', 'Total'],
     [...porMes.entries()].sort().map(([m, v]) => [m, v.n, v.t]));
   section('POR AÑO', ['Año', '', 'Total'],
@@ -334,12 +368,13 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
   const nItems = (items as any[]).length + 1;
   const nProds = (products as any[]).length + 1;
   const nClients = (clients as any[]).length + 1;
+  // Los anchos SOLO en la creación inicial (created): después son de la clienta y no se pisan.
   const fmt: any[] = [
-    ...tabFormat(tabOf('Pedidos'), nOrders, 13, [9], { 6: 200, 10: 240, 11: 170, 12: 170 }),
-    ...tabFormat(tabOf('Ítems'), nItems, 7, [5, 6]),
-    ...tabFormat(tabOf('Productos'), nProds, 6, [3]),
-    ...tabFormat(tabOf('Clientes'), nClients, 7, [], { 3: 200, 6: 220 }),
-    ...resumenFormat(tabOf('Resumen'), sectionRows, headRows),
+    ...tabFormat(tabOf('Pedidos'), nOrders, 13, [9], { 6: 200, 10: 240, 11: 110, 12: 110 }, created),
+    ...tabFormat(tabOf('Ítems'), nItems, 7, [5, 6], {}, created),
+    ...tabFormat(tabOf('Productos'), nProds, 6, [3], {}, created),
+    ...tabFormat(tabOf('Clientes'), nClients, 7, [], { 3: 200, 6: 220 }, created),
+    ...resumenFormat(tabOf('Resumen'), sectionRows, headRows, created),
   ];
   // la pestaña vacía que Sheets crea por defecto ("Hoja 1"/"Sheet1") sobra: afuera
   const defaultTab = tabs.find((t) => !TITLES.includes(t.title) && /^(hoja|sheet)\s*\d+$/i.test(t.title));
