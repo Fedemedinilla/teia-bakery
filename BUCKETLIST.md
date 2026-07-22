@@ -46,7 +46,10 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
    vars; carpeta y planilla se auto-crean (marcadas con appProperties, cero IDs hardcodeados)
    → handoff a la clienta = re-consentir con SU cuenta y pegar el token nuevo. Botón "Conectar
    Google" en el panel (start/callback muestran el refresh token una vez) + botones Drive/
-   Planilla dinámicos según el estado real. **Pendiente: checklist GCP de Federico + conectar.**
+   Planilla dinámicos según el estado real. **CONECTADO y verificado en prod por Federico
+   (2026-07-17): remitos en Drive + planilla con altas y bajas reflejadas.** Refinado después:
+   fecha DD-MM-AAAA en los nombres de Drive + diseño de la planilla (encabezados terracota,
+   cebrado crema, formato $, Resumen seccionado, sin "Hoja 1").
 4. ~~Barrido nocturno~~ — **HECHO 2026-07-08** (`/api/cron/sweep`, ver arriba); falta verlo correr en prod.
 5. ~~Test end-to-end en prod~~ — **HECHO 2026-07-17** (flujo cuentas CUIT completo): pedido hostil →
    cuenta auto-creada → Mica activa descuento en Clientes → 2º pedido llega con −10% server-side
