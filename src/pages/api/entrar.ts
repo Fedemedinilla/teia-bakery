@@ -2,7 +2,7 @@ export const prerender = false;
 import type { APIRoute } from 'astro';
 import { sbSelectStrict, supaConfigured } from '../../lib/supabase';
 import { hasCuitShape, normCuit } from '../../lib/cuit';
-import { makeSession, SESSION_COOKIE, COOKIE_OPTS } from '../../lib/session';
+import { setSessionCookie } from '../../lib/session';
 import { DEMO_CLIENTS } from '../../lib/demo';
 
 const json = (o: any, s = 200) =>
@@ -11,7 +11,16 @@ const json = (o: any, s = 200) =>
 // La puerta: el CUIT es la llave. Solo entra quien Teia dio de alta (y no dio de baja).
 // Al entrar se firma una cookie con el id de la cuenta — de ahí en más el servidor sabe
 // quién es y qué catálogo le toca sin volver a preguntar ni confiar en el navegador.
-export const POST: APIRoute = async ({ request, cookies }) => {
+const enter = (request: Request, clientId: number) =>
+  new Response(JSON.stringify({ ok: true }), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Set-Cookie': setSessionCookie(request, clientId),
+      'Cache-Control': 'no-store',
+    },
+  });
+
+export const POST: APIRoute = async ({ request }) => {
   let b: any;
   try { b = await request.json(); } catch { return json({ error: 'JSON inválido.' }, 400); }
   const cuit = normCuit(b?.cuit);
@@ -21,9 +30,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
   if (!supaConfigured()) {
     const c = DEMO_CLIENTS.find((x) => x.cuit === cuit);
-    if (!c) return json(denied, 403);
-    cookies.set(SESSION_COOKIE, makeSession(c.id), { ...COOKIE_OPTS, secure: false });
-    return json({ ok: true });
+    return c ? enter(request, c.id) : json(denied, 403);
   }
 
   const rows = await sbSelectStrict(`teia_clients?cuit=eq.${cuit}&select=id,active`);
@@ -31,6 +38,5 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   const c = (rows as any[])[0];
   if (!c || c.active === false) return json(denied, 403);
 
-  cookies.set(SESSION_COOKIE, makeSession(c.id), COOKIE_OPTS);
-  return json({ ok: true });
+  return enter(request, c.id);
 };

@@ -34,10 +34,32 @@ export function readSession(raw: string | undefined | null): number | null {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-export const COOKIE_OPTS = {
-  path: '/',
-  httpOnly: true,
-  sameSite: 'lax' as const,
-  secure: true,
-  maxAge: SESSION_MAX_AGE,
-};
+// ¿la request llegó por https? (detrás de Vercel el TLS termina en el edge y la función ve
+// http, así que manda el x-forwarded-proto). Define si la cookie lleva el flag Secure.
+export function isSecureRequest(request: Request): boolean {
+  const proto = request.headers.get('x-forwarded-proto');
+  if (proto) return proto.split(',')[0].trim() === 'https';
+  try { return new URL(request.url).protocol === 'https:'; } catch { return false; }
+}
+
+// El header Set-Cookie se arma A MANO (en vez de usar cookies.set/delete de Astro) para que
+// PONER y BORRAR usen exactamente los mismos atributos: si difieren, el borrado puede no
+// pisar la cookie original y el "Salir" no hace nada.
+function cookieHeader(value: string, secure: boolean, maxAge: number): string {
+  return [
+    `${SESSION_COOKIE}=${value}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    secure ? 'Secure' : '',
+    `Max-Age=${maxAge}`,
+  ].filter(Boolean).join('; ');
+}
+
+export function setSessionCookie(request: Request, clientId: number): string {
+  return cookieHeader(makeSession(clientId), isSecureRequest(request), SESSION_MAX_AGE);
+}
+
+export function clearSessionCookie(request: Request): string {
+  return cookieHeader('', isSecureRequest(request), 0);
+}

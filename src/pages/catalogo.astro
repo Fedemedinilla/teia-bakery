@@ -2,7 +2,7 @@
 export const prerender = false;
 import Base from '../layouts/Base.astro';
 import { sbSelect, supaConfigured, env } from '../lib/supabase';
-import { readSession } from '../lib/session';
+import { readSession, clearSessionCookie } from '../lib/session';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
 import { catalogOf, catalogLabel, DEFAULT_CATALOG } from '../lib/catalogs';
 import { DEMO_PRODUCTS, DEMO_CLIENTS } from '../lib/demo';
@@ -14,9 +14,12 @@ const configured = supaConfigured();
 // del general no puede llegar al de Chungo ni tocando la URL. ──
 // Teia puede PREVISUALIZAR cualquier catálogo desde su panel (?ver=general|chungo) sin
 // necesidad de una cuenta de cliente — así ve exactamente lo que ve cada lista.
-// (en modo demo el panel entero está abierto, así que la vista previa también)
+// La vista previa exige SIEMPRE la clave del panel — también en modo demo. Una decisión de
+// acceso no puede depender de un modo de fallback: si `configured` fuera false por un
+// problema de env vars, cualquiera podría mirar el catálogo de otra lista con ?ver=.
+// (Para previsualizar en local, poné TEIA_ADMIN_PASSWORD en el .env.)
 const preview = Astro.url.searchParams.get('ver');
-const isAdminPreview = Boolean(preview) && (!configured || isTeiaAdmin(Astro.request));
+const isAdminPreview = Boolean(preview) && isTeiaAdmin(Astro.request);
 if (preview && !isAdminPreview) return authChallenge();
 
 const sessionId = isAdminPreview ? null : readSession(Astro.cookies.get('teia_sess')?.value);
@@ -31,8 +34,11 @@ const client: any = isAdminPreview
   ? { business_name: 'Vista previa', catalog: catalogOf(preview) }
   : (clientRows as any[])[0];
 if (!client || client.active === false) {
-  Astro.cookies.delete('teia_sess', { path: '/' }); // cuenta borrada o dada de baja
-  return Astro.redirect('/');
+  // cuenta borrada o dada de baja mientras tenía la sesión abierta → limpiar y a la puerta
+  return new Response(null, {
+    status: 302,
+    headers: { Location: '/', 'Set-Cookie': clearSessionCookie(Astro.request), 'Cache-Control': 'no-store' },
+  });
 }
 const catalog = catalogOf(client.catalog);
 
@@ -73,7 +79,9 @@ const sections = [...groups.keys()]
         {catalog !== DEFAULT_CATALOG && <span class="vip-chip">{catalogLabel(catalog)}</span>}
         {isAdminPreview
           ? <a class="admin-link" href="/administradora">← Volver al panel</a>
-          : <button class="admin-link" type="button" id="salirBtn">Salir</button>}
+          : <form method="POST" action="/api/salir" style="display:inline">
+              <button class="admin-link" type="submit">Salir</button>
+            </form>}
       </span>
     </div>
   </header>
@@ -341,11 +349,9 @@ const sections = [...groups.keys()]
       document.querySelectorAll('section.section[id]').forEach((s) => spy.observe(s));
     }
 
-    // ---- salir (cambiar de cuenta): borra la cookie de sesión y vuelve a la puerta ----
-    el('salirBtn')?.addEventListener('click', async () => {
-      try { await fetch('/api/salir', { method: 'POST' }); } catch {}
-      try { localStorage.removeItem('teia_cart'); } catch {} // el carrito es de ESE comercio
-      location.href = '/';
+    // El carrito es de ESE comercio: al salir (form POST a /api/salir) se limpia acá.
+    document.querySelector('form[action="/api/salir"]')?.addEventListener('submit', () => {
+      try { localStorage.removeItem('teia_cart'); } catch {}
     });
 
     // ---- init ----

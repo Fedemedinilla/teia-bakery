@@ -2,7 +2,7 @@
 export const prerender = false;
 import Base from '../layouts/Base.astro';
 import { sbSelect, supaConfigured } from '../lib/supabase';
-import { readSession } from '../lib/session';
+import { readSession, clearSessionCookie } from '../lib/session';
 import { fmtCuit } from '../lib/cuit';
 import { DEMO_CLIENTS } from '../lib/demo';
 
@@ -16,8 +16,10 @@ const rows = configured
   : DEMO_CLIENTS.filter((c) => c.id === sessionId);
 const client: any = (rows as any[])[0];
 if (!client || client.active === false) {
-  Astro.cookies.delete('teia_sess', { path: '/' });
-  return Astro.redirect('/');
+  return new Response(null, {
+    status: 302,
+    headers: { Location: '/', 'Set-Cookie': clearSessionCookie(Astro.request), 'Cache-Control': 'no-store' },
+  });
 }
 ---
 <Base title="Confirmá tu pedido — Teia Bakery">
