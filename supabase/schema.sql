@@ -15,20 +15,27 @@ create table if not exists teia_products (
   stock               int  not null default 0,    -- en packs
   low_stock_threshold int  not null default 5,
   active              boolean not null default true,
+  catalog             text not null default 'general' check (catalog in ('general','chungo')),
   sort_order          int  default 0,
   created_at          timestamptz not null default now()
 );
 
--- Cuentas de clientes mayoristas: el CUIT es la identidad. Se crean solas con el primer
--- pedido; Mica las administra (datos + descuento fiel del cliente) desde /administradora.
+-- Cuentas de clientes mayoristas: el CUIT es la identidad y la LLAVE de entrada.
+-- Nadie ve el catálogo sin estar acá: el alta la hace Teia desde /administradora, y al darla
+-- elige a qué LISTA (catálogo) pertenece. Mismo patrón que la allowlist por rol del Bayard.
+--   · sin cuenta        → no entra
+--   · catalog='general' → catálogo mayorista normal
+--   · catalog='chungo'  → catálogo VIP de Chungo (todos sus locales, cada uno con su CUIT)
 -- (Va ANTES de teia_orders: la FK client_id la referencia.)
 create table if not exists teia_clients (
   id               bigint generated always as identity primary key,
-  cuit             text not null unique,     -- normalizado: solo dígitos (11, verificador validado en la app)
+  cuit             text not null unique,     -- normalizado: solo dígitos (11)
   business_name    text not null,            -- nombre del comercio/empresa
   client_contact   text default '',          -- WhatsApp o email
   delivery_address text default '',
-  discount_pct     int  not null default 0,  -- descuento fiel del CLIENTE (se snapshotea en cada orden)
+  catalog          text not null default 'general' check (catalog in ('general','chungo')),
+  active           boolean not null default true,  -- baja sin borrar historial
+  discount_pct     int  not null default 0,  -- legacy: el descuento pasó a ser por pedido
   notes            text default '',          -- notas internas de Mica
   created_at       timestamptz not null default now(),
   last_order_at    timestamptz
@@ -61,6 +68,10 @@ create table if not exists teia_orders (
 -- en una base nueva son no-ops porque el create de arriba ya las trae):
 alter table teia_orders add column if not exists client_id bigint references teia_clients(id) on delete set null;
 alter table teia_orders add column if not exists discount_pct       int not null default 0;
+-- Listas de acceso (gate privado) + catálogo por producto:
+alter table teia_clients  add column if not exists catalog text not null default 'general';
+alter table teia_clients  add column if not exists active  boolean not null default true;
+alter table teia_products add column if not exists catalog text not null default 'general';
 alter table teia_orders add column if not exists archive_status     text;
 alter table teia_orders add column if not exists archive_error      text;
 alter table teia_orders add column if not exists archived_at        timestamptz;

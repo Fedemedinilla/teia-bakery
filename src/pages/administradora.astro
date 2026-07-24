@@ -4,6 +4,7 @@ import Base from '../layouts/Base.astro';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
 import { sbSelect, supaConfigured } from '../lib/supabase';
 import { fmtCuit } from '../lib/cuit';
+import { CATALOGS, catalogOf, catalogLabel, DEFAULT_CATALOG } from '../lib/catalogs';
 import { DEMO_PRODUCTS, DEMO_ORDERS, DEMO_ORDER_ITEMS, DEMO_CLIENTS } from '../lib/demo';
 
 // Gate: in real mode (Supabase configured) require the panel password. In demo mode it's open.
@@ -57,7 +58,9 @@ const catNames = (categories as any[]).map((c) => c.name);
     {!configured && <p class="card" style="margin-bottom:12px">🧪 <b>Modo demo</b> — datos de ejemplo. Conectá Supabase + la clave para el panel real.</p>}
 
     <p class="links-row">
-      <a class="btn" href="/catalogo">🛍️ Ir al catálogo</a>
+      {CATALOGS.map((c) => (
+        <a class="btn" href={`/catalogo?ver=${c.slug}`} target="_blank" rel="noopener">🛍️ Ver {c.label}</a>
+      ))}
       <a class="btn btn--ghost" id="gDrive" href="#" target="_blank" rel="noopener" hidden>📁 Remitos en Drive</a>
       <a class="btn btn--ghost" id="gSheet" href="#" target="_blank" rel="noopener" hidden>📊 Planilla</a>
       <a class="btn btn--ghost" id="gConnect" href="/api/admin/google/start" hidden>🔗 Conectar Google</a>
@@ -167,6 +170,8 @@ const catNames = (categories as any[]).map((c) => c.name);
               <span class="clicard__cuit">CUIT {fmtCuit(c.cuit)}</span>
             </div>
             <div class="clicard__badges">
+              {catalogOf(c.catalog) !== DEFAULT_CATALOG && <span class="vip-chip">{catalogLabel(c.catalog)}</span>}
+              {c.active === false && <span class="badge badge--out">de baja</span>}
               <span class="badge badge--wait">{(ordersByClient[c.id] || []).length} pedidos</span>
               <button class="btn btn--ghost cli-toggle" type="button">Ver cuenta ▾</button>
             </div>
@@ -182,6 +187,23 @@ const catNames = (categories as any[]).map((c) => c.name);
             <div class="grid2">
               <div><label>CUIT</label><input class="cf-cuit" value={fmtCuit(c.cuit)} /></div>
               <div><label>Notas internas</label><input class="cf-notes" value={c.notes || ''} /></div>
+            </div>
+            <div class="grid2">
+              <div>
+                <label>Catálogo que ve</label>
+                <select class="cf-catalog">
+                  {CATALOGS.map((k) => (
+                    <option value={k.slug} selected={catalogOf(c.catalog) === k.slug}>{k.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>Estado</label>
+                <select class="cf-active">
+                  <option value="1" selected={c.active !== false}>Habilitado (puede pedir)</option>
+                  <option value="0" selected={c.active === false}>De baja (no puede entrar)</option>
+                </select>
+              </div>
             </div>
             <div class="ordcard__actions">
               <button class="btn save-cli" type="button">Guardar cuenta</button>
@@ -214,14 +236,27 @@ const catNames = (categories as any[]).map((c) => c.name);
       ))}
 
       <div class="card form-card" style="margin-top:14px">
-        <h2 style="margin-top:0;font-size:16px">＋ Nueva cuenta (opcional)</h2>
-        <p class="hint">Normalmente no hace falta: la cuenta se crea sola con el primer pedido del CUIT. Usala para precargar un cliente (por ejemplo, para activarle el descuento antes de que pida).</p>
+        <h2 style="margin-top:0;font-size:16px">＋ Dar de alta un cliente</h2>
+        <p class="hint">
+          <b>Solo entran los clientes que cargues acá.</b> Con el CUIT que le des de alta, el
+          comercio entra a la tienda y ve el catálogo de la lista que elijas. Sin alta, no ve
+          ni los precios.
+        </p>
         <form id="cliform">
           <div class="grid2">
             <div><label for="cli-cuit">CUIT</label><input id="cli-cuit" name="cuit" required placeholder="30-12345678-1" autocomplete="off" /></div>
             <div><label for="cli-name">Comercio</label><input id="cli-name" name="business_name" required autocomplete="off" /></div>
           </div>
-          <div class="form-actions"><button class="btn" type="submit">Crear cuenta</button></div>
+          <div class="grid2">
+            <div><label for="cli-contact">Contacto (WhatsApp o email)</label><input id="cli-contact" name="client_contact" autocomplete="off" /></div>
+            <div>
+              <label for="cli-catalog">¿Qué catálogo ve?</label>
+              <select id="cli-catalog" name="catalog">
+                {CATALOGS.map((k) => <option value={k.slug}>{k.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div class="form-actions"><button class="btn" type="submit">Dar de alta</button></div>
           <p id="climsg" class="muted"></p>
         </form>
       </div>
@@ -248,11 +283,16 @@ const catNames = (categories as any[]).map((c) => c.name);
       <div class="card">
         <div class="table-scroll">
         <table>
-          <thead><tr><th>Producto</th><th>Rubro</th><th>Pack</th><th>Precio</th><th>Stock</th><th></th></tr></thead>
+          <thead><tr><th>Producto</th><th>Catálogo</th><th>Rubro</th><th>Pack</th><th>Precio</th><th>Stock</th><th></th></tr></thead>
           <tbody>
             {productRows.map((p: any) => (
               <tr>
                 <td data-label="Producto"><span class="td-v">{p.name}{!p.active && <span class="muted"> (oculto)</span>}</span></td>
+                <td data-label="Catálogo"><span class="td-v">
+                  {catalogOf(p.catalog) === DEFAULT_CATALOG
+                    ? <span class="muted">General</span>
+                    : <span class="vip-chip">{catalogLabel(p.catalog)}</span>}
+                </span></td>
                 <td data-label="Rubro" class="muted"><span class="td-v">{p.category || '—'}</span></td>
                 <td data-label="Pack"><span class="td-v">{p.pack_label}</span></td>
                 <td data-label="Precio"><span class="td-v">{money(p.price)}</span></td>
@@ -267,7 +307,7 @@ const catNames = (categories as any[]).map((c) => c.name);
                 </td>
               </tr>
             ))}
-            {productRows.length === 0 && <tr><td colspan="6" class="muted">Sin productos. Cargá el primero en “＋ Nuevo producto”.</td></tr>}
+            {productRows.length === 0 && <tr><td colspan="7" class="muted">Sin productos. Cargá el primero en “＋ Nuevo producto”.</td></tr>}
           </tbody>
         </table>
         </div>
@@ -288,12 +328,22 @@ const catNames = (categories as any[]).map((c) => c.name);
             <label for="pf-desc">Descripción</label>
             <textarea id="pf-desc" name="description" rows="2" placeholder="Ej: Base de vainilla, frutos rojos frescos." autocomplete="off"></textarea>
 
-            <label for="pf-cat">Rubro</label>
-            <select id="pf-cat" name="category">
-              <option value="">— Elegí un rubro —</option>
-              {catNames.map((c) => <option value={c}>{c}</option>)}
-            </select>
-            <p class="hint">¿Falta un rubro? Crealo en la pestaña <b>Rubros</b>.</p>
+            <div class="grid2">
+              <div>
+                <label for="pf-cat">Rubro</label>
+                <select id="pf-cat" name="category">
+                  <option value="">— Elegí un rubro —</option>
+                  {catNames.map((c) => <option value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label for="pf-catalog">Catálogo</label>
+                <select id="pf-catalog" name="catalog">
+                  {CATALOGS.map((k) => <option value={k.slug}>{k.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <p class="hint">¿Falta un rubro? Crealo en la pestaña <b>Rubros</b>. El <b>catálogo</b> define qué clientes lo ven.</p>
 
             <label>Foto del producto</label>
             <div class="filepick">
@@ -471,7 +521,7 @@ const catNames = (categories as any[]).map((c) => c.name);
       if (catSel && p.category && !Array.from(catSel.options).some((o) => o.value === p.category)) {
         catSel.add(new Option(p.category, p.category));
       }
-      ['id', 'name', 'description', 'category', 'image_url', 'pack_label', 'price', 'stock', 'low_stock_threshold'].forEach((k) => {
+      ['id', 'name', 'description', 'category', 'catalog', 'image_url', 'pack_label', 'price', 'stock', 'low_stock_threshold'].forEach((k) => {
         const el = F(k); if (el) el.value = p[k] ?? '';
       });
       if (F('active')) F('active').checked = p.active !== false;
@@ -552,6 +602,7 @@ const catNames = (categories as any[]).map((c) => c.name);
         name: F('name').value.trim(),
         description: F('description').value.trim(),
         category: F('category').value.trim(),
+        catalog: F('catalog') ? F('catalog').value : 'general',
         image_url,
         pack_label: F('pack_label').value.trim(),
         price: F('price').value,
@@ -689,6 +740,7 @@ const catNames = (categories as any[]).map((c) => c.name);
             id: card.dataset.id,
             business_name: v('.cf-name'), client_contact: v('.cf-contact'),
             delivery_address: v('.cf-addr'), notes: v('.cf-notes'), cuit: v('.cf-cuit'),
+            catalog: v('.cf-catalog'), active: v('.cf-active') === '1',
           }),
         });
         if (r.ok) {
@@ -723,6 +775,8 @@ const catNames = (categories as any[]).map((c) => c.name);
           body: JSON.stringify({
             cuit: cliform.elements.namedItem('cuit').value,
             business_name: cliform.elements.namedItem('business_name').value,
+            client_contact: cliform.elements.namedItem('client_contact').value,
+            catalog: cliform.elements.namedItem('catalog').value,
           }),
         });
         if (r.ok) {

@@ -1,0 +1,78 @@
+---
+export const prerender = false;
+import Base from '../layouts/Base.astro';
+import { env } from '../lib/supabase';
+import { readSession } from '../lib/session';
+
+// Si ya tiene sesión válida, derecho al catálogo (no volver a pedir el CUIT cada vez).
+if (readSession(Astro.cookies.get('teia_sess')?.value)) return Astro.redirect('/catalogo');
+
+// WhatsApp de Teia para el que no está habilitado: el "no" se convierte en una consulta.
+const WHATSAPP = (env('TEIA_WHATSAPP') || '5491176239937').replace(/\D/g, '');
+const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent('¡Hola Teia! Quiero pedir por mayor. Mi CUIT es: ')}`;
+---
+<Base title="Pedidos mayoristas — Teia Bakery">
+  <main class="gate">
+    <div class="gate__card">
+      <p class="gate__brand">Teia Bakery</p>
+      <h1 class="gate__t">Pedidos mayoristas</h1>
+      <p class="gate__s">Ingresá el CUIT de tu comercio para ver tu catálogo y hacer el pedido.</p>
+
+      <form id="gateForm" novalidate>
+        <label for="gateCuit">CUIT del comercio</label>
+        <input id="gateCuit" name="cuit" inputmode="numeric" autocomplete="off"
+               placeholder="Ej: 30-12345678-1" required autofocus />
+        <button class="btn btn--block" type="submit" id="gateBtn">Entrar</button>
+        <p class="gate__msg" id="gateMsg" role="status" aria-live="polite" hidden></p>
+      </form>
+
+      <p class="gate__foot">
+        ¿Todavía no pedís por mayor?
+        <a href={waLink} target="_blank" rel="noopener">Escribinos por WhatsApp</a>
+      </p>
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById('gateForm');
+    const input = document.getElementById('gateCuit');
+    const btn = document.getElementById('gateBtn');
+    const msg = document.getElementById('gateMsg');
+
+    // Se recuerda el último CUIT usado en ESTE dispositivo (comodidad, no es la llave:
+    // la llave es la cookie firmada que devuelve el servidor).
+    try { const last = localStorage.getItem('teia_cuit'); if (last) input.value = last; } catch {}
+
+    const show = (text, ok) => {
+      msg.hidden = false;
+      msg.className = 'gate__msg' + (ok ? ' ok' : ' err');
+      msg.textContent = text;
+    };
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const cuit = input.value.trim();
+      if (cuit.replace(/\D/g, '').length !== 11) {
+        input.focus();
+        return show('El CUIT tiene que tener 11 números.', false);
+      }
+      btn.disabled = true; btn.textContent = 'Entrando…';
+      try {
+        const r = await fetch('/api/entrar', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cuit }),
+        });
+        const o = await r.json().catch(() => ({}));
+        if (r.ok && o.ok) {
+          try { localStorage.setItem('teia_cuit', cuit); } catch {}
+          location.href = '/catalogo';
+          return;
+        }
+        show((o && o.error) || 'No pudimos verificar tu CUIT. Probá de nuevo.', false);
+      } catch {
+        show('No se pudo conectar. Revisá tu conexión y probá de nuevo.', false);
+      } finally {
+        btn.disabled = false; btn.textContent = 'Entrar';
+      }
+    });
+  </script>
+</Base>

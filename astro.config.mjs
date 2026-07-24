@@ -9,7 +9,4 @@ export default defineConfig({
   site: 'https://app.teiabakery.com.ar',
   output: 'static',
   adapter: vercel({ maxDuration: 30 }),
-  redirects: {
-    '/': '/catalogo',
-  },
 });

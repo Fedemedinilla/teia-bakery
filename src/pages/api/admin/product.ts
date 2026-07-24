@@ -1,6 +1,7 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
 import { tryMirror } from '../../../lib/google';
+import { catalogOf } from '../../../lib/catalogs';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbInsert, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
 
@@ -37,6 +38,7 @@ export const POST: APIRoute = async ({ request }) => {
     stock: parseInt(b?.stock) || 0,
     low_stock_threshold: parseInt(b?.low_stock_threshold) || 5,
     active: b?.active !== false,
+    catalog: catalogOf(b?.catalog), // a qué lista pertenece (general / chungo)
   };
   if (!row.name) return json({ error: 'Falta el nombre.' }, 400);
 

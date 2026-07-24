@@ -2,12 +2,43 @@
 export const prerender = false;
 import Base from '../layouts/Base.astro';
 import { sbSelect, supaConfigured, env } from '../lib/supabase';
-import { DEMO_PRODUCTS } from '../lib/demo';
+import { readSession } from '../lib/session';
+import { isTeiaAdmin, authChallenge } from '../lib/auth';
+import { catalogOf, catalogLabel, DEFAULT_CATALOG } from '../lib/catalogs';
+import { DEMO_PRODUCTS, DEMO_CLIENTS } from '../lib/demo';
 
 const configured = supaConfigured();
+
+// ── GATE: sin sesión válida no se ve NADA (ni productos ni precios). La sesión sale de la
+// cookie firmada que puso /api/entrar, así que el catálogo lo decide el servidor: un cliente
+// del general no puede llegar al de Chungo ni tocando la URL. ──
+// Teia puede PREVISUALIZAR cualquier catálogo desde su panel (?ver=general|chungo) sin
+// necesidad de una cuenta de cliente — así ve exactamente lo que ve cada lista.
+// (en modo demo el panel entero está abierto, así que la vista previa también)
+const preview = Astro.url.searchParams.get('ver');
+const isAdminPreview = Boolean(preview) && (!configured || isTeiaAdmin(Astro.request));
+if (preview && !isAdminPreview) return authChallenge();
+
+const sessionId = isAdminPreview ? null : readSession(Astro.cookies.get('teia_sess')?.value);
+if (!isAdminPreview && !sessionId) return Astro.redirect('/');
+
+const clientRows = isAdminPreview
+  ? []
+  : configured
+    ? await sbSelect(`teia_clients?id=eq.${sessionId}&select=id,business_name,cuit,catalog,active`)
+    : DEMO_CLIENTS.filter((c) => c.id === sessionId);
+const client: any = isAdminPreview
+  ? { business_name: 'Vista previa', catalog: catalogOf(preview) }
+  : (clientRows as any[])[0];
+if (!client || client.active === false) {
+  Astro.cookies.delete('teia_sess', { path: '/' }); // cuenta borrada o dada de baja
+  return Astro.redirect('/');
+}
+const catalog = catalogOf(client.catalog);
+
 const raw = configured
-  ? await sbSelect('teia_products?active=eq.true&order=category.asc,sort_order.asc,name.asc&select=id,name,description,category,image_url,pack_label,price,stock')
-  : DEMO_PRODUCTS.filter((p) => p.active);
+  ? await sbSelect(`teia_products?active=eq.true&catalog=eq.${catalog}&order=category.asc,sort_order.asc,name.asc&select=id,name,description,category,image_url,pack_label,price,stock`)
+  : DEMO_PRODUCTS.filter((p) => p.active && catalogOf(p.catalog) === catalog);
 
 const MIN_ORDER = Number(env('TEIA_MIN_ORDER')) || 40000; // pedido mínimo (ARS) — env de Vercel, con default
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
@@ -37,7 +68,13 @@ const sections = [...groups.keys()]
   <header class="top">
     <div class="container top__in">
       <span class="brand">Mayorista<b>Teia Bakery</b></span>
-      <a class="admin-link" href="/administradora" title="Panel de administración">⚙️ Admin</a>
+      <span class="top__acct">
+        <span class="top__acct-name">{isAdminPreview ? '👁 Vista previa' : `👤 ${client.business_name}`}</span>
+        {catalog !== DEFAULT_CATALOG && <span class="vip-chip">{catalogLabel(catalog)}</span>}
+        {isAdminPreview
+          ? <a class="admin-link" href="/administradora">← Volver al panel</a>
+          : <button class="admin-link" type="button" id="salirBtn">Salir</button>}
+      </span>
     </div>
   </header>
 
@@ -53,8 +90,6 @@ const sections = [...groups.keys()]
     <main class="catalog">
       <h1 class="title">Nuestro catálogo</h1>
       <p class="subtitle">Tocá “Agregar” para sumar al pedido. Mirá cada producto tocando la foto.</p>
-
-      <div id="reorderSlot"></div>
 
       {!configured && <p class="demo-banner">🧪 <b>Modo demo</b> — productos de ejemplo. Conectá Supabase para usar los reales.</p>}
 
@@ -139,9 +174,6 @@ const sections = [...groups.keys()]
     let cart = load();
     let modalId = null;
 
-    // La cuenta del comercio (identificado por CUIT) solo sirve para saludar y autocompletar
-    // el checkout. Los precios son los de lista: el descuento lo aplica Teia pedido por pedido.
-    let CLIENT = null; // {business_name, cuit} | {cuit, unknown:true} | null
     function load() { try { const raw = JSON.parse(localStorage.getItem(KEY)); return Array.isArray(raw) ? raw : []; } catch { return []; } }
     function persist() { try { localStorage.setItem(KEY, JSON.stringify(cart)); } catch {} }
     function find(id) { return cart.find((x) => sameId(x.id, id)); }
@@ -309,77 +341,14 @@ const sections = [...groups.keys()]
       document.querySelectorAll('section.section[id]').forEach((s) => spy.observe(s));
     }
 
-    // ---- identificación por CUIT (la "sesión" del comercio) ----
-    // Sin tarjeta de "repetir último pedido": los clientes de Teia casi nunca repiten el mismo
-    // pedido y la tarjeta confundía (decisión de la clienta en la Meet 01).
-    const CUIT_KEY = 'teia_cuit';
-    const fmtCuit = (s) => { const d = String(s || '').replace(/\D/g, ''); return d.length === 11 ? d.slice(0, 2) + '-' + d.slice(2, 10) + '-' + d.slice(10) : String(s || ''); };
-
-    function renderAccount() {
-      const box = el('accountBox');
-      if (CLIENT && !CLIENT.unknown) {
-        box.innerHTML =
-          `<div class="reorder"><div><div class="reorder__t">👤 ${esc(CLIENT.business_name)}</div>` +
-          `<div class="reorder__s">CUIT ${esc(fmtCuit(CLIENT.cuit))}</div></div>` +
-          `<button class="reorder__btn" type="button" id="cuitLogout">Cambiar</button></div>`;
-        el('cuitLogout').addEventListener('click', logout);
-      } else {
-        box.innerHTML =
-          `<div class="reorder-lookup">` +
-          `<button type="button" class="reorder-lookup__toggle" id="cuitToggle">👤 Ingresá con tu CUIT — tus datos quedan listos para el pedido</button>` +
-          `<form class="reorder-lookup__form" id="cuitForm" hidden>` +
-          `<input id="cuitInput" inputmode="numeric" autocomplete="off" placeholder="Tu CUIT (ej: 30-12345678-1)" />` +
-          `<button type="submit" class="btn" id="cuitBtn">Entrar</button></form>` +
-          `<p class="reorder-lookup__msg" id="cuitMsg" hidden></p></div>`;
-        el('cuitToggle').addEventListener('click', () => {
-          const f = el('cuitForm');
-          f.hidden = !f.hidden;
-          if (!f.hidden) el('cuitInput').focus();
-        });
-        el('cuitForm').addEventListener('submit', (e) => { e.preventDefault(); identify(el('cuitInput').value, true); });
-      }
-    }
-
-    async function identify(cuitRaw, interactive) {
-      const raw = String(cuitRaw || '').trim();
-      if (!raw) return;
-      const btn = el('cuitBtn');
-      if (interactive && btn) { btn.disabled = true; btn.textContent = '…'; }
-      const show = (t, ok) => { const m = el('cuitMsg'); if (m) { m.hidden = false; m.className = 'reorder-lookup__msg' + (ok ? ' ok' : ''); m.textContent = t; } };
-      try {
-        const r = await fetch('/api/client', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cuit: raw }),
-        });
-        const o = await r.json().catch(() => ({}));
-        if (!r.ok) { if (interactive) show((o && o.error) || 'No se pudo consultar. Probá de nuevo.', false); return; }
-        try { localStorage.setItem(CUIT_KEY, raw); } catch {}
-        if (o.unknown) {
-          CLIENT = { cuit: raw, unknown: true };
-          if (interactive) show('Ese CUIT todavía no está habilitado. Escribile a Teia para que te dé de alta.', false);
-        } else {
-          CLIENT = { ...o.client, cuit: raw };
-          renderAccount();
-        }
-        renderOrder();
-      } catch {
-        if (interactive) show('No se pudo consultar. Revisá tu conexión.', false);
-      } finally {
-        if (interactive && btn && document.body.contains(btn)) { btn.disabled = false; btn.textContent = 'Entrar'; }
-      }
-    }
-
-    function logout() {
-      try { localStorage.removeItem(CUIT_KEY); } catch {}
-      CLIENT = null;
-      renderAccount(); renderOrder();
-    }
+    // ---- salir (cambiar de cuenta): borra la cookie de sesión y vuelve a la puerta ----
+    el('salirBtn')?.addEventListener('click', async () => {
+      try { await fetch('/api/salir', { method: 'POST' }); } catch {}
+      try { localStorage.removeItem('teia_cart'); } catch {} // el carrito es de ESE comercio
+      location.href = '/';
+    });
 
     // ---- init ----
-    el('reorderSlot').innerHTML = '<div id="accountBox"></div>';
-    renderAccount();
-    let savedCuit = null;
-    try { savedCuit = localStorage.getItem(CUIT_KEY); } catch {}
-    if (savedCuit) identify(savedCuit, false);
     syncAll();
     renderOrder();
   </script>

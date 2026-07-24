@@ -24,12 +24,17 @@ export const DEMO_PRODUCTS = [
   // Salados
   { id: 9, name: 'Tarta de verdura',            category: 'Salados', description: 'Acelga, ricota y cebolla.',            pack_label: 'x6',  price: 19200, stock: 12, low_stock_threshold: 6,  active: true, image_url: '/img/tarta.jpg' },
   { id: 10, name: 'Empanadas caprese',          category: 'Salados', description: 'Tomate, muzzarella y albahaca.',       pack_label: 'x12', price: 15600, stock: 30, low_stock_threshold: 8,  active: true, image_url: '/img/empanadas.jpg' },
-];
+
+  // Catálogo VIP de Chungo: productos y precios propios (demo)
+  { id: 11, name: 'Cheesecake de frutos rojos', category: 'Tortas',  description: 'Receta acordada con Chungo.',           pack_label: 'x12', price: 26400, stock: 99999, low_stock_threshold: 0, active: true, image_url: '/img/cheesecake.jpg', catalog: 'chungo' },
+  { id: 12, name: 'Brownie premium',            category: 'Postres', description: 'Formato exclusivo Chungo.',             pack_label: 'x24', price: 39600, stock: 99999, low_stock_threshold: 0, active: true, image_url: '/img/brownie.jpg',    catalog: 'chungo' },
+].map((p: any) => ({ ...p, catalog: p.catalog || 'general' }));
 
 // Cuentas demo (CUITs sintéticos con verificador válido — no son de empresas reales).
+// El segundo está en la lista VIP para poder probar los dos catálogos en modo demo.
 export const DEMO_CLIENTS = [
-  { id: 1, cuit: '20000000001', business_name: 'Café de la Esquina', client_contact: '11 5555-1234',    delivery_address: 'Av. Corrientes 1234, CABA',  notes: 'Cliente de ejemplo.', last_order_at: '2026-07-10T12:00:00Z' },
-  { id: 2, cuit: '27000000006', business_name: 'Almacén Belén',      client_contact: 'belen@correo.com', delivery_address: 'Belgrano 567, San Isidro',   notes: '',                    last_order_at: '2026-07-08T12:00:00Z' },
+  { id: 1, cuit: '20000000001', business_name: 'Café de la Esquina', client_contact: '11 5555-1234',    delivery_address: 'Av. Corrientes 1234, CABA',  catalog: 'general', active: true, notes: 'Cliente de ejemplo.', last_order_at: '2026-07-10T12:00:00Z' },
+  { id: 2, cuit: '27000000006', business_name: 'Chungo — Local Centro', client_contact: 'centro@chungo.com', delivery_address: 'Belgrano 567, San Isidro', catalog: 'chungo', active: true, notes: 'Franquicia (demo).', last_order_at: '2026-07-08T12:00:00Z' },
 ];
 
 export const DEMO_ORDERS = [

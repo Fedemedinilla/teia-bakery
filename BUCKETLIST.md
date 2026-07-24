@@ -140,25 +140,40 @@ clientes mejor que un algoritmo. El filtro real pasa a ser la whitelist de cuent
 
 ---
 
-### 🔵 BLOQUE 2 — El gate privado (el corazón del pivot) · ~1 sesión
-*"Carta de restaurante, no tienda online": sin alta previa de Mica no se ve NI UN precio.*
+### ✅ BLOQUE 2 — GATE PRIVADO · HECHO 2026-07-22 (+ la mayor parte del 3)
+*Patrón calcado del Bayard (allowlist con columna de rol): acá `teia_clients.catalog` con
+`check (catalog in ('general','chungo'))`, y **Mica elige la lista al dar de alta**.*
 
-**2.1 · SQL** — `teia_clients.active boolean default true` (dar de baja sin borrar historial).
-**2.2 · Sesión por cookie firmada** — nuevo `lib/session.ts`: cookie `teia_sess` HttpOnly + SameSite=Lax, valor `<client_id>.<HMAC-service_key>`, 90 días. Server-side ⇒ no se puede falsear desde el navegador (el localStorage actual solo recordaba el CUIT).
-**2.3 · Pantalla de entrada** — `/` (hoy redirige a `/catalogo`) pasa a ser la puerta: pide CUIT → `/api/entrar` valida contra `teia_clients` → cuenta activa: setea cookie + redirect al catálogo que le toque · CUIT no dado de alta: mensaje amable + **botón de WhatsApp a Teia** (convierte el rechazo en lead, en vez de un cartel de error).
-**2.4 · `/catalogo` y `/pedido` detrás del gate** — leen la cookie en el server; sin cookie válida → redirect a la entrada. Los datos del cliente salen de la cuenta, no de lo que tipeen.
-**2.5 · ROLLBACK del auto-alta** — `api/order.ts` ya no crea cuentas: CUIT sin cuenta ⇒ 403. (Depende de la decisión C.)
-**2.6 · Panel: el alta es de Mica** — la pestaña Clientes ya tiene el form; se le sube el rango (más visible), se agrega selector de catálogo y un botón "Dar de baja" (usa `active`).
+Las 3 listas quedan así: **sin cuenta → no entra** · **`general` → catálogo mayorista** ·
+**`chungo` → catálogo VIP** (una franquicia: todos sus locales, cada uno con su CUIT).
 
----
+- **`lib/session.ts`** — cookie `teia_sess` HttpOnly + SameSite=Lax + firma HMAC con la
+  service key (comparación timing-safe), 90 días. El servidor resuelve quién es el cliente
+  desde la cookie: el navegador no puede decir "soy otro" ni cambiarse de catálogo.
+- **`lib/catalogs.ts`** — las listas en un solo lugar (slug + label + validación).
+- **Puerta `/` (`index.astro` + `/api/entrar`)** — pide CUIT, valida contra la whitelist
+  (y `active`), firma la cookie y manda al catálogo. CUIT no habilitado → mensaje amable +
+  **botón de WhatsApp** (el rechazo se convierte en consulta). `/api/salir` para cambiar de cuenta.
+- **`/catalogo` y `/pedido` detrás del gate** — sin sesión → redirect a la puerta; los
+  productos se filtran por `catalog` del cliente y los datos del checkout salen de su cuenta
+  (el campo CUIT desapareció del checkout).
+- **`/api/order` confía SOLO en la sesión** — no en el body: relee la cuenta, valida `active`,
+  y el select de productos lleva `catalog=eq.<el del cliente>` → un id del otro catálogo, aunque
+  lo manden a mano, devuelve 409.
+- **Panel** — alta con **selector de lista** + contacto; en cada ficha: catálogo y estado
+  (Habilitado / De baja, sin borrar historial); badges VIP y "de baja"; productos con su
+  columna Catálogo y selector en el form; **vista previa de cada catálogo** (`/catalogo?ver=…`,
+  solo admin) porque con el gate el link de antes ya no servía.
+- **Limpieza:** `/api/client.ts` borrado (redundante con la sesión) y toda la identificación
+  JS del catálogo/checkout.
+- Verificado en demo: sin cuenta → redirect + 403 · general ve solo lo general · Chungo ve solo
+  lo suyo con SUS precios · salir vuelve a dejar afuera.
 
-### 🟣 BLOQUE 3 — Catálogo de Chungo · ~1 sesión · depende del Bloque 2 y de la decisión B
-*Chungo = varios locales, cada uno con SU CUIT. Las dos listas jamás se cruzan.*
+**⚠️ SQL para prod** (`supabase/schema.sql`, sección migración):
+`teia_clients.catalog`, `teia_clients.active`, `teia_products.catalog`.
 
-**3.1 · SQL** — tabla `teia_catalogs` (id, name, slug, is_default) sembrada con `General` y `Chungo`; `teia_products.catalog_id` y `teia_clients.catalog_id` (default = General).
-**3.2 · Productos por catálogo** — el catálogo público filtra por el `catalog_id` de la cuenta logueada; la pestaña Productos del panel gana un selector "General / Chungo"; **botón "Copiar a Chungo"** que clona un producto (nombre, foto, descripción, pack) para que ella solo cambie el precio.
-**3.3 · Panel** — botón "Ver catálogo de Chungo" junto al de siempre; en la ficha del cliente, selector de catálogo (así carga los locales de Chungo una vez y listo).
-**3.4 · Blindaje** — el catálogo se decide SIEMPRE en el server desde la cuenta de la cookie: un cliente del general no puede llegar al de Chungo ni cambiando la URL.
+**Falta del Bloque 3 (chico):** botón "Copiar a Chungo" para clonar un producto y solo
+cambiarle el precio (hoy se carga a mano en cada catálogo).
 
 ---
 

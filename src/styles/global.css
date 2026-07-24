@@ -196,9 +196,27 @@ h1.title { font-family: var(--font-display); font-weight: 600; font-size: clamp(
 .reorder-lookup__msg { font-size: 13px; color: var(--ink-2); margin: 8px 0 0; }
 .reorder-lookup__msg.ok { color: var(--good); font-weight: 600; }
 
-/* precio de lista tachado cuando el cliente identificado tiene descuento fiel */
-.price s { color: var(--ink-3); font-weight: 400; font-size: 0.82em; margin-right: 6px; text-decoration-thickness: 1px; }
-.order__disc { font-size: 12.5px; font-weight: 600; color: var(--good); margin: 10px 0 -4px; }
+/* --- Puerta de entrada (/): sin CUIT habilitado no se ve el catálogo --- */
+.gate { min-height: 100dvh; display: grid; place-items: center; padding: 24px 18px; }
+.gate__card { width: 100%; max-width: 420px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 30px 26px; box-shadow: var(--sh-md); }
+.gate__brand { font-family: var(--font-display); font-size: 22px; color: var(--accent); margin: 0; }
+.gate__t { font-size: 26px; margin: 6px 0 6px; }
+.gate__s { color: var(--ink-2); margin: 0 0 20px; font-size: 14.5px; }
+.gate__card label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.gate__card input { width: 100%; margin-bottom: 14px; font-size: 16px; letter-spacing: .02em; }
+.gate__msg { font-size: 13.5px; margin: 12px 0 0; }
+.gate__msg.err { color: var(--accent-2); }
+.gate__msg.ok { color: var(--good); font-weight: 600; }
+.gate__foot { margin: 22px 0 0; padding-top: 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-3); }
+.gate__foot a { color: var(--accent); font-weight: 600; }
+
+/* cuenta identificada en la barra superior del catálogo */
+.top__acct { display: inline-flex; align-items: center; gap: 10px; }
+.top__acct-name { font-size: 13px; font-weight: 600; color: var(--ink-2); max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 560px) { .top__acct-name { max-width: 32vw; } }
+
+/* chip del catálogo VIP en el catálogo y en el panel */
+.vip-chip { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #fff; background: var(--accent); border-radius: var(--r-full); padding: 2px 9px; }
 
 /* --- Clientes (cuentas por CUIT) en /administradora --- */
 .clicard__head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }

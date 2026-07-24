@@ -1,14 +1,21 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
 import { sbSelectStrict, sbInsert, sbPatch, sbDelete, supaConfigured, env } from '../../lib/supabase';
-import { hasCuitShape, normCuit } from '../../lib/cuit';
+import { readSession } from '../../lib/session';
+import { catalogOf } from '../../lib/catalogs';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
 
 // Public: create an order from the cart. Prices are RE-READ from the DB — never trust the
 // client's prices. Status starts 'pendiente'; Teia confirms it from /administradora.
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, cookies }) => {
+  // La identidad sale de la COOKIE FIRMADA, no del cuerpo del request: el navegador no puede
+  // decir "soy otro comercio" ni pedirle al catálogo de Chungo si no es de Chungo.
+  // Se chequea ANTES del modo demo para que el demo se comporte igual que producción.
+  const sessionId = readSession(cookies.get('teia_sess')?.value);
+  if (!sessionId) return json({ error: 'Tu sesión venció. Volvé a entrar con tu CUIT.' }, 401);
+
   // Demo mode (no Supabase): don't persist, but return OK so the checkout flow is fully clickable.
   if (!supaConfigured()) return json({ ok: true, order_number: 'TEIA-DEMO' });
 
@@ -24,10 +31,16 @@ export const POST: APIRoute = async ({ request }) => {
   const delivery_address = String(body?.delivery_address || '').slice(0, 300).trim();
   if (!client_name || !client_contact || !delivery_address) return json({ error: 'Faltan datos del pedido.' }, 400);
 
-  // CUIT obligatorio: es la identidad de la cuenta. Solo se exige la FORMA (11 dígitos) — el
-  // filtro real es la cuenta dada de alta por Teia, no el dígito verificador.
-  const cuit = normCuit(body?.cuit);
-  if (!hasCuitShape(cuit)) return json({ error: 'Ingresá tu CUIT (11 números, con guiones o sin).' }, 400);
+  // La cuenta de la sesión: si la borraron o la dieron de baja mientras tenía la pestaña
+  // abierta, el pedido no entra.
+  const accounts = await sbSelectStrict(`teia_clients?id=eq.${sessionId}&select=id,catalog,active`);
+  if (accounts === null) return json({ error: 'No pudimos procesar el pedido en este momento. Probá de nuevo.' }, 503);
+  const account = (accounts as any[])[0];
+  if (!account || account.active === false) {
+    return json({ error: 'Tu cuenta no está habilitada para pedir. Escribile a Teia.' }, 403);
+  }
+  const clientId = account.id;
+  const catalog = catalogOf(account.catalog);
 
   // Los ids tienen que ser enteros: un id inválido haría que PostgREST rechace el in.() ENTERO
   // y el pedido se cotizaría sin precios. Mejor rebotar el carrito de entrada.
@@ -36,8 +49,9 @@ export const POST: APIRoute = async ({ request }) => {
   const ids = [...new Set(rawIds)];
 
   // Select ESTRICTO: null = no se pudo leer (red/5xx) y se aborta — jamás cotizar a $0 por un
-  // fallo transitorio. Solo se venden productos existentes y visibles (active).
-  const prods = await sbSelectStrict(`teia_products?id=in.(${ids.join(',')})&active=is.true&select=id,name,pack_label,price`);
+  // fallo transitorio. Solo se venden productos visibles Y DEL CATÁLOGO DE ESTA CUENTA: un id
+  // del otro catálogo, aunque lo mande a mano, no existe para este cliente.
+  const prods = await sbSelectStrict(`teia_products?id=in.(${ids.join(',')})&active=is.true&catalog=eq.${catalog}&select=id,name,pack_label,price`);
   if (prods === null) return json({ error: 'No pudimos procesar el pedido en este momento. Esperá un minuto y probá de nuevo.' }, 503);
   const byId: Record<string, any> = Object.fromEntries(prods.map((p: any) => [String(p.id), p]));
 
@@ -74,13 +88,6 @@ export const POST: APIRoute = async ({ request }) => {
     return json({ error: `El pedido mínimo mayorista es de $${MIN_ORDER.toLocaleString('es-AR')}. Sumá productos para llegar.` }, 400);
   }
 
-  // La cuenta tiene que EXISTIR: el alta la hace Teia desde el panel (decisión de la clienta —
-  // "me da cosa que cualquiera se lo pueda armar"). Un CUIT sin cuenta no puede pedir.
-  const found = await sbSelectStrict(`teia_clients?cuit=eq.${cuit}&select=id`);
-  if (found === null) return json({ error: 'No pudimos procesar el pedido en este momento. Probá de nuevo.' }, 503);
-  const account = (found as any[])[0];
-  if (!account) return json({ error: 'Ese CUIT todavía no está habilitado. Escribile a Teia para que te dé de alta.' }, 403);
-  const clientId = account.id;
   await sbPatch(`teia_clients?id=eq.${clientId}`, {
     client_contact, delivery_address, last_order_at: new Date().toISOString(),
   });

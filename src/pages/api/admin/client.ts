@@ -3,6 +3,7 @@ import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbInsert, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
 import { isValidCuit, hasCuitShape, normCuit } from '../../../lib/cuit';
+import { isCatalog } from '../../../lib/catalogs';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -35,6 +36,12 @@ export const POST: APIRoute = async ({ request }) => {
   if ('client_contact' in b) patch.client_contact = String(b.client_contact ?? '').slice(0, 160).trim();
   if ('delivery_address' in b) patch.delivery_address = String(b.delivery_address ?? '').slice(0, 300).trim();
   if ('notes' in b) patch.notes = String(b.notes ?? '').slice(0, 500).trim();
+  // La LISTA a la que pertenece la cuenta (qué catálogo ve) y si puede entrar.
+  if ('catalog' in b) {
+    if (!isCatalog(b.catalog)) return json({ error: 'Catálogo inválido.' }, 400);
+    patch.catalog = b.catalog;
+  }
+  if ('active' in b) patch.active = b.active !== false;
   if ('discount_pct' in b) {
     patch.discount_pct = [0, 10].includes(Number(b.discount_pct)) ? Number(b.discount_pct) : 0;
   }
