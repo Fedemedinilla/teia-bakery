@@ -33,8 +33,8 @@ export const DEMO_PRODUCTS = [
 // Cuentas demo (CUITs sintéticos con verificador válido — no son de empresas reales).
 // El segundo está en la lista VIP para poder probar los dos catálogos en modo demo.
 export const DEMO_CLIENTS = [
-  { id: 1, cuit: '20000000001', business_name: 'Café de la Esquina', client_contact: '11 5555-1234',    delivery_address: 'Av. Corrientes 1234, CABA',  catalog: 'general', active: true, notes: 'Cliente de ejemplo.', last_order_at: '2026-07-10T12:00:00Z' },
-  { id: 2, cuit: '27000000006', business_name: 'Chungo — Local Centro', client_contact: 'centro@chungo.com', delivery_address: 'Belgrano 567, San Isidro', catalog: 'chungo', active: true, notes: 'Franquicia (demo).', last_order_at: '2026-07-08T12:00:00Z' },
+  { id: 1, cuit: '20000000001', business_name: 'Café de la Esquina', client_contact: '11 5555-1234',    delivery_address: 'Av. Corrientes 1234, CABA',  catalog: 'general', active: true, access_code: '4K7M-9X2P', notes: 'Cliente de ejemplo.', last_order_at: '2026-07-10T12:00:00Z' },
+  { id: 2, cuit: '27000000006', business_name: 'Chungo — Local Centro', client_contact: '11 5555-9876', delivery_address: 'Belgrano 567, San Isidro', catalog: 'chungo', active: true, access_code: 'H3RN-8TQW', notes: 'Franquicia (demo).', last_order_at: '2026-07-08T12:00:00Z' },
 ];
 
 export const DEMO_ORDERS = [

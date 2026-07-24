@@ -35,6 +35,7 @@ create table if not exists teia_clients (
   delivery_address text default '',
   catalog          text not null default 'general' check (catalog in ('general','chungo')),
   active           boolean not null default true,  -- baja sin borrar historial
+  access_code      text,                           -- 2º factor OPCIONAL (ver TEIA_REQUIRE_CODE)
   discount_pct     int  not null default 0,  -- legacy: el descuento pasó a ser por pedido
   notes            text default '',          -- notas internas de Mica
   created_at       timestamptz not null default now(),
@@ -72,6 +73,9 @@ alter table teia_orders add column if not exists discount_pct       int not null
 alter table teia_clients  add column if not exists catalog text not null default 'general';
 alter table teia_clients  add column if not exists active  boolean not null default true;
 alter table teia_products add column if not exists catalog text not null default 'general';
+-- Código de acceso (2º factor). Se puede correr AHORA: mientras `TEIA_REQUIRE_CODE` no esté
+-- en 'true', la columna queda ahí sin usarse y la entrada sigue siendo solo con CUIT.
+alter table teia_clients  add column if not exists access_code text;
 alter table teia_orders add column if not exists archive_status     text;
 alter table teia_orders add column if not exists archive_error      text;
 alter table teia_orders add column if not exists archived_at        timestamptz;

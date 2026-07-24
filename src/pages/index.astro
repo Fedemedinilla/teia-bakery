@@ -3,31 +3,57 @@ export const prerender = false;
 import Base from '../layouts/Base.astro';
 import { env } from '../lib/supabase';
 import { readSession } from '../lib/session';
+import { codeRequired } from '../lib/accesscode';
 
-// Si ya tiene sesión válida, derecho al catálogo (no volver a pedir el CUIT cada vez).
+// Si ya tiene sesión válida, derecho al catálogo (no volver a pedir nada cada vez).
 if (readSession(Astro.cookies.get('teia_sess')?.value)) return Astro.redirect('/catalogo');
+
+// El 2º factor se muestra solo si está encendido (env TEIA_REQUIRE_CODE=true).
+const pideCodigo = codeRequired();
 
 // WhatsApp de Teia para el que no está habilitado: el "no" se convierte en una consulta.
 const WHATSAPP = (env('TEIA_WHATSAPP') || '5491176239937').replace(/\D/g, '');
-const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent('¡Hola Teia! Quiero pedir por mayor. Mi CUIT es: ')}`;
+const waTexto = pideCodigo
+  ? '¡Hola Teia! Quiero pedir por mayor. Mi CUIT es: '
+  : '¡Hola Teia! Quiero pedir por mayor. Mi CUIT es: ';
+const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(waTexto)}`;
 ---
 <Base title="Pedidos mayoristas — Teia Bakery">
   <main class="gate">
     <div class="gate__card">
       <p class="gate__brand">Teia Bakery</p>
       <h1 class="gate__t">Pedidos mayoristas</h1>
-      <p class="gate__s">Ingresá el CUIT de tu comercio para ver tu catálogo y hacer el pedido.</p>
+      <p class="gate__s">
+        {pideCodigo
+          ? 'Ingresá con el CUIT de tu comercio y el código que te dimos.'
+          : 'Ingresá el CUIT de tu comercio para ver tu catálogo y hacer el pedido.'}
+      </p>
 
-      <form id="gateForm" novalidate>
+      {/* Form real con autocomplete estándar: así el navegador (y el llavero del celular)
+          ofrece GUARDAR el CUIT y el código, y los completa solo la próxima vez. */}
+      <form id="gateForm" method="POST" action="/api/entrar" novalidate>
         <label for="gateCuit">CUIT del comercio</label>
-        <input id="gateCuit" name="cuit" inputmode="numeric" autocomplete="off"
+        <input id="gateCuit" name="cuit" inputmode="numeric" autocomplete="username"
                placeholder="Ej: 30-12345678-1" required autofocus />
+
+        {pideCodigo && (
+          <>
+            <label for="gateCode">Código de acceso</label>
+            <div class="gate__pw">
+              <input id="gateCode" name="code" type="password" autocomplete="current-password"
+                     placeholder="Ej: 4K7M-9X2P" required />
+              <button type="button" class="gate__eye" id="gateEye" aria-label="Mostrar el código">👁</button>
+            </div>
+            <p class="gate__hint">Te lo pasamos por WhatsApp cuando te dimos de alta. Lo pedís una sola vez por dispositivo.</p>
+          </>
+        )}
+
         <button class="btn btn--block" type="submit" id="gateBtn">Entrar</button>
         <p class="gate__msg" id="gateMsg" role="status" aria-live="polite" hidden></p>
       </form>
 
       <p class="gate__foot">
-        ¿Todavía no pedís por mayor?
+        {pideCodigo ? '¿Perdiste el código o todavía no pedís por mayor? ' : '¿Todavía no pedís por mayor? '}
         <a href={waLink} target="_blank" rel="noopener">Escribinos por WhatsApp</a>
       </p>
     </div>
@@ -36,12 +62,22 @@ const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent('¡Hola Teia
   <script>
     const form = document.getElementById('gateForm');
     const input = document.getElementById('gateCuit');
+    const code = document.getElementById('gateCode');
     const btn = document.getElementById('gateBtn');
     const msg = document.getElementById('gateMsg');
 
-    // Se recuerda el último CUIT usado en ESTE dispositivo (comodidad, no es la llave:
-    // la llave es la cookie firmada que devuelve el servidor).
-    try { const last = localStorage.getItem('teia_cuit'); if (last) input.value = last; } catch {}
+    // Se recuerda el último CUIT usado en ESTE dispositivo (comodidad, no es la llave: la
+    // llave es la cookie firmada que devuelve el servidor). El código nunca se guarda acá:
+    // de eso se encarga el llavero del navegador, que es donde corresponde.
+    try { const last = localStorage.getItem('teia_cuit'); if (last && !input.value) input.value = last; } catch {}
+
+    // Ver/ocultar el código (los de celular lo tipean a mano desde el WhatsApp).
+    document.getElementById('gateEye')?.addEventListener('click', () => {
+      if (!code) return;
+      const ver = code.type === 'password';
+      code.type = ver ? 'text' : 'password';
+      document.getElementById('gateEye').textContent = ver ? '🙈' : '👁';
+    });
 
     const show = (text, ok) => {
       msg.hidden = false;
@@ -56,18 +92,25 @@ const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent('¡Hola Teia
         input.focus();
         return show('El CUIT tiene que tener 11 números.', false);
       }
+      if (code && !code.value.trim()) {
+        code.focus();
+        return show('Ingresá el código que te pasamos.', false);
+      }
       btn.disabled = true; btn.textContent = 'Entrando…';
       try {
         const r = await fetch('/api/entrar', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cuit }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cuit, code: code ? code.value.trim() : undefined }),
         });
         const o = await r.json().catch(() => ({}));
         if (r.ok && o.ok) {
           try { localStorage.setItem('teia_cuit', cuit); } catch {}
+          // El submit del form (aunque lo hayamos interceptado) ya le dio al navegador la
+          // señal para ofrecer guardar las credenciales en su llavero.
           location.href = '/catalogo';
           return;
         }
-        show((o && o.error) || 'No pudimos verificar tu CUIT. Probá de nuevo.', false);
+        show((o && o.error) || 'No pudimos verificar tus datos. Probá de nuevo.', false);
       } catch {
         show('No se pudo conectar. Revisá tu conexión y probá de nuevo.', false);
       } finally {

@@ -5,6 +5,7 @@ import { isTeiaAdmin, authChallenge } from '../lib/auth';
 import { sbSelect, supaConfigured, env } from '../lib/supabase';
 import { fmtCuit } from '../lib/cuit';
 import { CATALOGS, catalogOf, catalogLabel, DEFAULT_CATALOG, attrSafe } from '../lib/catalogs';
+import { codeRequired } from '../lib/accesscode';
 import { DEMO_PRODUCTS, DEMO_ORDERS, DEMO_ORDER_ITEMS, DEMO_CLIENTS } from '../lib/demo';
 
 // Gate: la clave del panel se exige SIEMPRE que esté configurada. Antes se pedía solo si
@@ -49,6 +50,23 @@ const categories = configured
   ? await sbSelect('teia_categories?order=sort_order.asc,name.asc&select=*')
   : [{ id: 1, name: 'Tortas' }, { id: 2, name: 'Postres' }, { id: 3, name: 'Salados' }, { id: 4, name: 'Panadería' }];
 const catNames = (categories as any[]).map((c) => c.name);
+
+// Segundo factor: solo se PIDE al entrar si TEIA_REQUIRE_CODE=true. El panel lo administra
+// igual aunque esté apagado, para tener los códigos listos antes de encenderlo.
+const requireCode = codeRequired();
+const sinCodigo = (clients as any[]).filter((c) => !c.access_code).length;
+
+// Mensaje listo para mandarle el acceso al cliente por WhatsApp (se abre wa.me con el texto).
+const APP_URL = env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app';
+const waLink = (c: any) => {
+  const tel = String(c.client_contact || '').replace(/\D/g, '');
+  const texto =
+    `¡Hola ${c.business_name}! Ya podés hacer tus pedidos mayoristas por acá:\n${APP_URL}\n\n` +
+    `Entrás con:\nCUIT: ${fmtCuit(c.cuit)}\n` +
+    (c.access_code ? `Código: ${c.access_code}\n\n` : '\n') +
+    `Te lo pide una sola vez por teléfono. ¡Gracias!`;
+  return `https://wa.me/${tel.length >= 10 ? (tel.length === 10 ? '54' + tel : tel) : ''}?text=${encodeURIComponent(texto)}`;
+};
 
 ---
 <Base title="Administradora — Teia Bakery">
@@ -161,8 +179,15 @@ const catNames = (categories as any[]).map((c) => c.name);
     <!-- CLIENTES (cuentas por CUIT) -->
     <section class="panel" data-panel="clientes" hidden>
       {clients.length === 0 && (
-        <p class="card muted">Sin cuentas todavía — se crean solas con el primer pedido de cada CUIT.</p>
+        <p class="card muted">Sin cuentas todavía. Dá de alta la primera abajo — sin alta, nadie entra.</p>
       )}
+
+      <p class="card cli-modo">
+        {requireCode
+          ? <span><b>🔒 Entrada con CUIT + código.</b> Cada comercio necesita su código para entrar la primera vez en cada teléfono.</span>
+          : <span><b>🔓 Entrada solo con CUIT.</b> Alcanza el CUIT para entrar. Los códigos ya se generan y quedan guardados, listos para cuando quieras activarlos.</span>}
+        {sinCodigo > 0 && <span class="cli-modo__warn"> · {sinCodigo} cuenta{sinCodigo === 1 ? '' : 's'} sin código todavía</span>}
+      </p>
       {(clients as any[]).map((c: any) => (
         <div class="card clicard" data-id={c.id}>
           <div class="clicard__head">
@@ -188,6 +213,15 @@ const catNames = (categories as any[]).map((c) => c.name);
             <div class="grid2">
               <div><label>CUIT</label><input class="cf-cuit" value={fmtCuit(c.cuit)} /></div>
               <div><label>Notas internas</label><input class="cf-notes" value={attrSafe(c.notes)} /></div>
+            </div>
+            <div class="cf-code-row">
+              <div>
+                <label>Código de acceso {!requireCode && <span class="muted">(todavía no se pide al entrar)</span>}</label>
+                <input class="cf-code" value={attrSafe(c.access_code)} placeholder="sin código" readonly />
+              </div>
+              <button class="btn btn--ghost gen-code" type="button">🔄 Generar</button>
+              <button class="btn btn--ghost wa-code" type="button"
+                data-wa={attrSafe(waLink(c))}>💬 Enviar por WhatsApp</button>
             </div>
             <div class="grid2">
               <div>
@@ -731,6 +765,31 @@ const catNames = (categories as any[]).map((c) => c.name);
         body.hidden = !body.hidden;
         toggle.textContent = body.hidden ? 'Ver cuenta ▾' : 'Cerrar ▴';
       });
+      // Generar un código nuevo para esta cuenta (se guarda al instante y queda a la vista).
+      card.querySelector('.gen-code')?.addEventListener('click', async () => {
+        const b = card.querySelector('.gen-code');
+        if (card.querySelector('.cf-code').value.trim() &&
+            !confirm('Ya tiene un código. Si generás uno nuevo, el anterior deja de servir y hay que avisarle al cliente. ¿Seguimos?')) return;
+        b.disabled = true; b.textContent = 'Generando…';
+        const r = await fetch('/api/admin/client', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: card.dataset.id, access_code: 'generar' }),
+        });
+        const o = await r.json().catch(() => ({}));
+        if (r.ok && o.access_code) {
+          card.querySelector('.cf-code').value = o.access_code;
+          b.textContent = '✓ Listo';
+          setTimeout(() => location.reload(), 900); // recarga para refrescar el link de WhatsApp
+        } else { alert((o && o.error) || 'No se pudo generar el código.'); b.textContent = '🔄 Generar'; b.disabled = false; }
+      });
+
+      // Mandarle el acceso por WhatsApp con el mensaje ya escrito.
+      card.querySelector('.wa-code')?.addEventListener('click', () => {
+        const url = card.querySelector('.wa-code').dataset.wa || '';
+        if (!/wa\.me\/\d/.test(url)) return alert('Esta cuenta no tiene un WhatsApp válido cargado en "Contacto".');
+        window.open(url, '_blank', 'noopener');
+      });
+
       card.querySelector('.save-cli')?.addEventListener('click', async () => {
         const btn = card.querySelector('.save-cli');
         const v = (sel) => { const e = card.querySelector(sel); return e ? e.value : ''; };

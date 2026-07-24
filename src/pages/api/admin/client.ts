@@ -4,6 +4,7 @@ import { isTeiaAdmin } from '../../../lib/auth';
 import { sbInsert, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
 import { isValidCuit, hasCuitShape, normCuit } from '../../../lib/cuit';
 import { isCatalog } from '../../../lib/catalogs';
+import { newAccessCode, normCode } from '../../../lib/accesscode';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -42,6 +43,15 @@ export const POST: APIRoute = async ({ request }) => {
     patch.catalog = b.catalog;
   }
   if ('active' in b) patch.active = b.active !== false;
+
+  // Código de acceso: 'generar' crea uno nuevo, '' lo borra, y cualquier otro valor se
+  // guarda tal cual (por si Mica prefiere elegirlo ella). Se devuelve para que lo vea/copie.
+  let generated: string | undefined;
+  if ('access_code' in b) {
+    if (b.access_code === 'generar') { generated = newAccessCode(); patch.access_code = generated; }
+    else if (!String(b.access_code ?? '').trim()) patch.access_code = null;
+    else { generated = normCode(b.access_code); patch.access_code = generated; }
+  }
   if ('discount_pct' in b) {
     patch.discount_pct = [0, 10].includes(Number(b.discount_pct)) ? Number(b.discount_pct) : 0;
   }
@@ -58,11 +68,14 @@ export const POST: APIRoute = async ({ request }) => {
 
   if (id) {
     const ok = await sbPatch(`teia_clients?id=eq.${id}`, patch);
-    return ok ? json({ ok: true, warning }) : json({ error: 'No se pudo guardar (¿el CUIT ya existe en otra cuenta?).' }, 409);
+    return ok ? json({ ok: true, warning, access_code: generated }) : json({ error: 'No se pudo guardar (¿el CUIT ya existe en otra cuenta?).' }, 409);
   }
 
   if (!patch.cuit) return json({ error: 'Falta el CUIT de la cuenta nueva.' }, 400);
   if (!patch.business_name) return json({ error: 'Falta el nombre del comercio.' }, 400);
+  // Toda cuenta nueva nace con código, aunque el modo esté apagado: así el día que se
+  // encienda no hay que salir a generarlos de apuro para toda la cartera.
+  if (!('access_code' in patch)) { generated = newAccessCode(); patch.access_code = generated; }
   const created = await sbInsert('teia_clients', patch);
-  return created ? json({ ok: true, warning }) : json({ error: 'No se pudo crear (¿ya existe una cuenta con ese CUIT?).' }, 409);
+  return created ? json({ ok: true, warning, access_code: generated }) : json({ error: 'No se pudo crear (¿ya existe una cuenta con ese CUIT?).' }, 409);
 };

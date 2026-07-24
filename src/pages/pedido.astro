@@ -2,7 +2,7 @@
 export const prerender = false;
 import Base from '../layouts/Base.astro';
 import { sbSelect, supaConfigured } from '../lib/supabase';
-import { readSession, clearSessionCookie } from '../lib/session';
+import { readSession, clearSessionCookie, setSessionCookie } from '../lib/session';
 import { fmtCuit } from '../lib/cuit';
 import { attrSafe } from '../lib/catalogs';
 import { DEMO_CLIENTS } from '../lib/demo';
@@ -22,6 +22,10 @@ if (!client || client.active === false) {
     headers: { Location: '/', 'Set-Cookie': clearSessionCookie(Astro.request), 'Cache-Control': 'no-store' },
   });
 }
+
+// Sesión deslizante + esta página lleva datos del comercio: nunca cacheada.
+Astro.response.headers.append('Set-Cookie', setSessionCookie(Astro.request, sessionId));
+Astro.response.headers.set('Cache-Control', 'private, no-store');
 ---
 <Base title="Confirmá tu pedido — Teia Bakery">
   <header class="top">

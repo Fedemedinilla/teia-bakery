@@ -215,6 +215,20 @@ h1.title { font-family: var(--font-display); font-weight: 600; font-size: clamp(
 .top__acct-name { font-size: 13px; font-weight: 600; color: var(--ink-2); max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 560px) { .top__acct-name { max-width: 32vw; } }
 
+/* --- Puerta: campo de código con ojito --- */
+.gate__pw { display: flex; gap: 8px; align-items: stretch; }
+.gate__pw input { flex: 1; min-width: 0; margin-bottom: 0; letter-spacing: .12em; }
+.gate__eye { flex: 0 0 auto; border: 1px solid var(--line); background: var(--surface-2); border-radius: var(--r-md); padding: 0 12px; font-size: 16px; cursor: pointer; }
+.gate__hint { font-size: 12.5px; color: var(--ink-3); margin: 8px 0 14px; }
+
+/* --- Códigos de acceso en el panel --- */
+.cli-modo { margin-bottom: 12px; font-size: 13.5px; }
+.cli-modo__warn { color: var(--accent-2); font-weight: 600; }
+.cf-code-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: end; margin-top: 10px; }
+.cf-code-row .btn { white-space: nowrap; }
+.cf-code { font-family: ui-monospace, monospace; letter-spacing: .1em; font-weight: 700; }
+@media (max-width: 620px) { .cf-code-row { grid-template-columns: 1fr; } }
+
 /* chip del catálogo VIP en el catálogo y en el panel */
 .vip-chip { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #fff; background: var(--accent); border-radius: var(--r-full); padding: 2px 9px; }
 

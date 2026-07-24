@@ -2,7 +2,7 @@
 export const prerender = false;
 import Base from '../layouts/Base.astro';
 import { sbSelect, supaConfigured, env } from '../lib/supabase';
-import { readSession, clearSessionCookie } from '../lib/session';
+import { readSession, clearSessionCookie, setSessionCookie } from '../lib/session';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
 import { catalogOf, catalogLabel, DEFAULT_CATALOG, attrSafe } from '../lib/catalogs';
 import { DEMO_PRODUCTS, DEMO_CLIENTS } from '../lib/demo';
@@ -41,6 +41,11 @@ if (!client || client.active === false) {
   });
 }
 const catalog = catalogOf(client.catalog);
+
+// Sesión DESLIZANTE: cada visita renueva la cookie. Un comercio que pide seguido no vuelve a
+// ver la puerta nunca (pedido de la clienta: "que no tenga que completar todo cada vez").
+if (sessionId) Astro.response.headers.append('Set-Cookie', setSessionCookie(Astro.request, sessionId));
+Astro.response.headers.set('Cache-Control', 'private, no-store'); // catálogo y precios por cuenta
 
 const raw = configured
   ? await sbSelect(`teia_products?active=eq.true&catalog=eq.${catalog}&order=category.asc,sort_order.asc,name.asc&select=id,name,description,category,image_url,pack_label,price,stock`)
