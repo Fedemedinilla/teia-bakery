@@ -10,8 +10,8 @@ const json = (o: any, s = 200) =>
 // Admin only: editar las CANTIDADES de un pedido. Recibe { id, items:[{id, qty}] }.
 // qty=0 elimina la línea. Recalcula el line_total de cada ítem y el total del pedido.
 export const POST: APIRoute = async ({ request }) => {
-  if (!supaConfigured()) return json({ ok: true, demo: true });
   if (!isTeiaAdmin(request)) return new Response('no autorizado', { status: 401 });
+  if (!supaConfigured()) return json({ ok: true, demo: true });
 
   let b: any;
   try { b = await request.json(); } catch { return json({ error: 'JSON inválido.' }, 400); }

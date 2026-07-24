@@ -12,8 +12,8 @@ const json = (o: any, s = 200) =>
 // Crear (sin id), editar (con id — incluye el descuento fiel del cliente) o borrar
 // (action='delete'; los pedidos sobreviven: la FK pone client_id en null).
 export const POST: APIRoute = async ({ request }) => {
-  if (!supaConfigured()) return json({ ok: true, demo: true });
   if (!isTeiaAdmin(request)) return new Response('no autorizado', { status: 401 });
+  if (!supaConfigured()) return json({ ok: true, demo: true });
 
   let b: any;
   try { b = await request.json(); } catch { return json({ error: 'JSON inválido.' }, 400); }

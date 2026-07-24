@@ -26,9 +26,12 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   if (!items.length) return json({ error: 'El carrito está vacío.' }, 400);
   if (items.length > 200) return json({ error: 'Demasiados ítems en el pedido.' }, 400);
 
-  const client_name = String(body?.client_name || '').slice(0, 160).trim();
-  const client_contact = String(body?.client_contact || '').slice(0, 160).trim();
-  const delivery_address = String(body?.delivery_address || '').slice(0, 300).trim();
+  // Se limpian `< > " '` al GUARDAR, no solo al mostrar: estos campos los escribe el cliente y
+  // los lee la administradora en su panel. Defensa en profundidad — el render ya sanea también.
+  const clean = (v: any, max: number) => String(v ?? '').replace(/[<>"']/g, ' ').slice(0, max).trim();
+  const client_name = clean(body?.client_name, 160);
+  const client_contact = clean(body?.client_contact, 160);
+  const delivery_address = clean(body?.delivery_address, 300);
   if (!client_name || !client_contact || !delivery_address) return json({ error: 'Faltan datos del pedido.' }, 400);
 
   // La cuenta de la sesión: si la borraron o la dieron de baja mientras tenía la pestaña
@@ -88,9 +91,11 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     return json({ error: `El pedido mínimo mayorista es de $${MIN_ORDER.toLocaleString('es-AR')}. Sumá productos para llegar.` }, 400);
   }
 
-  await sbPatch(`teia_clients?id=eq.${clientId}`, {
-    client_contact, delivery_address, last_order_at: new Date().toISOString(),
-  });
+  // Solo se actualiza la fecha del último pedido. El contacto y la dirección de la CUENTA
+  // los edita únicamente Teia desde el panel: si los pisara el checkout, quien tenga el CUIT
+  // de un comercio (dato público) podría cambiarle el WhatsApp de contacto en la base.
+  // Los datos que el cliente escribe quedan en el pedido, que es donde corresponde.
+  await sbPatch(`teia_clients?id=eq.${clientId}`, { last_order_at: new Date().toISOString() });
 
   // El descuento ya NO viene del cliente: lo aplica Mica pedido por pedido desde el panel.
   const total = subtotal;
@@ -98,7 +103,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   const created = await sbInsert<any>('teia_orders', {
     client_id: clientId, client_name, client_contact, delivery_address,
     delivery_date: body?.delivery_date || null,
-    notes: String(body?.notes || '').slice(0, 500),
+    notes: clean(body?.notes, 500),
     status: 'pendiente', version: 1, total, discount_pct: 0,
   });
   const order = created && created[0];

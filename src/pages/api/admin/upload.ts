@@ -11,8 +11,8 @@ const json = (o: any, s = 200) =>
 // multipart/form-data con 403 vía WAF) y la sube a Supabase Storage con la service_role key.
 // Devuelve la URL pública. El bucket `teia-productos` debe existir y ser público.
 export const POST: APIRoute = async ({ request }) => {
-  if (!supaConfigured()) return json({ error: 'Conectá Supabase para subir imágenes.' }, 503);
   if (!isTeiaAdmin(request)) return new Response('no autorizado', { status: 401 });
+  if (!supaConfigured()) return json({ error: 'Conectá Supabase para subir imágenes.' }, 503);
 
   let body: any;
   try { body = await request.json(); } catch { return json({ error: 'JSON inválido.' }, 400); }

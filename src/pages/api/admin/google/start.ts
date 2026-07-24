@@ -3,6 +3,7 @@ import type { APIRoute } from 'astro';
 import { isTeiaAdmin, authChallenge } from '../../../../lib/auth';
 import { env } from '../../../../lib/supabase';
 import { GOOGLE_SCOPE } from '../../../../lib/google';
+import { newOAuthState, oauthStateCookie } from '../../../../lib/session';
 
 // Admin: arranca el consentimiento de Google ("Conectar Google" del panel). Redirige a la
 // pantalla de Google; al aceptar, Google vuelve a /api/admin/google/callback con el code.
@@ -19,6 +20,7 @@ export const GET: APIRoute = async ({ request }) => {
   // como http, y para Google "http://..." ≠ la URI registrada en https → redirect_uri_mismatch.
   const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || new URL(request.url).host;
   const redirect = `https://${host}/api/admin/google/callback`;
+  const state = newOAuthState(); // anti-CSRF: se verifica al volver
   const url =
     'https://accounts.google.com/o/oauth2/v2/auth?' +
     new URLSearchParams({
@@ -28,13 +30,17 @@ export const GET: APIRoute = async ({ request }) => {
       scope: GOOGLE_SCOPE,
       access_type: 'offline',
       prompt: 'consent',
+      state,
     }).toString();
   // ?debug=1 → muestra la URI exacta que se le manda a Google (para compararla letra por
   // letra con la registrada en GCP si algo no matchea).
   if (new URL(request.url).searchParams.get('debug')) {
-    return new Response(`redirect_uri que manda la app:\n${redirect}\n\nURL completa de consentimiento:\n${url}`, {
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    return new Response(`redirect_uri que manda la app:\n${redirect}`, {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
     });
   }
-  return Response.redirect(url, 302);
+  return new Response(null, {
+    status: 302,
+    headers: { Location: url, 'Set-Cookie': oauthStateCookie(request, state), 'Cache-Control': 'no-store' },
+  });
 };

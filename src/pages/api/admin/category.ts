@@ -8,8 +8,8 @@ const json = (o: any, s = 200) =>
 
 // Admin only: crear (default) o borrar (action='delete') un rubro/categoría.
 export const POST: APIRoute = async ({ request }) => {
-  if (!supaConfigured()) return json({ ok: true, demo: true }); // demo: no persiste
   if (!isTeiaAdmin(request)) return new Response('no autorizado', { status: 401 });
+  if (!supaConfigured()) return json({ ok: true, demo: true }); // demo: no persiste
 
   let b: any;
   try { b = await request.json(); } catch { return json({ error: 'JSON inválido.' }, 400); }

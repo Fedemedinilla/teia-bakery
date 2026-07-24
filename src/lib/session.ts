@@ -7,8 +7,13 @@ import { env } from './supabase';
 export const SESSION_COOKIE = 'teia_sess';
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 90; // 90 días
 
+// El secreto de firma. Si no hay NINGUNA fuente, se lanza en vez de caer a un valor conocido:
+// un fallback hardcodeado dejaría que cualquiera firme una sesión para cualquier comercio.
 function secret(): string {
-  return env('SUPABASE_SERVICE_ROLE_KEY') || env('TEIA_ADMIN_PASSWORD') || 'teia-dev-secret';
+  const s = env('SUPABASE_SERVICE_ROLE_KEY') || env('TEIA_ADMIN_PASSWORD');
+  if (s) return s;
+  if (env('NODE_ENV') === 'production') throw new Error('Falta el secreto de sesión (SUPABASE_SERVICE_ROLE_KEY o TEIA_ADMIN_PASSWORD).');
+  return 'teia-dev-only-secret'; // solo dev/demo local, nunca con datos reales
 }
 
 function sign(payload: string): string {
@@ -62,4 +67,41 @@ export function setSessionCookie(request: Request, clientId: number): string {
 
 export function clearSessionCookie(request: Request): string {
   return cookieHeader('', isSecureRequest(request), 0);
+}
+
+// ---- state anti-CSRF del flujo OAuth de Google ----
+// Un valor al azar que se guarda en cookie y viaja a Google; al volver tienen que coincidir.
+// Sin esto, alguien podía hacerle abrir a la admin un callback con SU code y conectar su Drive.
+export const OAUTH_STATE_COOKIE = 'teia_oauth_state';
+
+export function newOAuthState(): string {
+  return crypto.randomBytes(16).toString('hex');
+}
+
+export function oauthStateCookie(request: Request, state: string): string {
+  return [
+    `${OAUTH_STATE_COOKIE}=${state}`,
+    'Path=/api/admin/google',
+    'HttpOnly',
+    'SameSite=Lax',
+    isSecureRequest(request) ? 'Secure' : '',
+    'Max-Age=600', // 10 minutos: el consentimiento no lleva más
+  ].filter(Boolean).join('; ');
+}
+
+export function clearOAuthStateCookie(request: Request): string {
+  return [
+    `${OAUTH_STATE_COOKIE}=`,
+    'Path=/api/admin/google',
+    'HttpOnly',
+    'SameSite=Lax',
+    isSecureRequest(request) ? 'Secure' : '',
+    'Max-Age=0',
+  ].filter(Boolean).join('; ');
+}
+
+export function readOAuthState(fromCookie: string | undefined, fromUrl: string): boolean {
+  if (!fromCookie || !fromUrl) return false;
+  const a = Buffer.from(fromCookie), b = Buffer.from(fromUrl);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }

@@ -85,8 +85,8 @@ export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: s
 
 // Admin: reintentar el archivado de un pedido a mano (botón "Reintentar" del panel).
 export const POST: APIRoute = async ({ request }) => {
-  if (!supaConfigured()) return json({ ok: true, demo: true });
   if (!isTeiaAdmin(request)) return new Response('no autorizado', { status: 401 });
+  if (!supaConfigured()) return json({ ok: true, demo: true });
   let b: any;
   try { b = await request.json(); } catch { return json({ error: 'JSON inválido.' }, 400); }
   const id = Number(b?.id);

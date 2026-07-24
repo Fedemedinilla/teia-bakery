@@ -20,17 +20,21 @@ const json = (o: any, s = 200) =>
 
 const MAX_PER_RUN = 5; // maxDuration=30s y cada archivado son 2 PDFs + 2 uploads
 
+// FAIL-CLOSED: sin CRON_SECRET no entra nadie. Antes devolvía true y el endpoint quedaba
+// abierto — cualquiera podía dispararlo en loop y quemar cuota de Google/Supabase/Vercel.
 function cronAuthOk(request: Request): boolean {
   const secret = env('CRON_SECRET');
-  if (!secret) return true;
+  if (!secret) return false;
   const a = Buffer.from(request.headers.get('authorization') || '');
   const b = Buffer.from(`Bearer ${secret}`);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 export const GET: APIRoute = async ({ request }) => {
-  if (!supaConfigured()) return json({ ok: true, demo: true });
+  // La autorización va SIEMPRE primero: si se evaluara después de supaConfigured(), un
+  // deploy sin las env vars de Supabase dejaría el endpoint abierto.
   if (!cronAuthOk(request) && !isTeiaAdmin(request)) return new Response('no autorizado', { status: 401 });
+  if (!supaConfigured()) return json({ ok: true, demo: true });
 
   const pending = await sbSelect(
     `teia_orders?status=eq.confirmado&or=(archive_status.eq.error,archive_status.is.null)` +

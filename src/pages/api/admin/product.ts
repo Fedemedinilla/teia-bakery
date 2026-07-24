@@ -11,8 +11,8 @@ const json = (o: any, s = 200) =>
 // Admin only: create / update (id present = update) / delete (action='delete') a product.
 // image_url llega ya resuelto: o una URL pegada, o la URL pública que devolvió /api/admin/upload.
 export const POST: APIRoute = async ({ request }) => {
-  if (!supaConfigured()) return json({ ok: true, demo: true }); // demo: nada que persistir
   if (!isTeiaAdmin(request)) return new Response('no autorizado', { status: 401 });
+  if (!supaConfigured()) return json({ ok: true, demo: true }); // demo: nada que persistir
 
   let b: any;
   try { b = await request.json(); } catch { return json({ error: 'bad json' }, 400); }

@@ -4,7 +4,7 @@ import Base from '../layouts/Base.astro';
 import { sbSelect, supaConfigured, env } from '../lib/supabase';
 import { readSession, clearSessionCookie } from '../lib/session';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
-import { catalogOf, catalogLabel, DEFAULT_CATALOG } from '../lib/catalogs';
+import { catalogOf, catalogLabel, DEFAULT_CATALOG, attrSafe } from '../lib/catalogs';
 import { DEMO_PRODUCTS, DEMO_CLIENTS } from '../lib/demo';
 
 const configured = supaConfigured();
@@ -107,7 +107,7 @@ const sections = [...groups.keys()]
           <div class="rubro__line"></div>
           <ul class="items">
             {s.items.map((p: any) => (
-              <li class="item" data-id={p.id} data-name={p.name} data-price={p.price} data-pack={p.pack_label} data-cat={s.name} data-desc={p.description || ''} data-img={p.image_url || ''}>
+              <li class="item" data-id={p.id} data-name={attrSafe(p.name)} data-price={p.price} data-pack={attrSafe(p.pack_label)} data-cat={attrSafe(s.name)} data-desc={attrSafe(p.description)} data-img={attrSafe(p.image_url)}>
                 <div class="thumb-box" role="button" tabindex="0" title="Ver más">
                   <span class="thumb-ph" aria-hidden="true">{String(p.name).charAt(0)}</span>
                   {p.image_url && <img class="thumb-img" src={p.image_url} alt={p.name} loading="lazy" width="60" height="60" data-drop-on-error />}

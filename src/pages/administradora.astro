@@ -2,14 +2,15 @@
 export const prerender = false;
 import Base from '../layouts/Base.astro';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
-import { sbSelect, supaConfigured } from '../lib/supabase';
+import { sbSelect, supaConfigured, env } from '../lib/supabase';
 import { fmtCuit } from '../lib/cuit';
-import { CATALOGS, catalogOf, catalogLabel, DEFAULT_CATALOG } from '../lib/catalogs';
+import { CATALOGS, catalogOf, catalogLabel, DEFAULT_CATALOG, attrSafe } from '../lib/catalogs';
 import { DEMO_PRODUCTS, DEMO_ORDERS, DEMO_ORDER_ITEMS, DEMO_CLIENTS } from '../lib/demo';
 
-// Gate: in real mode (Supabase configured) require the panel password. In demo mode it's open.
+// Gate: la clave del panel se exige SIEMPRE que esté configurada. Antes se pedía solo si
+// Supabase estaba conectado — un deploy sin esas env vars abría el panel entero.
 const configured = supaConfigured();
-if (configured && !isTeiaAdmin(Astro.request)) {
+if (!isTeiaAdmin(Astro.request) && env('TEIA_ADMIN_PASSWORD')) {
   return authChallenge();
 }
 
@@ -107,14 +108,14 @@ const catNames = (categories as any[]).map((c) => c.name);
 
           <div class="ordcard__edit">
             <div class="grid2">
-              <div><label>Cliente</label><input class="of-name" value={o.client_name} /></div>
-              <div><label>Contacto</label><input class="of-contact" value={o.client_contact} /></div>
+              <div><label>Cliente</label><input class="of-name" value={attrSafe(o.client_name)} /></div>
+              <div><label>Contacto</label><input class="of-contact" value={attrSafe(o.client_contact)} /></div>
             </div>
             <label>Dirección de entrega</label>
-            <input class="of-addr" value={o.delivery_address || ''} />
+            <input class="of-addr" value={attrSafe(o.delivery_address)} />
             <div class="grid2">
               <div><label>Día de entrega</label><input class="of-date" type="date" value={o.delivery_date || ''} /></div>
-              <div><label>Notas</label><input class="of-notes" value={o.notes || ''} /></div>
+              <div><label>Notas</label><input class="of-notes" value={attrSafe(o.notes)} /></div>
             </div>
           </div>
 
@@ -124,7 +125,7 @@ const catNames = (categories as any[]).map((c) => c.name);
                 <span class="oi-name">{it.name} <small class="muted">{it.pack_label}</small></span>
                 <span class="oi-qty">
                   <span class="qty-view">{it.qty}</span>
-                  <input class="qty-edit" type="number" min="0" value={it.qty} aria-label={`Cantidad de ${it.name}`} />
+                  <input class="qty-edit" type="number" min="0" value={it.qty} aria-label={attrSafe(`Cantidad de ${it.name}`)} />
                   <span class="muted"> × {money(it.unit_price)}</span>
                 </span>
                 <span class="oi-line" data-line>{money(it.line_total)}</span>
@@ -139,7 +140,7 @@ const catNames = (categories as any[]).map((c) => c.name);
               {o.archived && <a class="arch-link" href={o.remito_cliente_url} target="_blank" rel="noopener">📄 Abrir</a>}
               {o.archived && (
                 <button class="btn btn--ghost share-rem" type="button"
-                  data-url={o.remito_cliente_url} data-num={o.order_number || `#${o.id}`}>📤 Compartir</button>
+                  data-url={attrSafe(o.remito_cliente_url)} data-num={o.order_number || `#${o.id}`}>📤 Compartir</button>
               )}
               {!o.archived && <span class="arch arch--err">⚠️ Sin archivar{o.archive_error ? `: ${o.archive_error}` : ''}</span>}
               {!o.archived && <button class="btn btn--ghost retry-arch" type="button" data-id={o.id}>Reintentar</button>}
@@ -179,14 +180,14 @@ const catNames = (categories as any[]).map((c) => c.name);
 
           <div class="clicard__body" hidden>
             <div class="grid2">
-              <div><label>Comercio</label><input class="cf-name" value={c.business_name} /></div>
-              <div><label>Contacto</label><input class="cf-contact" value={c.client_contact || ''} /></div>
+              <div><label>Comercio</label><input class="cf-name" value={attrSafe(c.business_name)} /></div>
+              <div><label>Contacto</label><input class="cf-contact" value={attrSafe(c.client_contact)} /></div>
             </div>
             <label>Dirección de entrega</label>
-            <input class="cf-addr" value={c.delivery_address || ''} />
+            <input class="cf-addr" value={attrSafe(c.delivery_address)} />
             <div class="grid2">
               <div><label>CUIT</label><input class="cf-cuit" value={fmtCuit(c.cuit)} /></div>
-              <div><label>Notas internas</label><input class="cf-notes" value={c.notes || ''} /></div>
+              <div><label>Notas internas</label><input class="cf-notes" value={attrSafe(c.notes)} /></div>
             </div>
             <div class="grid2">
               <div>
@@ -207,7 +208,7 @@ const catNames = (categories as any[]).map((c) => c.name);
             </div>
             <div class="ordcard__actions">
               <button class="btn save-cli" type="button">Guardar cuenta</button>
-              <button class="btn btn--danger del-cli" type="button" data-name={c.business_name}>Borrar cuenta</button>
+              <button class="btn btn--danger del-cli" type="button" data-name={attrSafe(c.business_name)}>Borrar cuenta</button>
             </div>
 
             <p class="clicard__hist-t">Historial de pedidos</p>
@@ -303,7 +304,7 @@ const catNames = (categories as any[]).map((c) => c.name);
                 </span></td>
                 <td class="prod-actions">
                   <button class="btn btn--ghost editp" data-p={JSON.stringify(p)}>Editar</button>
-                  <button class="btn btn--danger del-prod" type="button" data-id={p.id} data-name={p.name}>Borrar</button>
+                  <button class="btn btn--danger del-prod" type="button" data-id={p.id} data-name={attrSafe(p.name)}>Borrar</button>
                 </td>
               </tr>
             ))}
@@ -402,7 +403,7 @@ const catNames = (categories as any[]).map((c) => c.name);
         <p class="hint">Son las secciones del catálogo. Los productos se agrupan por rubro.</p>
         <ul class="rubro-list" id="rubroList">
           {categories.map((c: any) => (
-            <li><span>{c.name}</span><button class="btn btn--ghost del-cat" type="button" data-id={c.id} data-name={c.name}>Eliminar</button></li>
+            <li><span>{c.name}</span><button class="btn btn--ghost del-cat" type="button" data-id={c.id} data-name={attrSafe(c.name)}>Eliminar</button></li>
           ))}
           {categories.length === 0 && <li class="muted">Sin rubros todavía.</li>}
         </ul>

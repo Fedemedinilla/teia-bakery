@@ -12,8 +12,8 @@ const json = (o: any, s = 200) =>
 // app-native archiver (2 remitos PDF → Supabase Storage). Confirms are serial (one admin), so
 // the read-then-write stock loop is fine for this volume.
 export const POST: APIRoute = async ({ request }) => {
-  if (!supaConfigured()) return json({ ok: true, demo: true }); // demo: nada que persistir
   if (!isTeiaAdmin(request)) return new Response('no autorizado', { status: 401 });
+  if (!supaConfigured()) return json({ ok: true, demo: true }); // demo: nada que persistir
 
   let body: any;
   try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }

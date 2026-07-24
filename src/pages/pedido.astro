@@ -4,6 +4,7 @@ import Base from '../layouts/Base.astro';
 import { sbSelect, supaConfigured } from '../lib/supabase';
 import { readSession, clearSessionCookie } from '../lib/session';
 import { fmtCuit } from '../lib/cuit';
+import { attrSafe } from '../lib/catalogs';
 import { DEMO_CLIENTS } from '../lib/demo';
 
 // Mismo gate que el catálogo: acá no se llega sin cuenta habilitada.
@@ -50,14 +51,14 @@ if (!client || client.active === false) {
           </p>
 
           <label for="f-name">Nombre / Comercio</label>
-          <input id="f-name" name="client_name" required autocomplete="organization" value={client.business_name || ''} />
+          <input id="f-name" name="client_name" required autocomplete="organization" value={attrSafe(client.business_name)} />
 
           <label for="f-contact">WhatsApp o email</label>
-          <input id="f-contact" name="client_contact" required autocomplete="tel" placeholder="Ej: 11 5555-1234" value={client.client_contact || ''} />
+          <input id="f-contact" name="client_contact" required autocomplete="tel" placeholder="Ej: 11 5555-1234" value={attrSafe(client.client_contact)} />
           <p class="field-hint">Por acá te confirmamos el pedido y la entrega.</p>
 
           <label for="f-addr">Dirección de entrega</label>
-          <input id="f-addr" name="delivery_address" required autocomplete="street-address" placeholder="Calle, número, localidad" value={client.delivery_address || ''} />
+          <input id="f-addr" name="delivery_address" required autocomplete="street-address" placeholder="Calle, número, localidad" value={attrSafe(client.delivery_address)} />
 
           <label for="f-notes">Aclaraciones (opcional)</label>
           <textarea id="f-notes" name="notes" rows="2" placeholder="Ej: entregar antes de las 10 hs, tocar timbre B…"></textarea>
