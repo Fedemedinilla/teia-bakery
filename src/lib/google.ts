@@ -85,7 +85,9 @@ export async function ensureMonthClientPath(dateIso: string, clientName: string)
   const parts = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit' })
     .formatToParts(new Date(dateIso || Date.now()));
   const yy = parts.find((p) => p.type === 'year')!.value;
-  const mm = parts.find((p) => p.type === 'month')!.value;
+  // El padding se hace A MANO: con es-AR y solo {year, month}, Intl ignora el '2-digit' y
+  // devuelve "7" en vez de "07" — y entonces Drive ordena 1, 10, 11, 12, 2, 3…
+  const mm = parts.find((p) => p.type === 'month')!.value.padStart(2, '0');
   const root = await ensureRoot();
   const year = await ensureFolder(yy, root.id);
   const month = await ensureFolder(`${mm} - ${MESES[Number(mm) - 1] || mm}`, year.id);

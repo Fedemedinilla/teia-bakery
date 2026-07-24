@@ -27,7 +27,7 @@ const NON_WINANSI = new RegExp('[^\\x20-\\x7E\\u00A0-\\u00FF' + CP1252_EXTRAS + 
 function safe(s: any): string {
   return String(s ?? '')
     .normalize('NFC')
-    .replace(/[\r\n\f\t]+/g, ' ')
+    .replace(/[\r\n\f\t]+/g, ' · ') // separador visible: las aclaraciones de varias líneas se leen como ítems
     .replace(/−/g, '-')
     .replace(NON_WINANSI, '')
     .replace(/ {2,}/g, ' ')
