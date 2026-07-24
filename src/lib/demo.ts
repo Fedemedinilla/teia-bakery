@@ -27,10 +27,9 @@ export const DEMO_PRODUCTS = [
 ];
 
 // Cuentas demo (CUITs sintéticos con verificador válido — no son de empresas reales).
-// El primero tiene descuento fiel para mostrar el catálogo con precios tachados.
 export const DEMO_CLIENTS = [
-  { id: 1, cuit: '20000000001', business_name: 'Café de la Esquina', client_contact: '11 5555-1234',    delivery_address: 'Av. Corrientes 1234, CABA',  discount_pct: 10, notes: 'Cliente fiel (demo).', last_order_at: '2026-07-10T12:00:00Z' },
-  { id: 2, cuit: '27000000006', business_name: 'Almacén Belén',      client_contact: 'belen@correo.com', delivery_address: 'Belgrano 567, San Isidro',   discount_pct: 0,  notes: '',                    last_order_at: '2026-07-08T12:00:00Z' },
+  { id: 1, cuit: '20000000001', business_name: 'Café de la Esquina', client_contact: '11 5555-1234',    delivery_address: 'Av. Corrientes 1234, CABA',  notes: 'Cliente de ejemplo.', last_order_at: '2026-07-10T12:00:00Z' },
+  { id: 2, cuit: '27000000006', business_name: 'Almacén Belén',      client_contact: 'belen@correo.com', delivery_address: 'Belgrano 567, San Isidro',   notes: '',                    last_order_at: '2026-07-08T12:00:00Z' },
 ];
 
 export const DEMO_ORDERS = [
@@ -46,11 +45,3 @@ export const DEMO_ORDER_ITEMS = [
   { id: 4, order_id: 100, name: 'Alfajores de maicena',       pack_label: 'x12', qty: 2, unit_price: 14400, line_total: 28800 },
 ];
 
-// El "último pedido" de la cuenta demo 20-00000000-1 (alimenta la tarjeta de recompra).
-export const DEMO_LAST_ORDER = {
-  order_number: 'TEIA-0040',
-  items: [
-    { id: 7, name: 'Medialunas de manteca',       pack: 'x12', price: 9600,  qty: 3 },
-    { id: 1, name: 'Cheesecake de frutos rojos',   pack: 'x6',  price: 28800, qty: 1 },
-  ],
-};

@@ -100,15 +100,22 @@ Resumen entregado a Mica: `teia/resumen-meet-mica.html` → PDF en Downloads.*
 ### ❓ ABIERTAS — decide Federico ANTES de que arranque el bloque correspondiente
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
-| A | **Canal del aviso de pedido nuevo** (Mica lo asumió por WhatsApp; hoy NO existe nada) | Email (Resend, ya usado en Formy) · Telegram bot · WhatsApp Cloud API | **Email**: gratis, confiable, sin verificación de Meta. WhatsApp Cloud = costo/mensaje + alta en Meta (ya descartado en su momento) |
-| B | **Cómo se modelan los productos de Chungo** | (A) catálogo con productos PROPIOS + botón "copiar a Chungo" · (B) productos compartidos con tabla de precios por catálogo | **(A)**: Mica no maneja stock (el contra desaparece), permite productos exclusivos, mucho más simple de entender y de programar |
-| C | **Rollback del auto-alta** (la cuenta ya no se crea sola con el 1er pedido) | Confirmar | Es lo que pidió Mica explícitamente ("me da cosa que cualquiera se lo pueda armar") |
-| D | **Dónde vive el resumen por cliente en Drive** | `Remitos Teia/Clientes/<Comercio>/Resumen` (remitos siguen en año/mes) · todo junto por cliente | La 1ª: no rompe el árbol año/mes que ella ya aprobó. **Formato final espera sus screenshots** |
+| A | Canal del aviso de pedido nuevo | ✅ **RESUELTA: email con Resend.** Fundamentación completa + texto para Mica en `teia/aviso-pedidos-resend-vs-whatsapp.md` |
+| B | Productos de Chungo | ✅ **RESUELTA: catálogo VIP separado**, único para TODOS los CUIT de Chungo (es una franquicia: varios locales, cada uno con su CUIT) |
+| C | Rollback del auto-alta | ✅ **RESUELTA: se hace.** De tienda abierta a carta VIP: solo entra quien Teia puso antes en la whitelist (del catálogo normal o del de Chungo) |
+| D | Resumen por cliente en Drive | ✅ **RESUELTA: `Remitos Teia/Clientes/<Comercio>/`** con su planilla; los remitos siguen en año/mes. Formato final espera sus screenshots |
 
 ---
 
-### 🟢 BLOQUE 1 — Ajustes rápidos · sin dependencias · ~1 sesión
-*Se puede hacer YA. Ninguno depende de material de Mica ni de las decisiones abiertas.*
+### ✅ BLOQUE 1 — HECHO 2026-07-22 (verificado en preview + build verde)
+*Incluyó un extra no planeado: el "bug" de CUITs que Federico sufrió en la meet.*
+
+**1.0 · CUIT: avisar en vez de bloquear** — diagnóstico: el validador estaba BIEN; para un
+prefijo dado hay UN solo dígito verificador válido, así que inventar CUITs falla 10 de 11 veces
+(`scripts/cuit-demo.ts` lo demuestra). El error de diseño era **bloquear**. Ahora: se exige solo
+la FORMA (11 dígitos, `hasCuitShape`); el verificador se usa para AVISAR al guardar en el panel
+("ojo, no pasa el verificador de AFIP") pero **guarda igual** — Teia sabe quiénes son sus
+clientes mejor que un algoritmo. El filtro real pasa a ser la whitelist de cuentas.
 
 **1.1 · Descuento POR PEDIDO** (sale de la ficha del cliente)
 - `api/order.ts`: deja de leer `teia_clients.discount_pct` → todo pedido nace en 0.

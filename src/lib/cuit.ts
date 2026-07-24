@@ -5,6 +5,13 @@ export function normCuit(s: any): string {
   return String(s ?? '').replace(/\D/g, '');
 }
 
+// Forma mínima aceptable: 11 dígitos. Es lo ÚNICO que se exige para entrar o para dar de alta.
+// El verificador (isValidCuit) se usa solo para AVISAR de un posible tipeo — nunca para
+// bloquear: quien decide si un CUIT es de un cliente real es Teia, no un algoritmo.
+export function hasCuitShape(s: any): boolean {
+  return normCuit(s).length === 11;
+}
+
 export function isValidCuit(s: any): boolean {
   const d = normCuit(s);
   if (d.length !== 11) return false;

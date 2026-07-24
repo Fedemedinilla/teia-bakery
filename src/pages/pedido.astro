@@ -49,7 +49,6 @@ import Base from '../layouts/Base.astro';
           <div class="card co-summary__card">
             <h2>Tu pedido</h2>
             <ul class="order__items co-items" id="cart"></ul>
-            <div class="order__disc" id="coDisc" hidden>✓ Descuento fiel −10% aplicado</div>
             <div class="co-total"><span>Total</span><b id="coTotal">$0</b></div>
             <p class="co-trust">🤝 Sin pago online — coordinás el pago con Teia al recibir.</p>
             <button class="btn btn--block" type="submit" form="form" id="submitBtn">Enviar pedido</button>
@@ -72,22 +71,13 @@ import Base from '../layouts/Base.astro';
     catch { cart = []; }
     const total = () => cart.reduce((s, i) => s + i.price * i.qty, 0);
 
-    // Validación de CUIT en el navegador (mismo mod-11 que el server): feedback inmediato al
-    // salir del campo, en vez de recién al enviar. El server igual re-valida siempre.
-    const cuitOk = (s) => {
-      const d = String(s || '').replace(/\D/g, '');
-      if (d.length !== 11) return false;
-      const W = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
-      const r = W.reduce((a, w, i) => a + w * Number(d[i]), 0) % 11;
-      const ver = r === 0 ? 0 : 11 - r;
-      return (ver === 10 ? 9 : ver) === Number(d[10]);
-    };
+    // El CUIT solo necesita FORMA (11 números). Quién puede pedir lo decide la lista de
+    // cuentas que da de alta Teia, no el dígito verificador.
+    const cuitOk = (s) => String(s || '').replace(/\D/g, '').length === 11;
 
-    // Cuenta por CUIT: autocompleta los datos y muestra el descuento fiel del cliente.
-    // Solo VISTA — el server re-lee precios y aplica el % por su cuenta al crear la orden.
+    // Cuenta por CUIT: autocompleta los datos del comercio. Los precios son los de lista —
+    // el descuento lo aplica Teia pedido por pedido desde su panel.
     let CLIENT = null;
-    const pct = () => (CLIENT && !CLIENT.unknown && Number(CLIENT.discount_pct)) || 0;
-    const net = (n) => Math.round(n * (1 - pct() / 100));
 
     async function identify(cuitRaw) {
       const raw = String(cuitRaw || '').trim();
@@ -101,15 +91,15 @@ import Base from '../layouts/Base.astro';
         try { localStorage.setItem('teia_cuit', raw); } catch {}
         const hint = el('cuitHint');
         if (o.unknown) {
-          CLIENT = { cuit: raw, unknown: true, discount_pct: 0 };
-          if (hint) hint.textContent = '✓ CUIT nuevo: completá tus datos una sola vez — quedan guardados para la próxima.';
+          CLIENT = { cuit: raw, unknown: true };
+          if (hint) { hint.textContent = '⚠️ Ese CUIT todavía no está habilitado. Escribile a Teia para que te dé de alta.'; hint.style.color = '#B0684C'; }
         } else {
           CLIENT = { ...o.client, cuit: raw };
           const form = el('form');
           form.elements.client_name.value = o.client.business_name || '';
           form.elements.client_contact.value = o.client.client_contact || '';
           form.elements.delivery_address.value = o.client.delivery_address || '';
-          if (hint) hint.textContent = `✓ ¡Hola, ${o.client.business_name}! Tus datos ya están cargados.`;
+          if (hint) { hint.textContent = `✓ ¡Hola, ${o.client.business_name}! Tus datos ya están cargados.`; hint.style.color = ''; }
         }
         render();
       } catch {}
@@ -140,18 +130,15 @@ import Base from '../layouts/Base.astro';
           `<span class="oi__qv">${i.qty}</span>` +
           `<button class="oi__step" type="button" data-inc="${id}" aria-label="Sumar uno">+</button></span>` +
           (i.pack ? `<span class="oi__pack">${esc(i.pack)}</span>` : '') +
-          `<span class="oi__line">${money(net(i.price * i.qty))}</span></div></li>`;
+          `<span class="oi__line">${money(i.price * i.qty)}</span></div></li>`;
       }).join('');
 
       el('cart').querySelectorAll('[data-inc]').forEach((b) => (b.onclick = () => change(b.dataset.inc, +1)));
       el('cart').querySelectorAll('[data-dec]').forEach((b) => (b.onclick = () => change(b.dataset.dec, -1)));
       el('cart').querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => removeItem(b.dataset.rm)));
 
-      const tNet = Math.round(total() * (1 - pct() / 100)); // misma fórmula que el server
-      const disc = el('coDisc');
-      if (disc) disc.hidden = pct() === 0;
-      el('coTotal').textContent = money(tNet);
-      el('submitBtn').textContent = 'Enviar pedido · ' + money(tNet);
+      el('coTotal').textContent = money(total());
+      el('submitBtn').textContent = 'Enviar pedido · ' + money(total());
     }
 
     el('form').addEventListener('submit', async (e) => {
@@ -169,7 +156,7 @@ import Base from '../layouts/Base.astro';
       if (!cuitOk(form.elements.cuit.value)) {
         form.elements.cuit.focus();
         msg.hidden = false; msg.className = 'co-msg err';
-        msg.textContent = 'Ese CUIT no parece válido — revisá los 11 números (el último es el verificador).';
+        msg.textContent = 'El CUIT tiene que tener 11 números.';
         return;
       }
       const fd = Object.fromEntries(new FormData(form).entries());
@@ -187,8 +174,7 @@ import Base from '../layouts/Base.astro';
             '<div class="success-state__check" aria-hidden="true">✓</div>' +
             '<h1>¡Pedido enviado!</h1>' +
             '<p class="success-state__num">Pedido <b>' + esc(out.order_number || '') + '</b>' +
-            (out.total ? ' · Total <b>' + money(out.total) + '</b>' : '') +
-            (Number(out.discount_pct) > 0 ? ' <span class="order__disc" style="display:inline">✓ con descuento fiel −10%</span>' : '') + '</p>' +
+            (out.total ? ' · Total <b>' + money(out.total) + '</b>' : '') + '</p>' +
             '<p class="success-state__s">Teia lo revisa y te confirma el día de entrega por WhatsApp. ¡Gracias!</p>' +
             '<a class="btn" href="/catalogo">Volver al catálogo</a>' +
             '</div>';
@@ -215,7 +201,7 @@ import Base from '../layouts/Base.astro';
     cuitField?.addEventListener('change', () => {
       const hint = el('cuitHint');
       if (cuitField.value.trim() && !cuitOk(cuitField.value)) {
-        if (hint) { hint.textContent = '⚠️ Ese CUIT no parece válido — revisá los 11 números.'; hint.style.color = '#B0684C'; }
+        if (hint) { hint.textContent = '⚠️ El CUIT tiene que tener 11 números.'; hint.style.color = '#B0684C'; }
         return;
       }
       if (hint) hint.style.color = '';

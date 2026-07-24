@@ -132,9 +132,12 @@ const catNames = (categories as any[]).map((c) => c.name);
 
           {o.status === 'confirmado' && (
             <div class="ordcard__arch">
-              {o.archived && <span class="arch arch--ok">✓ Remitos</span>}
-              {o.archived && <a class="arch-link" href={o.remito_cliente_url} target="_blank" rel="noopener">📄 Cliente</a>}
-              {o.archived && <a class="arch-link" href={o.remito_interno_url} target="_blank" rel="noopener">📄 Interno</a>}
+              {o.archived && <span class="arch arch--ok">✓ Remito</span>}
+              {o.archived && <a class="arch-link" href={o.remito_cliente_url} target="_blank" rel="noopener">📄 Abrir</a>}
+              {o.archived && (
+                <button class="btn btn--ghost share-rem" type="button"
+                  data-url={o.remito_cliente_url} data-num={o.order_number || `#${o.id}`}>📤 Compartir</button>
+              )}
               {!o.archived && <span class="arch arch--err">⚠️ Sin archivar{o.archive_error ? `: ${o.archive_error}` : ''}</span>}
               {!o.archived && <button class="btn btn--ghost retry-arch" type="button" data-id={o.id}>Reintentar</button>}
             </div>
@@ -164,7 +167,6 @@ const catNames = (categories as any[]).map((c) => c.name);
               <span class="clicard__cuit">CUIT {fmtCuit(c.cuit)}</span>
             </div>
             <div class="clicard__badges">
-              {Number(c.discount_pct) > 0 && <span class="badge badge--ok">fiel −{c.discount_pct}%</span>}
               <span class="badge badge--wait">{(ordersByClient[c.id] || []).length} pedidos</span>
               <button class="btn btn--ghost cli-toggle" type="button">Ver cuenta ▾</button>
             </div>
@@ -181,10 +183,6 @@ const catNames = (categories as any[]).map((c) => c.name);
               <div><label>CUIT</label><input class="cf-cuit" value={fmtCuit(c.cuit)} /></div>
               <div><label>Notas internas</label><input class="cf-notes" value={c.notes || ''} /></div>
             </div>
-            <label class="check">
-              <input type="checkbox" class="cf-disc" checked={Number(c.discount_pct) === 10} />
-              Descuento fiel −10% <span class="ordcard__disc-hint">(sus pedidos nuevos llegan rebajados y ve el catálogo con los precios tachados)</span>
-            </label>
             <div class="ordcard__actions">
               <button class="btn save-cli" type="button">Guardar cuenta</button>
               <button class="btn btn--danger del-cli" type="button" data-name={c.business_name}>Borrar cuenta</button>
@@ -199,7 +197,7 @@ const catNames = (categories as any[]).map((c) => c.name);
                     date: String(o.created_at || '').slice(0, 10), ddate: o.delivery_date || '',
                     address: o.delivery_address || '', total: o.total, pct: o.discount_pct || 0,
                     notes: o.notes || '', archived: o.archived,
-                    rc: o.remito_cliente_url || '', ri: o.remito_interno_url || '',
+                    rc: o.remito_cliente_url || '',
                     items: (itemsByOrder[o.id] || []).map((it: any) => ({ n: it.name, p: it.pack_label, q: it.qty, t: it.line_total })),
                   })}>{o.order_number || `#${o.id}`}</button>
                   <span class={`badge badge--${o.status === 'confirmado' ? 'ok' : 'wait'}`}>{o.status}</span>
@@ -638,7 +636,42 @@ const catNames = (categories as any[]).map((c) => c.name);
       });
     });
 
-    // ---- clientes: cuentas por CUIT (editar datos, descuento fiel, borrar) ----
+    // ---- compartir el remito (celular → WhatsApp, sin descargar ni buscar el archivo) ----
+    // Cascada: compartir el ARCHIVO (Web Share nivel 2) → compartir el link → copiar el link.
+    document.querySelectorAll('.share-rem').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const url = b.dataset.url, num = b.dataset.num || 'Remito';
+        const original = b.textContent;
+        b.disabled = true; b.textContent = 'Preparando…';
+        const restore = () => { b.textContent = original; b.disabled = false; };
+        try {
+          const res = await fetch(url);
+          const blob = await res.blob();
+          const file = new File([blob], `${num} - Teia Bakery.pdf`, { type: 'application/pdf' });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: `Remito ${num}` });
+            return restore();
+          }
+        } catch (e) {
+          if (e && e.name === 'AbortError') return restore(); // el usuario cerró el menú
+        }
+        try {
+          if (navigator.share) { await navigator.share({ title: `Remito ${num}`, url }); return restore(); }
+        } catch (e) {
+          if (e && e.name === 'AbortError') return restore();
+        }
+        try {
+          await navigator.clipboard.writeText(url);
+          b.textContent = '✓ Link copiado';
+          setTimeout(restore, 2200);
+        } catch {
+          window.open(url, '_blank');
+          restore();
+        }
+      })
+    );
+
+    // ---- clientes: cuentas por CUIT (editar datos, borrar) ----
     document.querySelectorAll('.clicard').forEach((card) => {
       const body = card.querySelector('.clicard__body');
       const toggle = card.querySelector('.cli-toggle');
@@ -656,11 +689,13 @@ const catNames = (categories as any[]).map((c) => c.name);
             id: card.dataset.id,
             business_name: v('.cf-name'), client_contact: v('.cf-contact'),
             delivery_address: v('.cf-addr'), notes: v('.cf-notes'), cuit: v('.cf-cuit'),
-            discount_pct: card.querySelector('.cf-disc')?.checked ? 10 : 0,
           }),
         });
-        if (r.ok) location.reload();
-        else {
+        if (r.ok) {
+          const o = await r.json().catch(() => ({}));
+          if (o && o.warning) alert(o.warning); // CUIT sin verificador válido: se guarda igual
+          location.reload();
+        } else {
           const o = await r.json().catch(() => ({}));
           alert((o && o.error) || 'No se pudo guardar la cuenta.');
           btn.textContent = 'Guardar cuenta'; btn.disabled = false;
@@ -690,8 +725,11 @@ const catNames = (categories as any[]).map((c) => c.name);
             business_name: cliform.elements.namedItem('business_name').value,
           }),
         });
-        if (r.ok) { location.hash = 'clientes'; location.reload(); }
-        else { const o = await r.json().catch(() => ({})); climsg.textContent = (o && o.error) || 'No se pudo crear.'; }
+        if (r.ok) {
+          const o = await r.json().catch(() => ({}));
+          if (o && o.warning) alert(o.warning);
+          location.hash = 'clientes'; location.reload();
+        } else { const o = await r.json().catch(() => ({})); climsg.textContent = (o && o.error) || 'No se pudo crear.'; }
       });
     }
 
@@ -718,9 +756,7 @@ const catNames = (categories as any[]).map((c) => c.name);
       const links = document.getElementById('om-links');
       links.hidden = !d.archived;
       if (d.archived) {
-        links.innerHTML =
-          `<a class="arch-link" href="${oEsc(d.rc)}" target="_blank" rel="noopener">📄 Remito cliente</a> · ` +
-          `<a class="arch-link" href="${oEsc(d.ri)}" target="_blank" rel="noopener">📄 Hoja interna</a>`;
+        links.innerHTML = `<a class="arch-link" href="${oEsc(d.rc)}" target="_blank" rel="noopener">📄 Abrir remito</a>`;
       }
       omodal.hidden = false;
     }

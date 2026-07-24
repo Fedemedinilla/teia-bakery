@@ -2,7 +2,7 @@ export const prerender = false;
 import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbInsert, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
-import { isValidCuit, normCuit } from '../../../lib/cuit';
+import { isValidCuit, hasCuitShape, normCuit } from '../../../lib/cuit';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -38,19 +38,24 @@ export const POST: APIRoute = async ({ request }) => {
   if ('discount_pct' in b) {
     patch.discount_pct = [0, 10].includes(Number(b.discount_pct)) ? Number(b.discount_pct) : 0;
   }
+  // El CUIT solo necesita FORMA (11 dígitos). Si no pasa el verificador de AFIP se AVISA pero
+  // se guarda igual: Teia sabe quiénes son sus clientes mejor que el algoritmo, y bloquearla
+  // por un dígito le impediría dar de alta a un cliente real.
+  let warning: string | undefined;
   if ('cuit' in b) {
     const c = normCuit(b.cuit);
-    if (!isValidCuit(c)) return json({ error: 'El CUIT no es válido (revisá los 11 dígitos).' }, 400);
+    if (!hasCuitShape(c)) return json({ error: 'El CUIT tiene que tener 11 números.' }, 400);
+    if (!isValidCuit(c)) warning = 'Guardado. Ojo: ese CUIT no pasa el verificador de AFIP — revisá que esté bien copiado.';
     patch.cuit = c;
   }
 
   if (id) {
     const ok = await sbPatch(`teia_clients?id=eq.${id}`, patch);
-    return ok ? json({ ok: true }) : json({ error: 'No se pudo guardar (¿el CUIT ya existe en otra cuenta?).' }, 409);
+    return ok ? json({ ok: true, warning }) : json({ error: 'No se pudo guardar (¿el CUIT ya existe en otra cuenta?).' }, 409);
   }
 
   if (!patch.cuit) return json({ error: 'Falta el CUIT de la cuenta nueva.' }, 400);
   if (!patch.business_name) return json({ error: 'Falta el nombre del comercio.' }, 400);
   const created = await sbInsert('teia_clients', patch);
-  return created ? json({ ok: true }) : json({ error: 'No se pudo crear (¿ya existe una cuenta con ese CUIT?).' }, 409);
+  return created ? json({ ok: true, warning }) : json({ error: 'No se pudo crear (¿ya existe una cuenta con ese CUIT?).' }, 409);
 };

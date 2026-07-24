@@ -108,7 +108,6 @@ const sections = [...groups.keys()]
           <div class="meter__track"><div class="meter__fill" id="meterFill"></div></div>
           <p class="meter__t" id="meterT"></p>
         </div>
-        <div class="order__disc" id="orderDisc" hidden>✓ Descuento fiel −10% aplicado</div>
         <div class="order__total" id="orderTotalRow" hidden><span>Total</span><b id="orderTotal">$0</b></div>
         <a class="btn btn--block" id="confirmBtn" href="/pedido" aria-disabled="true">Confirmar pedido</a>
       </div>
@@ -140,19 +139,9 @@ const sections = [...groups.keys()]
     let cart = load();
     let modalId = null;
 
-    // ---- cuenta por CUIT + descuento fiel: capa de VISTA. La DB guarda precios de LISTA;
-    // el server aplica el % del cliente por su cuenta al crear la orden (el navegador jamás
-    // manda un porcentaje). Acá solo se muestra: precio tachado + precio con descuento. ----
-    let CLIENT = null; // {business_name, discount_pct, cuit, ...} | {cuit, unknown:true} | null
-    const pct = () => (CLIENT && !CLIENT.unknown && Number(CLIENT.discount_pct)) || 0;
-    const net = (n) => Math.round(n * (1 - pct() / 100));
-    const priceHTML = (base) => (pct() > 0 ? `<s>${fmt(base)}</s> ${fmt(net(base))}` : fmt(base));
-    function decoratePrices() {
-      document.querySelectorAll('.item[data-id]').forEach((item) => {
-        const p = item.querySelector('.price');
-        if (p) p.innerHTML = priceHTML(Number(item.dataset.price) || 0);
-      });
-    }
+    // La cuenta del comercio (identificado por CUIT) solo sirve para saludar y autocompletar
+    // el checkout. Los precios son los de lista: el descuento lo aplica Teia pedido por pedido.
+    let CLIENT = null; // {business_name, cuit} | {cuit, unknown:true} | null
     function load() { try { const raw = JSON.parse(localStorage.getItem(KEY)); return Array.isArray(raw) ? raw : []; } catch { return []; } }
     function persist() { try { localStorage.setItem(KEY, JSON.stringify(cart)); } catch {} }
     function find(id) { return cart.find((x) => sameId(x.id, id)); }
@@ -221,7 +210,7 @@ const sections = [...groups.keys()]
           `<span class="oi__qv">${i.qty}</span>` +
           `<button class="oi__step" type="button" data-inc="${id}" aria-label="Sumar uno">+</button></span>` +
           (i.pack ? `<span class="oi__pack">${esc(i.pack)}</span>` : '') +
-          `<span class="oi__line">${fmt(net(i.price * i.qty))}</span></div></li>`;
+          `<span class="oi__line">${fmt(i.price * i.qty)}</span></div></li>`;
       }).join('');
       orderItems.querySelectorAll('[data-rm]').forEach((b) =>
         b.addEventListener('click', () => {
@@ -236,12 +225,9 @@ const sections = [...groups.keys()]
       orderItems.querySelectorAll('[data-dec]').forEach((b) =>
         b.addEventListener('click', () => { const it = find(b.dataset.dec); if (it) changeQty(it.id, it, -1); })
       );
-      const tNet = Math.round(t * (1 - pct() / 100)); // misma fórmula que el server
       totalRow.hidden = c === 0;
-      const disc = el('orderDisc');
-      if (disc) disc.hidden = c === 0 || pct() === 0;
-      totalEl.textContent = fmt(tNet);
-      barTotal.textContent = fmt(tNet);
+      totalEl.textContent = fmt(t);
+      barTotal.textContent = fmt(t);
       barSub.textContent = c === 1 ? '1 producto' : c + ' productos';
 
       if (c > 0) {
@@ -273,7 +259,7 @@ const sections = [...groups.keys()]
       const m = meta(item);
       el('pm-name').textContent = m.name;
       el('pm-pack').textContent = m.pack || '';
-      el('pm-price').innerHTML = priceHTML(m.price);
+      el('pm-price').textContent = fmt(m.price);
       el('pm-desc').textContent = m.desc || 'Sin descripción.';
       el('pm-img').innerHTML = m.img
         ? '<img src="' + esc(m.img) + '" alt="' + esc(m.name) + '">'
@@ -323,48 +309,9 @@ const sections = [...groups.keys()]
       document.querySelectorAll('section.section[id]').forEach((s) => spy.observe(s));
     }
 
-    // ---- Recompra: el último pedido viene de la CUENTA (server, cross-device de verdad) ----
-    function loadIntoCart(items) {
-      // El pedido guardado puede tener meses: los precios/nombres se toman del CATÁLOGO actual
-      // (el DOM ya los tiene), y lo borrado/oculto/sin stock se saltea avisando — así el total
-      // que ve el cliente es el que se va a grabar.
-      let salteados = 0;
-      items.forEach((i) => {
-        const node = document.querySelector('.item[data-id="' + CSS.escape(String(i.id)) + '"]');
-        if (!node || !node.querySelector('.buy-ctl')) { salteados++; return; }
-        const m = meta(node);
-        const qty = Math.max(1, parseInt(i.qty) || 1);
-        const ex = find(i.id);
-        if (ex) ex.qty += qty;
-        else cart.push({ id: m.id, name: m.name, price: m.price, pack: m.pack, cat: m.cat, qty });
-      });
-      persist(); syncAll(); renderOrder();
-      const btn = el('reorderBtn');
-      if (btn) { btn.disabled = true; btn.textContent = '✓ En el carrito'; } // doble click ya no duplica
-      const note = el('reorderNote');
-      if (note) {
-        note.hidden = !salteados;
-        if (salteados) note.textContent = salteados === 1
-          ? '1 producto de tu pedido anterior ya no está disponible y no se cargó.'
-          : salteados + ' productos de tu pedido anterior ya no están disponibles y no se cargaron.';
-      }
-      if (window.innerWidth < 900) openSheet();
-    }
-    function renderReorderCard(lo) {
-      const box = el('reorderCard');
-      if (!box) return;
-      if (!lo || !lo.items || !lo.items.length) { box.innerHTML = ''; return; }
-      const c = lo.items.reduce((s, i) => s + i.qty, 0);
-      const t = Math.round(lo.items.reduce((s, i) => s + i.price * i.qty, 0) * (1 - pct() / 100)); // coherente con el resto: neto
-      box.innerHTML =
-        `<div class="reorder"><div><div class="reorder__t">↻ Repetir último pedido</div>` +
-        `<div class="reorder__s">${esc(lo.order_number || '')} · ${c} ítems · ${fmt(t)}</div></div>` +
-        `<button class="reorder__btn" type="button" id="reorderBtn">Cargar</button></div>` +
-        `<p class="reorder-lookup__msg" id="reorderNote" hidden></p>`;
-      el('reorderBtn').addEventListener('click', () => loadIntoCart(lo.items));
-    }
-
     // ---- identificación por CUIT (la "sesión" del comercio) ----
+    // Sin tarjeta de "repetir último pedido": los clientes de Teia casi nunca repiten el mismo
+    // pedido y la tarjeta confundía (decisión de la clienta en la Meet 01).
     const CUIT_KEY = 'teia_cuit';
     const fmtCuit = (s) => { const d = String(s || '').replace(/\D/g, ''); return d.length === 11 ? d.slice(0, 2) + '-' + d.slice(2, 10) + '-' + d.slice(10) : String(s || ''); };
 
@@ -373,13 +320,13 @@ const sections = [...groups.keys()]
       if (CLIENT && !CLIENT.unknown) {
         box.innerHTML =
           `<div class="reorder"><div><div class="reorder__t">👤 ${esc(CLIENT.business_name)}</div>` +
-          `<div class="reorder__s">CUIT ${esc(fmtCuit(CLIENT.cuit))}${pct() > 0 ? ' · ✓ Descuento fiel −10% activo' : ''}</div></div>` +
+          `<div class="reorder__s">CUIT ${esc(fmtCuit(CLIENT.cuit))}</div></div>` +
           `<button class="reorder__btn" type="button" id="cuitLogout">Cambiar</button></div>`;
         el('cuitLogout').addEventListener('click', logout);
       } else {
         box.innerHTML =
           `<div class="reorder-lookup">` +
-          `<button type="button" class="reorder-lookup__toggle" id="cuitToggle">👤 Ingresá con tu CUIT — tus datos y tu último pedido, listos</button>` +
+          `<button type="button" class="reorder-lookup__toggle" id="cuitToggle">👤 Ingresá con tu CUIT — tus datos quedan listos para el pedido</button>` +
           `<form class="reorder-lookup__form" id="cuitForm" hidden>` +
           `<input id="cuitInput" inputmode="numeric" autocomplete="off" placeholder="Tu CUIT (ej: 30-12345678-1)" />` +
           `<button type="submit" class="btn" id="cuitBtn">Entrar</button></form>` +
@@ -407,15 +354,13 @@ const sections = [...groups.keys()]
         if (!r.ok) { if (interactive) show((o && o.error) || 'No se pudo consultar. Probá de nuevo.', false); return; }
         try { localStorage.setItem(CUIT_KEY, raw); } catch {}
         if (o.unknown) {
-          CLIENT = { cuit: raw, unknown: true, discount_pct: 0 };
-          renderReorderCard(null);
-          if (interactive) show('✓ CUIT nuevo: con tu primer pedido guardamos tus datos para la próxima.', true);
+          CLIENT = { cuit: raw, unknown: true };
+          if (interactive) show('Ese CUIT todavía no está habilitado. Escribile a Teia para que te dé de alta.', false);
         } else {
           CLIENT = { ...o.client, cuit: raw };
           renderAccount();
-          renderReorderCard(o.last_order || null);
         }
-        decoratePrices(); renderOrder();
+        renderOrder();
       } catch {
         if (interactive) show('No se pudo consultar. Revisá tu conexión.', false);
       } finally {
@@ -426,11 +371,11 @@ const sections = [...groups.keys()]
     function logout() {
       try { localStorage.removeItem(CUIT_KEY); } catch {}
       CLIENT = null;
-      renderAccount(); renderReorderCard(null); decoratePrices(); renderOrder();
+      renderAccount(); renderOrder();
     }
 
     // ---- init ----
-    el('reorderSlot').innerHTML = '<div id="accountBox"></div><div id="reorderCard"></div>';
+    el('reorderSlot').innerHTML = '<div id="accountBox"></div>';
     renderAccount();
     let savedCuit = null;
     try { savedCuit = localStorage.getItem(CUIT_KEY); } catch {}

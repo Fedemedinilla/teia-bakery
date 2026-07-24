@@ -278,23 +278,22 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
   const numOf = (o: any) => o.order_number || `#${o.id}`;
 
   await writeTab(sheetId, 'Pedidos', [
-    ['Número', 'Fecha', 'Estado', 'Cliente', 'CUIT', 'Contacto', 'Dirección', 'Entrega', 'Desc %', 'Total', 'Notas', 'Remito cliente', 'Hoja interna'],
+    ['Número', 'Fecha', 'Estado', 'Cliente', 'CUIT', 'Contacto', 'Dirección', 'Entrega', 'Desc %', 'Total', 'Notas', 'Remito'],
     ...(orders as any[]).map((o) => {
       const cli = (clients as any[]).find((c) => c.id === o.client_id);
       return [numOf(o), fmtDia(o.created_at), o.status, o.client_name, cli ? cli.cuit : '', o.client_contact,
         o.delivery_address, o.delivery_date || 'a coordinar', Number(o.discount_pct) || 0, Number(o.total) || 0,
-        o.notes || '', '', ''];
+        o.notes || '', ''];
     }),
   ]);
 
-  // Links a los remitos como fórmulas HYPERLINK (clickeables de verdad): son VALOR, no formato,
-  // así que el reset de estilos de cada rebuild no los puede despintar.
+  // Link al remito como fórmula HYPERLINK (clickeable de verdad): es VALOR, no formato,
+  // así que el reset de estilos de cada rebuild no lo puede despintar.
   const linkRows = (orders as any[]).map((o) => [
     o.remito_cliente_url ? `=HYPERLINK("${o.remito_cliente_url}";"📄 Remito")` : '',
-    o.remito_interno_url ? `=HYPERLINK("${o.remito_interno_url}";"📄 Interna")` : '',
   ]);
   if (linkRows.length) {
-    await gFetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${q(`'Pedidos'!L2:M${linkRows.length + 1}`)}?valueInputOption=USER_ENTERED`, {
+    await gFetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${q(`'Pedidos'!L2:L${linkRows.length + 1}`)}?valueInputOption=USER_ENTERED`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: linkRows }),
     });
   }
@@ -370,7 +369,7 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
   const nClients = (clients as any[]).length + 1;
   // Los anchos SOLO en la creación inicial (created): después son de la clienta y no se pisan.
   const fmt: any[] = [
-    ...tabFormat(tabOf('Pedidos'), nOrders, 13, [9], { 6: 200, 10: 240, 11: 110, 12: 110 }, created),
+    ...tabFormat(tabOf('Pedidos'), nOrders, 12, [9], { 6: 200, 10: 240, 11: 110 }, created),
     ...tabFormat(tabOf('Ítems'), nItems, 7, [5, 6], {}, created),
     ...tabFormat(tabOf('Productos'), nProds, 6, [3], {}, created),
     ...tabFormat(tabOf('Clientes'), nClients, 7, [], { 3: 200, 6: 220 }, created),

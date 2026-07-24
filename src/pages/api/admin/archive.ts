@@ -27,7 +27,7 @@ function pathToken(id: number): string {
 // Genera los 2 remitos, los sube a Supabase Storage y guarda las URLs + estado en el pedido.
 // NUNCA lanza: captura sus errores y los deja en archive_status='error' + archive_error.
 // (Próximo: acá se sumará el espejo Sheet/Drive — ruta OAuth drive.file, ver BUCKETLIST.)
-export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: string; cliente?: string; interno?: string }> {
+export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: string; cliente?: string }> {
   // Lecturas ESTRICTAS: null = no se pudo leer (red/5xx). Antes un fallo transitorio acá
   // devolvía [] y el remito salía VACÍO pero quedaba marcado 'archivado' para siempre.
   const orders = await sbSelectStrict(`teia_orders?id=eq.${id}&select=*`);
@@ -42,17 +42,15 @@ export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: s
     if (items === null || !(items as any[]).length) throw new Error('No se pudieron leer los ítems del pedido.');
     const version = Number(order.version) || 1;
     const token = pathToken(id);
+    // UN solo remito (decisión de la clienta en la Meet 01): el mismo que le manda al cliente
+    // es el que archiva. La hoja interna de preparación quedó fuera de scope.
     const bytesCliente = await withRetry(() => buildRemito(order, items as any[], 'cliente'));
-    const bytesInterno = await withRetry(() => buildRemito(order, items as any[], 'interno'));
-    const store = (variant: 'cliente' | 'interno', bytes: Uint8Array) => withRetry(async () => {
-      const path = `remito-${id}-${token}-${variant}-v${version}.pdf`;
-      const url = await sbUpload('teia-remitos', path, Buffer.from(bytes), 'application/pdf');
-      if (!url) throw new Error(`No se pudo subir el remito (${variant}).`);
+    const cliente = await withRetry(async () => {
+      const path = `remito-${id}-${token}-cliente-v${version}.pdf`;
+      const url = await sbUpload('teia-remitos', path, Buffer.from(bytesCliente), 'application/pdf');
+      if (!url) throw new Error('No se pudo subir el remito.');
       return url;
     });
-
-    const cliente = await store('cliente', bytesCliente);
-    const interno = await store('interno', bytesInterno);
 
     // Espejo a DRIVE (cuenta de la clienta, OAuth drive.file): carpeta año/mes/comercio con
     // nombres legibles. Mismos bytes, mismo retry; idempotente (reintentar actualiza, no
@@ -66,8 +64,7 @@ export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: s
         // fecha en el nombre (DD-MM-AAAA, hora argentina) — pedido de la clienta
         const fecha = new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric' })
           .format(new Date(when || Date.now())).replace(/\//g, '-');
-        await driveUploadPdf(folder, `${num} - ${fecha} - Remito cliente.pdf`, bytesCliente);
-        await driveUploadPdf(folder, `${num} - ${fecha} - Hoja interna.pdf`, bytesInterno);
+        await driveUploadPdf(folder, `${num} - ${fecha} - Remito.pdf`, bytesCliente);
       });
     }
 
@@ -76,9 +73,9 @@ export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: s
       archive_error: null,
       archived_at: new Date().toISOString(),
       remito_cliente_url: cliente,
-      remito_interno_url: interno,
+      remito_interno_url: null, // ya no se genera hoja interna
     });
-    return { ok: true, cliente, interno };
+    return { ok: true, cliente };
   } catch (e: any) {
     const msg = ((e && e.message) || 'Error desconocido').slice(0, 300);
     await sbPatch(`teia_orders?id=eq.${id}`, { archive_status: 'error', archive_error: msg });
