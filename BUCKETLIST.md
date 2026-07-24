@@ -92,31 +92,101 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
 - Verificado en demo: API 4 casos, strikethrough, banner, recompra neta, checkout autofill +
   total neto + envío, pestaña Clientes con historial.
 
-## 🎯 MEET 01 (2026-07-22) — NUEVA FASE DE DESARROLLO · deadline: VIERNES próximo
-*Trato CERRADO: Mica transfiere 50% hoy, 50% contra entrega. Detalle completo en `teia/MEET-01-resumen.md`.*
+## 🚀 SPRINT POST-MEET 01 — hasta la entrega · **deadline: viernes 31/07**
+*Decidido en la Meet 01 (2026-07-22). Trato CERRADO: 50% ahora + 50% contra entrega.
+Contexto completo: `teia/MEET-01-resumen.md` · transcript: `teia/MEET-01-transcript.md`.
+Resumen entregado a Mica: `teia/resumen-meet-mica.html` → PDF en Downloads.*
 
-**Los cambios (en orden de dependencia):**
-1. **Catálogo PRIVADO**: pantalla inicial de CUIT, sin invitados; solo entran CUITs dados de
-   alta. **Alta SOLO por Mica** desde el panel → ROLLBACK de la cuenta auto-creada al primer
-   pedido (CUIT desconocido en checkout = "pedile el alta a Teia").
-2. **Catálogo de CHUNGO** (la respuesta a la gran pregunta): catálogo SEPARADO con productos
-   Y precios propios; Chungo = varios locales, cada uno su CUIT; "lista VIP" de CUITs → entran
-   solo ahí, jamás se cruzan con el general. Botón "Ir al catálogo de Chungo" en el panel.
-3. **Descuento POR PEDIDO** (se saca de la ficha de cliente; muere el catálogo con precios
-   tachados — lo reemplaza conceptualmente el catálogo Chungo).
-4. **UN solo remito** (muere la hoja interna de preparación).
-5. **Botón COMPARTIR remito** (Web Share desde el celular → WhatsApp directo).
-6. **Muere "Repetir último pedido"**; queda el autocompletado de datos por CUIT.
-7. **Stats por cliente → carpetas Drive** (pedidos/productos/importes, semanal y mensual;
-   formato final cuando mande las screenshots de su Sheets).
-8. **Logo** en app y remito (cuando lo mande) — colores actuales aprobados.
-9. **Aviso de pedido nuevo a Mica** — ⚠️ canal SIN definir (ella asumió WhatsApp; hoy no hay
-   nada; decidir email vs alternativas ANTES del viernes).
-10. ⚠️ ACLARAR: la planilla es espejo SOLO lectura (en la meet sonó como si los precios se
-    pudieran editar ahí) — o se le explica o se evalúa sync inverso (no recomendado).
+### ❓ ABIERTAS — decide Federico ANTES de que arranque el bloque correspondiente
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| A | **Canal del aviso de pedido nuevo** (Mica lo asumió por WhatsApp; hoy NO existe nada) | Email (Resend, ya usado en Formy) · Telegram bot · WhatsApp Cloud API | **Email**: gratis, confiable, sin verificación de Meta. WhatsApp Cloud = costo/mensaje + alta en Meta (ya descartado en su momento) |
+| B | **Cómo se modelan los productos de Chungo** | (A) catálogo con productos PROPIOS + botón "copiar a Chungo" · (B) productos compartidos con tabla de precios por catálogo | **(A)**: Mica no maneja stock (el contra desaparece), permite productos exclusivos, mucho más simple de entender y de programar |
+| C | **Rollback del auto-alta** (la cuenta ya no se crea sola con el 1er pedido) | Confirmar | Es lo que pidió Mica explícitamente ("me da cosa que cualquiera se lo pueda armar") |
+| D | **Dónde vive el resumen por cliente en Drive** | `Remitos Teia/Clientes/<Comercio>/Resumen` (remitos siguen en año/mes) · todo junto por cliente | La 1ª: no rompe el árbol año/mes que ella ya aprobó. **Formato final espera sus screenshots** |
 
-**Pendientes de Mica:** 50% + logo + screenshots de su Sheets + CUITs de Chungo + su lista de
-productos. **Cuentas juntos:** viernes o lunes (mail de ella, dominio Tiendanube → subdominio).
+---
+
+### 🟢 BLOQUE 1 — Ajustes rápidos · sin dependencias · ~1 sesión
+*Se puede hacer YA. Ninguno depende de material de Mica ni de las decisiones abiertas.*
+
+**1.1 · Descuento POR PEDIDO** (sale de la ficha del cliente)
+- `api/order.ts`: deja de leer `teia_clients.discount_pct` → todo pedido nace en 0.
+- `administradora.astro`: fuera el checkbox de descuento de la ficha del cliente (queda el toggle del pedido, que ya funciona y es lo que ella usa).
+- `catalogo.astro` + `pedido.astro`: fuera el precio tachado, la línea "descuento aplicado" y el `net()` de la vista.
+- La columna `teia_clients.discount_pct` NO se borra (pedidos viejos la snapshotearon); queda sin uso.
+
+**1.2 · UN solo remito** (muere la hoja interna de preparación)
+- `archive.ts`: genera y sube un solo PDF (Storage + Drive). `remito_interno_url` deja de escribirse.
+- `remito.ts`: la variante `'interno'` deja de invocarse (el código queda; cuesta cero y por si vuelve).
+- Panel (tarjeta + modal de detalle), Sheet y Drive: un solo link "📄 Remito".
+
+**1.3 · Fuera "Repetir último pedido"** (confunde: casi nunca repiten)
+- `catalogo.astro`: se elimina la tarjeta de recompra + `loadIntoCart` + `renderReorderCard`.
+- `api/client.ts`: deja de devolver `last_order` (queda identidad + datos).
+- ⚠️ El autocompletado de datos por CUIT NO se toca: eso SÍ lo quiere.
+
+**1.4 · Botón COMPARTIR el remito** (del panel al WhatsApp, sin descargar)
+- Botón "Compartir" en la tarjeta del pedido confirmado.
+- `fetch` del PDF → `navigator.share({files})` (Web Share nivel 2, anda en Android/iOS).
+- Cascada de fallbacks: sin soporte de archivos → `navigator.share({url})` → sin share → copia el link al portapapeles + aviso. En desktop siempre cae al portapapeles.
+
+---
+
+### 🔵 BLOQUE 2 — El gate privado (el corazón del pivot) · ~1 sesión
+*"Carta de restaurante, no tienda online": sin alta previa de Mica no se ve NI UN precio.*
+
+**2.1 · SQL** — `teia_clients.active boolean default true` (dar de baja sin borrar historial).
+**2.2 · Sesión por cookie firmada** — nuevo `lib/session.ts`: cookie `teia_sess` HttpOnly + SameSite=Lax, valor `<client_id>.<HMAC-service_key>`, 90 días. Server-side ⇒ no se puede falsear desde el navegador (el localStorage actual solo recordaba el CUIT).
+**2.3 · Pantalla de entrada** — `/` (hoy redirige a `/catalogo`) pasa a ser la puerta: pide CUIT → `/api/entrar` valida contra `teia_clients` → cuenta activa: setea cookie + redirect al catálogo que le toque · CUIT no dado de alta: mensaje amable + **botón de WhatsApp a Teia** (convierte el rechazo en lead, en vez de un cartel de error).
+**2.4 · `/catalogo` y `/pedido` detrás del gate** — leen la cookie en el server; sin cookie válida → redirect a la entrada. Los datos del cliente salen de la cuenta, no de lo que tipeen.
+**2.5 · ROLLBACK del auto-alta** — `api/order.ts` ya no crea cuentas: CUIT sin cuenta ⇒ 403. (Depende de la decisión C.)
+**2.6 · Panel: el alta es de Mica** — la pestaña Clientes ya tiene el form; se le sube el rango (más visible), se agrega selector de catálogo y un botón "Dar de baja" (usa `active`).
+
+---
+
+### 🟣 BLOQUE 3 — Catálogo de Chungo · ~1 sesión · depende del Bloque 2 y de la decisión B
+*Chungo = varios locales, cada uno con SU CUIT. Las dos listas jamás se cruzan.*
+
+**3.1 · SQL** — tabla `teia_catalogs` (id, name, slug, is_default) sembrada con `General` y `Chungo`; `teia_products.catalog_id` y `teia_clients.catalog_id` (default = General).
+**3.2 · Productos por catálogo** — el catálogo público filtra por el `catalog_id` de la cuenta logueada; la pestaña Productos del panel gana un selector "General / Chungo"; **botón "Copiar a Chungo"** que clona un producto (nombre, foto, descripción, pack) para que ella solo cambie el precio.
+**3.3 · Panel** — botón "Ver catálogo de Chungo" junto al de siempre; en la ficha del cliente, selector de catálogo (así carga los locales de Chungo una vez y listo).
+**3.4 · Blindaje** — el catálogo se decide SIEMPRE en el server desde la cuenta de la cookie: un cliente del general no puede llegar al de Chungo ni cambiando la URL.
+
+---
+
+### 🟠 BLOQUE 4 — Resumen por cliente en Drive · depende de las screenshots de Mica
+*Ella quiere entrar a la carpeta de un cliente y ver SU resumen, no todo junto en un cuadro.*
+- `Remitos Teia/Clientes/<Comercio>/` con una planilla **"Resumen — <Comercio>"**: pedidos (con link a cada remito), totales por semana, por mes, y ranking de sus productos.
+- Los remitos siguen en `Remitos Teia/2026/07 - Julio/<Comercio>/` (estructura que ella ya aprobó).
+- Se reusa entera la maquinaria de `lib/google.ts` (auto-provisión + rebuild idempotente + el diseño de planilla ya hecho).
+- **El formato final se calca de SU sistema actual** — por eso espera las capturas (pedido explícito en la meet: "mejorar el que ya tenés, no crear uno nuevo").
+
+---
+
+### ⚪ BLOQUE 5 — Bloqueados por material de Mica / decisión
+- **Logo** en catálogo y remito (ella lo manda; colores actuales ya aprobados).
+- **Aviso de pedido nuevo** → decisión A. Si sale email: Resend + plantilla corta con nº de pedido, comercio, total y link al panel.
+- **Carga del catálogo real** (productos, packs, precios, fotos) — lo hace ELLA cuando esté online; Federico puede precargar los rubros.
+- **CUITs de los locales de Chungo** (para el alta + el catálogo VIP).
+
+---
+
+### 🏁 BLOQUE 6 — Handoff (viernes o lunes, en llamada de 15-20 min)
+1. Cuentas nuevas con el mail de Mica: **Vercel** (hosting) · **Supabase** (base) · **GitHub** (código) · **Google** (Drive + planilla). Los códigos de verificación llegan a su mail — por eso es en vivo.
+2. Correr `supabase/schema.sql` completo en SU proyecto + migrar los datos que haga falta.
+3. Re-consentir Google desde SU cuenta → pegar el `GOOGLE_OAUTH_REFRESH_TOKEN` nuevo → **la carpeta y la planilla se auto-crean en su Drive** (arquitectura transportable, ya probada).
+4. Env vars en su Vercel: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TEIA_ADMIN_PASSWORD` (**la elige ella**), `CRON_SECRET`, `TEIA_MIN_ORDER`, las 3 de Google.
+5. **Dominio**: entrar al registrador de `teiabakery.com.ar` (¿Tiendanube?) → subdominio `app.teiabakery.com.ar`.
+6. Guía de uso corta con capturas + repaso en la próxima reunión (fin de la semana que viene).
+
+---
+
+### 🧹 Deuda técnica que arrastramos (no bloquea la entrega)
+- **Pack 3 de la auditoría** (pulido: qty vacío borra línea sin aviso, `category.ts` reporta mal los fallos, `Base.astro` rompe con rubros que empiezan con número, HEIC no decodificable, notas del panel aplastan saltos de línea).
+- PDFs **huérfanos en Storage** al borrar un pedido (inofensivo, decidir si el delete limpia).
+- `TEIA-0009` quedó **pendiente en el panel** — confirmarlo o borrarlo (era la prueba de links + resumen semanal).
+- Los remitos de prueba viejos en Drive tienen el nombre sin fecha (los nuevos ya la llevan).
 
 ## 📩 Pedidos de Mica (WhatsApp 2026-07-06) — estado (superseded por MEET 01 donde contradiga)
 1. **Dos listas de precios** (Chungo vs. general) — ⚠️ ABIERTO: el descuento por cliente cubre
