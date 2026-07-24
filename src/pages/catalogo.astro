@@ -84,9 +84,7 @@ const sections = [...groups.keys()]
         {catalog !== DEFAULT_CATALOG && <span class="vip-chip">{catalogLabel(catalog)}</span>}
         {isAdminPreview
           ? <a class="admin-link" href="/administradora">← Volver al panel</a>
-          : <form method="POST" action="/api/salir" style="display:inline">
-              <button class="admin-link" type="submit">Salir</button>
-            </form>}
+          : <button class="admin-link" type="button" id="salirBtn">Salir</button>}
       </span>
     </div>
   </header>
@@ -365,9 +363,23 @@ const sections = [...groups.keys()]
       if (img.complete && img.naturalWidth === 0) img.remove(); // ya falló antes de este script
     });
 
-    // El carrito es de ESE comercio: al salir (form POST a /api/salir) se limpia acá.
-    document.querySelector('form[action="/api/salir"]')?.addEventListener('submit', () => {
-      try { localStorage.removeItem('teia_cart'); } catch {}
+    // Salir. Va como fetch con JSON A PROPÓSITO: el checkOrigin de Astro (anti-CSRF) inspecciona
+    // los POST con content-type de FORMULARIO y, detrás del proxy de Vercel, los rechaza con 403
+    // aunque vengan del propio sitio — un form acá no funciona en producción. Con JSON pasa, y
+    // la protección anti-CSRF sigue intacta para todo lo demás.
+    el('salirBtn')?.addEventListener('click', async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true; b.textContent = 'Saliendo…';
+      try { localStorage.removeItem('teia_cart'); } catch {} // el carrito es de ESE comercio
+      try {
+        const r = await fetch('/api/salir', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        if (!r.ok && r.type !== 'opaqueredirect') throw new Error('salir falló');
+      } catch {
+        b.disabled = false; b.textContent = 'Salir';
+        alert('No se pudo cerrar la sesión. Revisá tu conexión y probá de nuevo.');
+        return;
+      }
+      location.href = '/';
     });
 
     // ---- init ----
