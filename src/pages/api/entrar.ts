@@ -37,7 +37,11 @@ export const POST: APIRoute = async ({ request }) => {
     return enter(request, c.id);
   }
 
-  const rows = await sbSelectStrict(`teia_clients?cuit=eq.${cuit}&select=id,active,access_code`);
+  // `access_code` se pide SOLO si el 2º factor está encendido: así la app no depende de que
+  // esa columna exista mientras el modo esté apagado (si se pide y no está, PostgREST corta
+  // la consulta entera y nadie puede entrar). El SQL hay que correrlo ANTES de encenderlo.
+  const cols = codeRequired() ? 'id,active,access_code' : 'id,active';
+  const rows = await sbSelectStrict(`teia_clients?cuit=eq.${cuit}&select=${cols}`);
   if (rows === null) return json({ error: 'No pudimos verificar tu CUIT ahora. Probá de nuevo en un momento.' }, 503);
   const c = (rows as any[])[0];
   if (!c || c.active === false) return json(denied, 403);

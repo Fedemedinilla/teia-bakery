@@ -76,6 +76,14 @@ export const POST: APIRoute = async ({ request }) => {
   // Toda cuenta nueva nace con código, aunque el modo esté apagado: así el día que se
   // encienda no hay que salir a generarlos de apuro para toda la cartera.
   if (!('access_code' in patch)) { generated = newAccessCode(); patch.access_code = generated; }
-  const created = await sbInsert('teia_clients', patch);
+  let created = await sbInsert('teia_clients', patch);
+  if (!created && 'access_code' in patch) {
+    // Reintento sin el código: la base todavía puede no tener la columna (el SQL es
+    // opcional mientras el 2º factor esté apagado). Dar de alta un cliente nunca puede
+    // fallar por una función que ni siquiera está activa.
+    const { access_code, ...sinCodigo } = patch;
+    created = await sbInsert('teia_clients', sinCodigo);
+    if (created) generated = undefined;
+  }
   return created ? json({ ok: true, warning, access_code: generated }) : json({ error: 'No se pudo crear (¿ya existe una cuenta con ese CUIT?).' }, 409);
 };
