@@ -110,7 +110,7 @@ const sections = [...groups.keys()]
               <li class="item" data-id={p.id} data-name={p.name} data-price={p.price} data-pack={p.pack_label} data-cat={s.name} data-desc={p.description || ''} data-img={p.image_url || ''}>
                 <div class="thumb-box" role="button" tabindex="0" title="Ver más">
                   <span class="thumb-ph" aria-hidden="true">{String(p.name).charAt(0)}</span>
-                  {p.image_url && <img class="thumb-img" src={p.image_url} alt={p.name} loading="lazy" width="60" height="60" onerror="this.remove()" />}
+                  {p.image_url && <img class="thumb-img" src={p.image_url} alt={p.name} loading="lazy" width="60" height="60" data-drop-on-error />}
                 </div>
                 <div class="item__info">
                   <p class="item__name">{p.name}</p>
@@ -173,7 +173,12 @@ const sections = [...groups.keys()]
     </div>
   </div>
 
-  <script define:vars={{ MIN_ORDER }}>
+  <!-- El mínimo viaja por atributo (no por define:vars) para que NO haga falta ningún script
+       inline: así la CSP puede ser estricta (script-src 'self', sin 'unsafe-inline'). -->
+  <div id="shopCfg" data-min-order={String(MIN_ORDER)} hidden></div>
+
+  <script>
+    const MIN_ORDER = Number(document.getElementById('shopCfg')?.dataset.minOrder) || 40000;
     const KEY = 'teia_cart';
     const fmt = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
     const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -348,6 +353,12 @@ const sections = [...groups.keys()]
       }, { rootMargin: '-45% 0px -50% 0px', threshold: 0 });
       document.querySelectorAll('section.section[id]').forEach((s) => spy.observe(s));
     }
+
+    // Foto rota → se saca (antes era un onerror inline, incompatible con la CSP estricta).
+    document.querySelectorAll('img[data-drop-on-error]').forEach((img) => {
+      img.addEventListener('error', () => img.remove());
+      if (img.complete && img.naturalWidth === 0) img.remove(); // ya falló antes de este script
+    });
 
     // El carrito es de ESE comercio: al salir (form POST a /api/salir) se limpia acá.
     document.querySelector('form[action="/api/salir"]')?.addEventListener('submit', () => {
