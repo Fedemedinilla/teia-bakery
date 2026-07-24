@@ -97,6 +97,24 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
 Contexto completo: `teia/MEET-01-resumen.md` · transcript: `teia/MEET-01-transcript.md`.
 Resumen entregado a Mica: `teia/resumen-meet-mica.html` → PDF en Downloads.*
 
+### 🔐 SEGURIDAD — auditoría 2026-07-22 (informe: `teia/AUDITORIA-SEGURIDAD.md`)
+Corregido y deployado: **XSS almacenado** cliente→admin (bug de escapeo de atributos de Astro,
+verificado ejecutando su runtime; fix `attrSafe()`), XSS reflejado en el callback de Google,
+**CSRF del OAuth** (state), cron **fail-open**, orden auth-antes-que-config en los 9 endpoints
+admin, secreto de firma hardcodeado, `/api/order` pisaba el contacto de la cuenta, vista previa
+`?ver=` abierta en demo, **CSP estricta + HSTS**, y el botón Salir.
+
+**⏸️ 2º factor CUIT+código: CONSTRUIDO Y APAGADO** (`TEIA_REQUIRE_CODE`). El CUIT es dato público
+(AFIP/facturas) ⇒ por sí solo no protege precios. Encenderlo = 1 env var en Vercel + redeploy.
+Panel: código por ficha con "Generar" y "Enviar por WhatsApp" (mensaje ya escrito). Se pide **una
+vez por dispositivo**: sesión de 90 días **que se renueva en cada visita** + `autocomplete` para
+que el llavero del celular lo guarde. **Pendiente: que Federico lo hable con Mica.**
+
+**Config pendiente de Federico:** regla de rate-limit del Firewall de Vercel sobre `/api/entrar`,
+`/administradora` y `/api/admin/*` · marcar los secrets como "Sensitive" · SQL de `access_code`
+(se puede correr ya, no afecta nada mientras el flag esté apagado) · probar el aislamiento de
+catálogos en prod con dos cuentas reales · post-entrega: migrar a Astro 7.
+
 ### ❓ ABIERTAS — decide Federico ANTES de que arranque el bloque correspondiente
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
