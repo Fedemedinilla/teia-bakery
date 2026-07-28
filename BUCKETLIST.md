@@ -4,6 +4,9 @@ App de pedidos mayorista (B2B). Live: **teia-bakery.vercel.app** · Repo: `Fedem
 Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **template e-commerce** de KyndredAI.
 
 > Lista canónica de tareas — se lee/actualiza cada sesión. Última reconciliación: **2026-07-28**.
+>
+> **Traspaso del 28/07 (lo que se hizo desde la sesión de KyndredAI): `teia/TRASPASO-2026-07-28.md`**
+> — incluye los 10 hallazgos de la auditoría de seguridad que nunca llegaron a esta lista.
 
 ---
 
