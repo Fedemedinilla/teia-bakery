@@ -78,7 +78,10 @@ const sections = [...groups.keys()]
 <Base title="Catálogo mayorista — Teia Bakery">
   <header class="top">
     <div class="container top__in">
-      <span class="brand">Mayorista<b>Teia Bakery</b></span>
+      <span class="brand">
+        Mayorista
+        <img class="brand__logo" src="/logo-teia.png" alt="Teia Bakery" width="2432" height="273" />
+      </span>
       <span class="top__acct">
         <span class="top__acct-name">{isAdminPreview ? '👁 Vista previa' : `👤 ${client.business_name}`}</span>
         {catalog !== DEFAULT_CATALOG && <span class="vip-chip">{catalogLabel(catalog)}</span>}

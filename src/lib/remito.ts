@@ -4,6 +4,7 @@
 // Pagina solo: pedidos largos siguen en una segunda hoja con encabezado de continuación.
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import type { PDFFont, PDFPage } from 'pdf-lib';
+import { LOGO_TEIA_PNG, LOGO_TEIA_W, LOGO_TEIA_H } from './logo-teia';
 
 const ACCENT = rgb(0.690, 0.408, 0.298); // #B0684C terracota
 const INK = rgb(0.200, 0.160, 0.122);    // #33291F
@@ -78,6 +79,18 @@ export async function buildRemito(order: any, items: any[], variant: RemitoVaria
   const helvB = await doc.embedFont(StandardFonts.HelveticaBold);
   const timesB = await doc.embedFont(StandardFonts.TimesRomanBold);
 
+  // Logo real de Teia. Si por lo que sea no se pudiera embeber, el remito sigue
+  // saliendo con el wordmark tipográfico: la marca no puede voltear un pedido.
+  let logo: Awaited<ReturnType<typeof doc.embedPng>> | null = null;
+  try { logo = await doc.embedPng(Buffer.from(LOGO_TEIA_PNG, 'base64')); } catch { logo = null; }
+  /** Dibuja el logo con la altura pedida y devuelve su alto real. */
+  const drawLogo = (x: number, yTop: number, alto: number) => {
+    if (!logo) return 0;
+    const ancho = alto * (LOGO_TEIA_W / LOGO_TEIA_H);
+    page.drawImage(logo, { x, y: yTop - alto, width: ancho, height: alto });
+    return alto;
+  };
+
   const M = 48;
   const BOTTOM = 100; // debajo de esto vive el pie de página
   const num = order.order_number || ('#' + order.id);
@@ -124,7 +137,8 @@ export async function buildRemito(order: any, items: any[], variant: RemitoVaria
     page = doc.addPage([W, H]);
     page.drawRectangle({ x: 0, y: H - 8, width: W, height: 8, color: ACCENT });
     y = H - 52;
-    text('Teia Bakery', M, y, timesB, 14, ACCENT);
+    if (logo) drawLogo(M, y + 9, 9);
+    else text('Teia Bakery', M, y, timesB, 14, ACCENT);
     right(`${variant === 'cliente' ? 'REMITO' : 'PREPARACIÓN · INTERNO'} ${num} · continuación`, W - M, y, helvB, 10, INK2);
     y -= 16;
     hr(y, 0.75);
@@ -140,7 +154,8 @@ export async function buildRemito(order: any, items: any[], variant: RemitoVaria
   page = doc.addPage([W, H]);
   page.drawRectangle({ x: 0, y: H - 8, width: W, height: 8, color: ACCENT });
   y = H - 56;
-  text('Teia Bakery', M, y, timesB, 24, ACCENT);
+  if (logo) drawLogo(M, y + 12, 13);
+  else text('Teia Bakery', M, y, timesB, 24, ACCENT);
   text('Pastelería mayorista', M, y - 16, helv, 9, INK2);
 
   const title = variant === 'cliente' ? 'REMITO' : 'PREPARACIÓN · INTERNO';

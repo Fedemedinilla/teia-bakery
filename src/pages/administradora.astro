@@ -71,7 +71,10 @@ const waLink = (c: any) => {
 ---
 <Base title="Administradora — Teia Bakery">
   <div class="container admin-wrap">
-    <div class="brand">Teia Bakery · Administradora</div>
+    <div class="brand brand--fila">
+      <img class="brand__logo" src="/logo-teia.png" alt="Teia Bakery" width="2432" height="273" />
+      <span>Administradora</span>
+    </div>
     <h1 style="margin-bottom:6px">Panel</h1>
 
     {!configured && <p class="card" style="margin-bottom:12px">🧪 <b>Modo demo</b> — datos de ejemplo. Conectá Supabase + la clave para el panel real.</p>}

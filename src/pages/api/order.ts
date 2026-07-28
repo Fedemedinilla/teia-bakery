@@ -3,6 +3,7 @@ import type { APIRoute } from 'astro';
 import { sbSelectStrict, sbInsert, sbPatch, sbDelete, supaConfigured, env } from '../../lib/supabase';
 import { readSession } from '../../lib/session';
 import { catalogOf } from '../../lib/catalogs';
+import { avisarPedidoNuevo } from '../../lib/aviso';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -36,7 +37,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
   // La cuenta de la sesión: si la borraron o la dieron de baja mientras tenía la pestaña
   // abierta, el pedido no entra.
-  const accounts = await sbSelectStrict(`teia_clients?id=eq.${sessionId}&select=id,catalog,active`);
+  const accounts = await sbSelectStrict(`teia_clients?id=eq.${sessionId}&select=id,catalog,active,business_name,cuit`);
   if (accounts === null) return json({ error: 'No pudimos procesar el pedido en este momento. Probá de nuevo.' }, 503);
   const account = (accounts as any[])[0];
   if (!account || account.active === false) {
@@ -100,10 +101,11 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   // El descuento ya NO viene del cliente: lo aplica Mica pedido por pedido desde el panel.
   const total = subtotal;
 
+  const notas = clean(body?.notes, 500);
   const created = await sbInsert<any>('teia_orders', {
     client_id: clientId, client_name, client_contact, delivery_address,
     delivery_date: body?.delivery_date || null,
-    notes: clean(body?.notes, 500),
+    notes: notas,
     status: 'pendiente', version: 1, total, discount_pct: 0,
   });
   const order = created && created[0];
@@ -122,6 +124,20 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   if (!(await sbPatch(`teia_orders?id=eq.${order.id}`, { order_number }))) {
     await sbPatch(`teia_orders?id=eq.${order.id}`, { order_number });
   }
+
+  // Aviso a Teia de que entró un pedido. El pedido YA está guardado: esto no puede
+  // voltearlo ni demorarlo (la función tiene su propio timeout y nunca lanza).
+  await avisarPedidoNuevo({
+    order_number,
+    comercio: account.business_name || client_name,
+    cuit: account.cuit,
+    contacto: client_contact,
+    direccion: delivery_address,
+    notas,
+    total,
+    items: orderItems,
+    panelUrl: new URL('/administradora#pedidos', request.url).toString(),
+  });
 
   return json({ ok: true, order_number, total });
 };

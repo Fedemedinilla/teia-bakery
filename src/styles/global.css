@@ -70,6 +70,21 @@ img { max-width: 100%; display: block; }
 .top__in { display: flex; align-items: center; justify-content: space-between; height: 56px; }
 .brand { font-size: 12px; letter-spacing: .26em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
 .brand b { font-family: var(--font-display); font-weight: 600; font-size: 17px; letter-spacing: normal; text-transform: none; color: var(--ink); display: block; line-height: 1; }
+/* Logo real de Teia (wordmark vectorizado, exportado por scripts/logo.mjs).
+   Va por altura: el ancho lo pone la proporción del archivo. */
+/* 17px = el mismo cuerpo que tenía el wordmark tipográfico que reemplaza. Como el
+   logo es todo mayúsculas, con menos altura pierde peso frente al resto del header. */
+.brand__logo { display: block; height: 17px; width: auto; margin-top: 4px; }
+.gate__logo { display: block; height: 21px; width: auto; margin: 0 auto 14px; }
+/* En el panel la marca va en una línea: el h1 "Panel" viene justo abajo y dos
+   bloques apilados competirían. El logo manda y la sección queda de etiqueta. */
+.brand--fila { display: flex; align-items: center; gap: 10px; }
+.brand--fila .brand__logo { height: 17px; margin-top: 0; }
+.brand--fila span { position: relative; padding-left: 11px; }
+.brand--fila span::before {
+  content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 1px; height: 11px; background: var(--line-2);
+}
 
 /* sticky rubro chips (navegación de secciones — arregla el scroll largo de la carta) */
 .rubros { position: sticky; top: 56px; z-index: 90; background: var(--bg); border-bottom: 1px solid var(--line); }

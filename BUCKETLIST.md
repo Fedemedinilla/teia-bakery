@@ -3,7 +3,7 @@
 App de pedidos mayorista (B2B). Live: **teia-bakery.vercel.app** · Repo: `Fedemedinilla/teia-bakery`
 Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **template e-commerce** de KyndredAI.
 
-> Lista canónica de tareas — se lee/actualiza cada sesión. Última reconciliación: **2026-07-08**.
+> Lista canónica de tareas — se lee/actualiza cada sesión. Última reconciliación: **2026-07-28**.
 
 ---
 
@@ -204,9 +204,41 @@ cambiarle el precio (hoy se carga a mano en cada catálogo).
 
 ---
 
-### ⚪ BLOQUE 5 — Bloqueados por material de Mica / decisión
-- **Logo** en catálogo y remito (ella lo manda; colores actuales ya aprobados).
-- **Aviso de pedido nuevo** → decisión A. Si sale email: Resend + plantilla corta con nº de pedido, comercio, total y link al panel.
+### ✅ BLOQUE 5 — HECHO 2026-07-28 (lo que dependía de material de Mica)
+
+**5.1 · Aviso de pedido nuevo por MAIL** — `src/lib/aviso.ts` (Resend por REST, sin SDK, como el
+resto de las integraciones). Se dispara en `api/order.ts` **después** de que el pedido quedó
+guardado: nº, comercio + CUIT, contacto, dirección, aclaraciones, ítems, total y botón al panel.
+Best-effort con timeout propio de 6 s y try/catch — no puede voltear ni demorar un pedido. Sin
+`RESEND_API_KEY` / `TEIA_ALERT_EMAIL` no manda y no rompe (igual que Google y el archivador).
+Paleta de Teia, tablas + estilos en línea (los clientes de correo no soportan flex/grid).
+Vista previa: `node scripts/preview-aviso.ts` → `.test-out/aviso.html`. Verificado visualmente.
+**Env vars nuevas para Federico:** `RESEND_API_KEY`, `TEIA_ALERT_EMAIL` y, si el remitente no es
+el default, `TEIA_ALERT_FROM` (default `Teia Bakery <pedidos@kyndredai.com>` — **hay que verificar
+ese dominio/remitente en Resend antes de que ande en prod**).
+Fundamentación de por qué mail y no WhatsApp: `teia/aviso-pedidos-resend-vs-whatsapp.md`.
+
+**5.2 · Logo de Teia en la app y el remito** — Mica pasó el original de Illustrator.
+`scripts/logo.mjs` lo convierte: PNG transparente recortado (`public/logo-teia.png`, 2432×273) +
+versión chica embebida en base64 (`src/lib/logo-teia.ts`, 620×70) porque `public/` no existe en el
+disco de una función serverless. Aplicado en las **cuatro** superficies: la **puerta**
+(`.gate__logo`, 21 px), el **header del catálogo** (`.brand__logo`, 17 px — el mismo cuerpo que
+tenía el wordmark; con menos altura perdía peso), el **panel** (`.brand--fila`, 17 px, en una
+línea con un separador y la etiqueta "Administradora", porque el h1 "Panel" viene justo abajo y
+dos bloques apilados competían) y el **remito** (primera hoja y continuación, con caída al
+wordmark tipográfico si el embed fallara). Verificado en desktop y en móvil: sin solapes ni
+scroll horizontal.
+**Color de marca: #2D2119** (muestreado del original) — el `--ink` de la app ya era #33291F, así
+que la paleta no se toca. Verificado en el navegador y con un remito de prueba.
+
+**Falta de este bloque:**
+- **Tipografía de Teia** — Federico dice que Mica la pasó, pero el archivo no está en Downloads
+  ni en el repo. Sin el .otf/.ttf (o el nombre de la fuente) no se puede aplicar. Hoy el display
+  sigue siendo **Fraunces**, que combina bien con el wordmark.
+- **Carga del catálogo real** (productos, packs, precios, fotos) — lo hace ELLA cuando esté online.
+- **CUITs de los locales de Chungo** (para el alta + el catálogo VIP).
+
+### ⚪ BLOQUE 5 bis — Bloqueados por material de Mica / decisión
 - **Carga del catálogo real** (productos, packs, precios, fotos) — lo hace ELLA cuando esté online; Federico puede precargar los rubros.
 - **CUITs de los locales de Chungo** (para el alta + el catálogo VIP).
 
