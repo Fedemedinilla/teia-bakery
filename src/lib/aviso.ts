@@ -31,8 +31,20 @@ const esc = (s: unknown) =>
 
 const pesos = (n: number) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 
+/**
+ * Destinatarios: `TEIA_ALERT_EMAIL` acepta uno o varios separados por coma
+ * (ej. "mica@teia.com, fede@kyndredai.com"). Sirve para que el aviso le llegue
+ * también a Federico las primeras semanas, sin tocar código para sacarlo después.
+ */
+function destinatarios(): string[] {
+  return String(env('TEIA_ALERT_EMAIL') || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.includes('@'));
+}
+
 export function avisoConfigurado(): boolean {
-  return Boolean(env('RESEND_API_KEY') && env('TEIA_ALERT_EMAIL'));
+  return Boolean(env('RESEND_API_KEY') && destinatarios().length);
 }
 
 export function armarHtml(d: DatosAviso): string {
@@ -124,8 +136,8 @@ function armarTexto(d: DatosAviso): string {
  */
 export async function avisarPedidoNuevo(d: DatosAviso): Promise<boolean> {
   const apiKey = env('RESEND_API_KEY');
-  const to = env('TEIA_ALERT_EMAIL');
-  if (!apiKey || !to) return false;
+  const to = destinatarios();
+  if (!apiKey || !to.length) return false;
 
   const from = env('TEIA_ALERT_FROM') || 'Teia Bakery <pedidos@kyndredai.com>';
 
@@ -140,7 +152,7 @@ export async function avisarPedidoNuevo(d: DatosAviso): Promise<boolean> {
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         from,
-        to: [to],
+        to,
         subject: `Pedido nuevo ${d.order_number} — ${d.comercio} — ${pesos(d.total)}`,
         html: armarHtml(d),
         text: armarTexto(d),
