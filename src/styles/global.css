@@ -189,32 +189,9 @@ h1.title { font-family: var(--font-display); font-weight: 600; font-size: clamp(
 #pm-buy .add-btn { width: 100%; height: 46px; font-size: 15px; }
 #pm-buy .stepper { width: 100%; justify-content: space-between; height: 46px; }
 
-/* ---- reorder card (Recompra) ---- */
-.reorder {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-  color: var(--accent-ink); border-radius: var(--r-lg); padding: 14px 16px; margin-bottom: 18px;
-  box-shadow: var(--sh-md); animation: fadeUp .5s var(--ease-out) both;
-}
-.reorder__t { font-weight: 700; font-size: 15px; }
-.reorder__s { font-size: 12.5px; opacity: .9; }
-.reorder__btn { background: rgba(255,255,255,.16); color: #fff; border: 1px solid rgba(255,255,255,.5); border-radius: var(--r-full); padding: 9px 15px; font-weight: 700; font-size: 13px; cursor: pointer; white-space: nowrap; transition: background var(--dur) var(--ease); }
-.reorder__btn:hover { background: rgba(255,255,255,.28); }
-
-/* buscar último pedido por WhatsApp (cross-device, sin login) */
-.reorder-lookup { margin: 0 0 18px; }
-.reorder-lookup__toggle { border: 0; background: none; padding: 4px 0; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--accent); cursor: pointer; }
-.reorder-lookup__toggle:hover { text-decoration: underline; text-underline-offset: 2px; }
-.reorder-lookup__form { display: flex; gap: 8px; margin-top: 8px; }
-.reorder-lookup__form input { flex: 1; min-width: 0; }
-.reorder-lookup__form .btn { flex: 0 0 auto; padding: 11px 16px; }
-.reorder-lookup__msg { font-size: 13px; color: var(--ink-2); margin: 8px 0 0; }
-.reorder-lookup__msg.ok { color: var(--good); font-weight: 600; }
-
 /* --- Puerta de entrada (/): sin CUIT habilitado no se ve el catálogo --- */
 .gate { min-height: 100dvh; display: grid; place-items: center; padding: 24px 18px; }
 .gate__card { width: 100%; max-width: 420px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 30px 26px; box-shadow: var(--sh-md); }
-.gate__brand { font-family: var(--font-display); font-size: 22px; color: var(--accent); margin: 0; }
 .gate__t { font-size: 26px; margin: 6px 0 6px; }
 .gate__s { color: var(--ink-2); margin: 0 0 20px; font-size: 14.5px; }
 .gate__card label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }

@@ -36,7 +36,7 @@ const pesos = (n: number) => '$' + Math.round(Number(n) || 0).toLocaleString('es
  * (ej. "mica@teia.com, fede@kyndredai.com"). Sirve para que el aviso le llegue
  * también a Federico las primeras semanas, sin tocar código para sacarlo después.
  */
-function destinatarios(): string[] {
+export function destinatarios(): string[] {
   return String(env('TEIA_ALERT_EMAIL') || '')
     .split(',')
     .map((s) => s.trim())

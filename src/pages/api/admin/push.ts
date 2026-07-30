@@ -4,6 +4,7 @@ import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbInsert, sbDelete, sbSelectStrict, supaConfigured, env } from '../../../lib/supabase';
 import { probarPush } from '../../../lib/push';
+import { avisoConfigurado, destinatarios } from '../../../lib/aviso';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -49,9 +50,20 @@ export const GET: APIRoute = async ({ request }) => {
     suscripciones = filas === null ? null : filas.length;
   }
 
+  // Estado del OTRO canal de aviso (el mail). Va acá porque es el mismo diagnóstico operativo:
+  // "¿me voy a enterar cuando entre un pedido?". `destinatarios()` descarta en silencio las
+  // direcciones sin @, así que un typo en TEIA_ALERT_EMAIL deja el aviso mudo sin ningún error
+  // — el mismo tipo de falla invisible que las claves cruzadas. Nunca devuelve las direcciones.
+  const mail = {
+    configurado: avisoConfigurado(),
+    api_key_presente: !!env('RESEND_API_KEY'),
+    destinatarios_validos: destinatarios().length,
+  };
+
   const listo = pubFormato && parCoincide && tabla === true;
   return json({
     listo,
+    mail,
     claves: {
       publica_presente: !!pub,
       publica_bytes: pubBytes,
@@ -68,6 +80,10 @@ export const GET: APIRoute = async ({ request }) => {
       tabla === null ? 'configurar Supabase (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)' : null,
       tabla === false ? 'correr el SQL de teia_push_subs en Supabase' : null,
       listo && suscripciones === 0 ? 'que la administradora toque "Activar" desde la app instalada' : null,
+      !mail.api_key_presente ? 'aviso por mail: falta RESEND_API_KEY en Vercel' : null,
+      mail.api_key_presente && mail.destinatarios_validos === 0
+        ? 'aviso por mail: TEIA_ALERT_EMAIL está vacía o mal escrita (ninguna dirección con @)'
+        : null,
     ].filter(Boolean),
   });
 };
