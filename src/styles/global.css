@@ -535,21 +535,39 @@ html.lenis, html.lenis body { height: auto; }
    ============================================================================ */
 .instalar {
   position: relative;
-  display: flex; align-items: center; gap: 12px;
-  background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: var(--r-lg); padding: 12px 34px 12px 14px; margin: 0 0 18px;
+  display: flex; align-items: center; gap: 13px;
+  /* separado de lo de arriba: es una sugerencia aparte, no parte del formulario */
+  margin: 28px 0 4px;
+  padding: 14px 38px 14px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-sm);
+  text-align: left;              /* la tarjeta de la puerta centra el texto; acá no */
 }
-.instalar__icono { border-radius: 10px; flex: none; }
+/* separador sutil sobre el aviso, para despegarlo del bloque anterior */
+.instalar::before {
+  content: ''; position: absolute; left: 14px; right: 14px; top: -15px;
+  height: 1px; background: var(--line);
+}
+.instalar__icono { border-radius: 11px; flex: none; box-shadow: var(--sh-sm); }
 .instalar__txt { flex: 1; min-width: 0; }
-.instalar__t { margin: 0 0 2px; font-size: 14px; font-weight: 600; }
-.instalar__d { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+.instalar__t { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.4; }
+.instalar__d { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+.instalar__link {
+  display: inline-block; margin-top: 6px;
+  font-size: 13.5px; font-weight: 600; color: var(--accent-2);
+}
 .instalar__btn { flex: none; }
 .instalar__x {
-  position: absolute; top: 6px; right: 8px;
+  position: absolute; top: 7px; right: 9px;
   padding: 4px; border: 0; background: none; cursor: pointer;
-  font-size: 19px; line-height: 1; color: var(--ink-3);
+  font-size: 18px; line-height: 1; color: var(--ink-3);
 }
 .instalar__x:hover { color: var(--ink); }
+
+/* dentro del catálogo el aviso no cierra la sección: necesita aire abajo */
+.catalog .instalar { margin-bottom: 20px; }
 
 @media (max-width: 560px) {
   .instalar { flex-wrap: wrap; }

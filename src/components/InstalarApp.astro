@@ -6,6 +6,10 @@
 // implementó, así que hay que ir a Compartir → "Agregar a inicio" a mano. Sin esta ayuda, nadie
 // que no sepa de antemano que la app se puede instalar la va a instalar.
 //
+// Por eso el mensaje difiere según el teléfono:
+//   · Android → botón "Instalar" propio, que dispara el instalador del navegador.
+//   · iPhone  → invitación corta + link a /instalar, que explica los cuatro pasos con dibujos.
+//
 // Se oculta solo si ya está instalada, y se puede cerrar (queda recordado).
 interface Props {
   /** Cuál de las dos apps: cambia el ícono y el nombre que se menciona. */
@@ -16,10 +20,11 @@ const icono = app === 'admin' ? '/icons/admin-192.png' : '/icons/cliente-192.png
 const nombre = app === 'admin' ? 'Teia Panel' : 'Teia';
 ---
 <aside class="instalar" data-instalar data-nombre={nombre} hidden>
-  <img class="instalar__icono" src={icono} alt="" width="46" height="46" />
+  <img class="instalar__icono" src={icono} alt="" width="44" height="44" />
   <div class="instalar__txt">
-    <p class="instalar__t">Tenela como app en tu celular</p>
-    <p class="instalar__d" data-instalar-desc></p>
+    <p class="instalar__t" data-instalar-titulo>Tenela como app en tu celular</p>
+    <p class="instalar__d" data-instalar-desc hidden></p>
+    <a class="instalar__link" href="/instalar" data-instalar-link hidden>Ver cómo instalarla →</a>
   </div>
   <button class="btn instalar__btn" type="button" data-instalar-btn hidden>Instalar</button>
   <button class="instalar__x" type="button" data-instalar-x aria-label="Ocultar este aviso">×</button>
@@ -28,7 +33,9 @@ const nombre = app === 'admin' ? 'Teia Panel' : 'Teia';
 <script>
   const caja = document.querySelector('[data-instalar]');
   if (caja) {
+    const titulo = caja.querySelector('[data-instalar-titulo]');
     const desc = caja.querySelector('[data-instalar-desc]');
+    const link = caja.querySelector('[data-instalar-link]');
     const btn = caja.querySelector('[data-instalar-btn]');
     const nombre = caja.dataset.nombre || 'Teia';
     const CLAVE = 'teia_instalar_oculto';
@@ -53,11 +60,9 @@ const nombre = app === 'admin' ? 'Teia Panel' : 'Teia';
 
     if (!yaInstalada && !cerrado) {
       if (esIOS) {
-        // iPhone: no hay botón posible. Se explica el camino manual, y se avisa del error más
-        // común — abrir el link desde WhatsApp u otra app, donde esa opción no existe.
-        desc.textContent =
-          'Tocá Compartir (el cuadrado con la flecha hacia arriba) y elegí “Agregar a inicio”. ' +
-          'Si no ves esa opción, abrí esta página en Safari.';
+        // iPhone: no hay botón posible. Invitación corta y el paso a paso en su propia página.
+        titulo.textContent = '¿Querés tener la app de Teia Bakery para hacer tus pedidos más rápido?';
+        link.hidden = false;
         caja.hidden = false;
       }
 
@@ -65,7 +70,10 @@ const nombre = app === 'admin' ? 'Teia Panel' : 'Teia';
       // para ofrecerlo cuando la persona lo entienda, con un botón nuestro.
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
+        titulo.textContent = 'Tenela como app en tu celular';
         desc.textContent = 'Queda en tu pantalla de inicio como “' + nombre + '” y entrás con un toque.';
+        desc.hidden = false;
+        link.hidden = true;
         btn.hidden = false;
         caja.hidden = false;
         btn.addEventListener('click', async () => {

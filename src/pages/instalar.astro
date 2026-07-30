@@ -1,0 +1,205 @@
+---
+// Instrucciones para instalar la app en iPhone/iPad.
+//
+// Existe porque en iOS no hay ningún botón de instalación: Apple no lo permite. La única forma es
+// Compartir → "Agregar a inicio", y nadie lo adivina. El aviso de la puerta linkea acá.
+// Es una página estática (no necesita sesión): la persona todavía no entró cuando la lee.
+import Base from '../layouts/Base.astro';
+import { env } from '../lib/supabase';
+
+const appUrl = (env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app').replace(/\/+$/, '');
+const dominio = appUrl.replace(/^https?:\/\//, '');
+---
+<Base title="Cómo instalar la app — Teia Bakery">
+  <main class="inst">
+    <a class="inst__volver" href="/">← Volver</a>
+
+    <img class="inst__logo" src="/logo-teia.png" alt="Teia Bakery" width="2432" height="273" />
+
+    <h1 class="inst__t">Cómo instalar la app</h1>
+    <p class="inst__s">
+      En iPhone y iPad la app se agrega desde Safari, en cuatro pasos. Lleva menos de un minuto.
+    </p>
+
+    <ol class="pasos">
+      <li class="paso">
+        <span class="paso__n">1</span>
+        <h2 class="paso__t">Abrí esta página en Safari</h2>
+        <p class="paso__d">
+          La instalación funciona únicamente desde Safari. Si llegaste desde WhatsApp u otra
+          aplicación, abrí Safari y escribí la dirección:
+        </p>
+        <p class="paso__url">{dominio}</p>
+      </li>
+
+      <li class="paso">
+        <span class="paso__n">2</span>
+        <h2 class="paso__t">Tocá el botón Compartir</h2>
+        <p class="paso__d">
+          Está en la barra inferior, en el centro. Es un cuadrado con una flecha hacia arriba.
+        </p>
+
+        {/* Reproducción de la barra inferior de Safari, con el botón resaltado. */}
+        <div class="barra" role="img" aria-label="Barra inferior de Safari con el botón Compartir resaltado">
+          <div class="barra__url">
+            <span class="barra__aa">aA</span>
+            <span class="barra__dom">{dominio}</span>
+          </div>
+          <div class="barra__iconos">
+            <svg class="barra__ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+            <svg class="barra__ic barra__ic--off" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+
+            <span class="barra__destacado">
+              <svg class="barra__ic barra__ic--share" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3.5v11" />
+                <path d="M8.4 7.1L12 3.5l3.6 3.6" />
+                <path d="M7.5 10.5H5.9A1.9 1.9 0 0 0 4 12.4v6.7A1.9 1.9 0 0 0 5.9 21h12.2a1.9 1.9 0 0 0 1.9-1.9v-6.7a1.9 1.9 0 0 0-1.9-1.9h-1.6" />
+              </svg>
+            </span>
+
+            <svg class="barra__ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.6C10.4 5.3 8.4 4.8 5.8 5v12.4c2.6-.2 4.6.3 6.2 1.6 1.6-1.3 3.6-1.8 6.2-1.6V5c-2.6-.2-4.6.3-6.2 1.6z"/><path d="M12 6.6V19"/></svg>
+            <svg class="barra__ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="7" width="12" height="12" rx="2.5"/><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4H19a1 1 0 0 1 1 1v9.5a1.5 1.5 0 0 1-1.5 1.5H17"/></svg>
+          </div>
+          <p class="barra__pie">Este es el botón</p>
+        </div>
+      </li>
+
+      <li class="paso">
+        <span class="paso__n">3</span>
+        <h2 class="paso__t">Elegí “Agregar a inicio”</h2>
+        <p class="paso__d">
+          Se abre una lista de opciones. Deslizá hacia abajo hasta encontrarla.
+        </p>
+
+        {/* Reproducción de la fila del menú Compartir. */}
+        <div class="fila" role="img" aria-label="Opción Agregar a inicio dentro del menú Compartir">
+          <span class="fila__t">Agregar a inicio</span>
+          <svg class="fila__ic" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/>
+            <path d="M12 8.5v7M8.5 12h7"/>
+          </svg>
+        </div>
+      </li>
+
+      <li class="paso">
+        <span class="paso__n">4</span>
+        <h2 class="paso__t">Confirmá con “Agregar”</h2>
+        <p class="paso__d">
+          El botón está arriba a la derecha. El ícono de Teia queda en tu pantalla de inicio.
+        </p>
+
+        <div class="listo">
+          <img class="listo__icono" src="/icons/cliente-192.png" alt="" width="62" height="62" />
+          <span class="listo__nombre">Teia</span>
+        </div>
+      </li>
+    </ol>
+
+    <p class="inst__cierre">
+      Abrí la app desde ese ícono e ingresá tu CUIT una sola vez. Después entrás directo.
+    </p>
+
+    <p class="inst__foot"><a href="/">Volver a la pantalla de ingreso</a></p>
+  </main>
+</Base>
+
+<style>
+  .inst { max-width: 560px; margin: 0 auto; padding: 22px 20px 60px; }
+
+  .inst__volver {
+    display: inline-block; margin-bottom: 22px;
+    font-size: 14px; color: var(--ink-2); text-decoration: none;
+  }
+  .inst__volver:hover { color: var(--ink); }
+
+  .inst__logo { height: 17px; width: auto; display: block; margin-bottom: 26px; }
+
+  .inst__t {
+    font-family: Fraunces, Georgia, serif; font-weight: 500;
+    font-size: clamp(26px, 7vw, 32px); line-height: 1.15; letter-spacing: -.015em;
+    margin: 0 0 10px;
+  }
+  .inst__s { margin: 0 0 34px; font-size: 15.5px; line-height: 1.6; color: var(--ink-2); }
+
+  /* ---- timeline vertical ---- */
+  .pasos { list-style: none; margin: 0; padding: 0 0 0 50px; position: relative; }
+  .pasos::before {
+    content: ''; position: absolute; left: 17px; top: 10px; bottom: 26px;
+    width: 2px; background: var(--line-2);
+  }
+  .paso { position: relative; margin-bottom: 34px; }
+  .paso:last-child { margin-bottom: 0; }
+  .paso__n {
+    position: absolute; left: -50px; top: -2px;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--accent); color: var(--accent-ink);
+    display: grid; place-items: center;
+    font-size: 15px; font-weight: 600;
+    box-shadow: 0 0 0 5px var(--bg);
+  }
+  .paso__t { margin: 0 0 6px; font-size: 17px; font-weight: 600; line-height: 1.3; }
+  .paso__d { margin: 0; font-size: 14.5px; line-height: 1.6; color: var(--ink-2); }
+  .paso__url {
+    margin: 10px 0 0; padding: 9px 12px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm);
+    font-family: ui-monospace, Consolas, monospace; font-size: 14px; word-break: break-all;
+  }
+
+  /* ---- barra de Safari ---- */
+  .barra {
+    margin-top: 14px; padding: 10px 12px 8px;
+    background: var(--bg-2); border: 1px solid var(--line); border-radius: 14px;
+  }
+  .barra__url {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface); border-radius: 9px; padding: 7px 11px; margin-bottom: 10px;
+  }
+  .barra__aa { font-size: 12px; color: var(--ink-3); flex: none; }
+  .barra__dom {
+    font-size: 12.5px; color: var(--ink-2);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .barra__iconos { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
+  .barra__ic {
+    width: 21px; height: 21px; flex: none;
+    fill: none; stroke: var(--ink-3); stroke-width: 1.7;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .barra__ic--off { opacity: .4; }
+  .barra__destacado {
+    display: grid; place-items: center;
+    width: 40px; height: 40px; border-radius: 50%;
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  .barra__ic--share { width: 23px; height: 23px; stroke: var(--accent-2); stroke-width: 1.9; }
+  .barra__pie {
+    margin: 9px 0 0; text-align: center;
+    font-size: 12.5px; font-weight: 600; color: var(--accent-2);
+  }
+
+  /* ---- fila del menú Compartir ---- */
+  .fila {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-top: 14px; padding: 14px 16px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  }
+  .fila__t { font-size: 15px; }
+  .fila__ic {
+    width: 23px; height: 23px; flex: none;
+    fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round;
+  }
+
+  /* ---- resultado ---- */
+  .listo { display: flex; align-items: center; gap: 13px; margin-top: 14px; }
+  .listo__icono { border-radius: 14px; box-shadow: var(--sh-md); }
+  .listo__nombre { font-size: 14.5px; font-weight: 600; }
+
+  .inst__cierre {
+    margin: 34px 0 0; padding: 15px 17px;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md);
+    font-size: 14.5px; line-height: 1.6;
+  }
+  .inst__foot { margin: 26px 0 0; font-size: 14px; }
+  .inst__foot a { color: var(--ink-2); }
+</style>
