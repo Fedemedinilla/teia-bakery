@@ -81,8 +81,13 @@ const pregunta = esAdmin
           btn.disabled = true;
           e.prompt();
           const r = await e.userChoice.catch(() => null);
-          if (r && r.outcome === 'accepted') caja.hidden = true;
-          else btn.disabled = false;
+          if (r && r.outcome === 'accepted') { caja.hidden = true; return; }
+          // Cancelo. `e.prompt()` NO se puede volver a llamar sobre el mismo evento y el
+          // listener era { once: true }: volver a habilitar el botón seria dejar uno que no
+          // hace nada. Se oculta y se explica el camino manual.
+          btn.hidden = true;
+          desc.hidden = false;
+          desc.textContent = 'Si cambiás de idea, podés instalarla desde el menú del navegador (⋮).';
         }, { once: true });
       });
     }

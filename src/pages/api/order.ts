@@ -131,24 +131,29 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   // timeout y nunca lanza). Si falta configuración, simplemente no se manda.
   const panelUrl = new URL('/administradora#pedidos', request.url).toString();
 
-  await avisarPushPedido({
-    order_number,
-    comercio: account.business_name || client_name,
-    total,
-    url: panelUrl,
-  });
-
-  await avisarPedidoNuevo({
-    order_number,
-    comercio: account.business_name || client_name,
-    cuit: account.cuit,
-    contacto: client_contact,
-    direccion: delivery_address,
-    notas,
-    total,
-    items: orderItems,
-    panelUrl,
-  });
+  // EN PARALELO, no uno detrás del otro: cada uno tiene su timeout de 6 s, así que en serie el
+  // cliente podía quedarse mirando "Enviando…" hasta 12 segundos con el pedido YA guardado —
+  // y un comercio impaciente que recarga manda el pedido dos veces. Ninguna de las dos lanza
+  // (try/catch propio), así que Promise.all no puede introducir una excepción.
+  await Promise.all([
+    avisarPushPedido({
+      order_number,
+      comercio: account.business_name || client_name,
+      total,
+      url: panelUrl,
+    }),
+    avisarPedidoNuevo({
+      order_number,
+      comercio: account.business_name || client_name,
+      cuit: account.cuit,
+      contacto: client_contact,
+      direccion: delivery_address,
+      notas,
+      total,
+      items: orderItems,
+      panelUrl,
+    }),
+  ]);
 
   return json({ ok: true, order_number, total });
 };

@@ -64,7 +64,11 @@ const tituloApp = esAdmin ? 'Teia Panel' : 'Teia';
           a.addEventListener('click', (e) => {
             const href = a.getAttribute('href');
             if (!href || href === '#') return;
-            const el = document.querySelector(href);
+            // getElementById y NO querySelector: los rubros generan ids desde su nombre, y uno
+            // que empiece con número ("3 leches" → #3-leches) no es un selector CSS válido —
+            // querySelector tira SyntaxError antes del preventDefault y se pierde el offset del
+            // nav sticky. getElementById acepta cualquier id.
+            const el = document.getElementById(href.slice(1));
             if (el) { e.preventDefault(); lenis.scrollTo(el, { offset: -76 }); }
           });
         });

@@ -1,7 +1,8 @@
 ---
 export const prerender = false;
 import Base from '../layouts/Base.astro';
-import { sbSelect, supaConfigured } from '../lib/supabase';
+import { sbSelectStrict, supaConfigured } from '../lib/supabase';
+import { respuestaNoDisponible } from '../lib/nodisponible';
 import { readSession, clearSessionCookie, setSessionCookie } from '../lib/session';
 import { fmtCuit } from '../lib/cuit';
 import { attrSafe } from '../lib/catalogs';
@@ -11,10 +12,17 @@ import { DEMO_CLIENTS } from '../lib/demo';
 const sessionId = readSession(Astro.cookies.get('teia_sess')?.value);
 if (!sessionId) return Astro.redirect('/');
 
+// sbSelectStrict y NO sbSelect: este último devuelve [] tanto si la cuenta no existe como si la
+// consulta FALLÓ, y abajo un [] se interpreta como "cuenta borrada" → se le borra la cookie. Un
+// 5xx pasajero le destruía la sesión al comercio, y encima en el peor momento: el checkout.
 const configured = supaConfigured();
 const rows = configured
-  ? await sbSelect(`teia_clients?id=eq.${sessionId}&select=id,business_name,cuit,client_contact,delivery_address,active`)
+  ? await sbSelectStrict(`teia_clients?id=eq.${sessionId}&select=id,business_name,cuit,client_contact,delivery_address,active`)
   : DEMO_CLIENTS.filter((c) => c.id === sessionId);
+
+// null = no se pudo preguntar. Se avisa SIN tocar la sesión: el carrito y la cookie quedan intactos.
+if (rows === null) return respuestaNoDisponible();
+
 const client: any = (rows as any[])[0];
 if (!client || client.active === false) {
   return new Response(null, {

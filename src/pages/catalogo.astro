@@ -2,7 +2,8 @@
 export const prerender = false;
 import Base from '../layouts/Base.astro';
 import InstalarApp from '../components/InstalarApp.astro';
-import { sbSelect, supaConfigured, env } from '../lib/supabase';
+import { sbSelectStrict, supaConfigured, env } from '../lib/supabase';
+import { respuestaNoDisponible } from '../lib/nodisponible';
 import { readSession, clearSessionCookie, setSessionCookie } from '../lib/session';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
 import { catalogOf, catalogLabel, DEFAULT_CATALOG, attrSafe } from '../lib/catalogs';
@@ -26,11 +27,18 @@ if (preview && !isAdminPreview) return authChallenge();
 const sessionId = isAdminPreview ? null : readSession(Astro.cookies.get('teia_sess')?.value);
 if (!isAdminPreview && !sessionId) return Astro.redirect('/');
 
+// sbSelectStrict y NO sbSelect: este último devuelve [] tanto si la cuenta no existe como si la
+// consulta FALLÓ, y más abajo un [] se interpreta como "cuenta borrada" → se le borra la cookie.
+// Con eso, un 5xx pasajero de Supabase le destruía al comercio su sesión de 90 días.
 const clientRows = isAdminPreview
   ? []
   : configured
-    ? await sbSelect(`teia_clients?id=eq.${sessionId}&select=id,business_name,cuit,catalog,active`)
+    ? await sbSelectStrict(`teia_clients?id=eq.${sessionId}&select=id,business_name,cuit,catalog,active`)
     : DEMO_CLIENTS.filter((c) => c.id === sessionId);
+
+// null = no se pudo preguntar. Se avisa y se sale SIN tocar la sesión: al recargar sigue adentro.
+if (clientRows === null) return respuestaNoDisponible();
+
 const client: any = isAdminPreview
   ? { business_name: 'Vista previa', catalog: catalogOf(preview) }
   : (clientRows as any[])[0];
@@ -48,9 +56,14 @@ const catalog = catalogOf(client.catalog);
 if (sessionId) Astro.response.headers.append('Set-Cookie', setSessionCookie(Astro.request, sessionId));
 Astro.response.headers.set('Cache-Control', 'private, no-store'); // catálogo y precios por cuenta
 
-const raw = configured
-  ? await sbSelect(`teia_products?active=eq.true&catalog=eq.${catalog}&order=category.asc,sort_order.asc,name.asc&select=id,name,description,category,image_url,pack_label,price,stock`)
+// Mismo criterio para los productos: si la consulta falla, [] haría que el comercio vea
+// "Todavía no hay productos cargados… cargalos desde la administradora" — un mensaje escrito
+// para Mica, mostrado al cliente, y encima falso.
+const rawRows = configured
+  ? await sbSelectStrict(`teia_products?active=eq.true&catalog=eq.${catalog}&order=category.asc,sort_order.asc,name.asc&select=id,name,description,category,image_url,pack_label,price,stock`)
   : DEMO_PRODUCTS.filter((p) => p.active && catalogOf(p.catalog) === catalog);
+if (rawRows === null) return respuestaNoDisponible();
+const raw = rawRows;
 
 const MIN_ORDER = Number(env('TEIA_MIN_ORDER')) || 40000; // pedido mínimo (ARS) — env de Vercel, con default
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
