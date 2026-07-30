@@ -563,6 +563,18 @@ html.lenis, html.lenis body { height: auto; }
 /* dentro del catálogo el aviso no cierra la sección: necesita aire abajo */
 .catalog .instalar { margin-bottom: 20px; }
 
+/* Avisos de pedidos nuevos (notificaciones push) — solo en el panel */
+.avisos {
+  display: flex; align-items: center; gap: 13px; flex-wrap: wrap;
+  margin: 14px 0 4px; padding: 13px 15px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--sh-sm);
+}
+.avisos__txt { flex: 1; min-width: 200px; }
+.avisos__t { margin: 0; font-size: 14px; font-weight: 600; }
+.avisos__d { margin: 3px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+.avisos__btn { flex: none; }
+
 @media (max-width: 560px) {
   .instalar { flex-wrap: wrap; }
   .instalar__btn { width: 100%; }

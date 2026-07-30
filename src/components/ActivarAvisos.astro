@@ -1,0 +1,119 @@
+---
+// Botón para que la administradora active los avisos de pedidos nuevos en SU teléfono.
+//
+// El permiso lo tiene que dar ella tocando el botón: los navegadores exigen que la petición
+// salga de un gesto de la persona, y no se puede activar por ella desde el servidor.
+//
+// En iPhone las notificaciones web SOLO existen dentro de la app instalada en la pantalla de
+// inicio. Si todavía no la instaló, no tiene sentido ofrecer el botón: se la manda a instalarla.
+//
+// Si faltan las claves VAPID, este bloque no se renderiza y no aparece nada.
+import { pushConfigured, vapidPublicKey } from '../lib/push';
+const activo = pushConfigured();
+const clave = vapidPublicKey();
+---
+{activo && (
+  <div class="avisos" data-avisos data-clave={clave} hidden>
+    <div class="avisos__txt">
+      <p class="avisos__t">Avisos de pedidos nuevos</p>
+      <p class="avisos__d" data-avisos-desc></p>
+    </div>
+    <button class="btn btn--ghost avisos__btn" type="button" data-avisos-btn hidden></button>
+  </div>
+)}
+
+<script>
+  const caja = document.querySelector('[data-avisos]');
+  if (caja) {
+    const desc = caja.querySelector('[data-avisos-desc]');
+    const btn = caja.querySelector('[data-avisos-btn]');
+    const clave = caja.dataset.clave || '';
+
+    const soporta = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    const instalada =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      ('standalone' in navigator && navigator.standalone === true);
+    const esIOS =
+      /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+      (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+
+    // La clave pública viaja en base64url y el navegador la pide como bytes.
+    const aBytes = (base64) => {
+      const pad = '='.repeat((4 - (base64.length % 4)) % 4);
+      const limpio = (base64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+      const bin = atob(limpio);
+      return Uint8Array.from([...bin].map((c) => c.charCodeAt(0)));
+    };
+
+    const mostrar = (texto, accion) => {
+      desc.textContent = texto;
+      if (accion) { btn.textContent = accion; btn.hidden = false; } else { btn.hidden = true; }
+      caja.hidden = false;
+    };
+
+    const estado = async () => {
+      if (!soporta || !clave) return; // navegador viejo: no se muestra nada
+
+      // iPhone sin instalar: el permiso no existe fuera de la app de la pantalla de inicio.
+      if (esIOS && !instalada) {
+        mostrar('Para recibir avisos en el iPhone, primero agregá el panel a tu pantalla de inicio.', null);
+        return;
+      }
+      if (Notification.permission === 'denied') {
+        mostrar('Los avisos están bloqueados en este teléfono. Se habilitan desde los ajustes del navegador.', null);
+        return;
+      }
+
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      if (sub) mostrar('Activados en este teléfono. Te avisamos cuando entre un pedido.', 'Desactivar');
+      else mostrar('Recibí una notificación en este teléfono cuando entre un pedido.', 'Activar');
+    };
+
+    btn.addEventListener('click', async () => {
+      const original = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '…';
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const actual = await reg.pushManager.getSubscription();
+
+        if (actual) {
+          await fetch('/api/admin/push', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'baja', endpoint: actual.endpoint }),
+          });
+          await actual.unsubscribe();
+          await estado();
+          return;
+        }
+
+        const permiso = await Notification.requestPermission();
+        if (permiso !== 'granted') { await estado(); return; }
+
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: aBytes(clave),
+        });
+        const j = sub.toJSON();
+        const r = await fetch('/api/admin/push', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: sub.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }),
+        });
+        if (!r.ok) {
+          const o = await r.json().catch(() => ({}));
+          await sub.unsubscribe().catch(() => {}); // no dejar el teléfono suscripto si el server no lo guardó
+          alert((o && o.error) || 'No se pudieron activar los avisos.');
+        }
+        await estado();
+      } catch (e) {
+        alert('No se pudieron activar los avisos en este teléfono.');
+        btn.textContent = original;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    estado();
+  }
+</script>

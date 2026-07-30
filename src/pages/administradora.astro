@@ -2,6 +2,7 @@
 export const prerender = false;
 import Base from '../layouts/Base.astro';
 import InstalarApp from '../components/InstalarApp.astro';
+import ActivarAvisos from '../components/ActivarAvisos.astro';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
 import { sbSelect, supaConfigured, env } from '../lib/supabase';
 import { fmtCuit } from '../lib/cuit';
@@ -84,6 +85,7 @@ const appUrl = (env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app').replace
     <h1 style="margin-bottom:6px">Panel</h1>
 
     <InstalarApp app="admin" />
+    <ActivarAvisos />
 
     {!configured && <p class="card" style="margin-bottom:12px">🧪 <b>Modo demo</b> — datos de ejemplo. Conectá Supabase + la clave para el panel real.</p>}
 

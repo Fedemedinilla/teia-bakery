@@ -95,3 +95,42 @@ self.addEventListener('fetch', (evento) => {
 
   // Cualquier otra cosa: sin respondWith, la maneja el navegador como siempre.
 });
+
+// ---- Notificaciones de pedidos nuevos ----------------------------------------------------
+// Solo llegan si la administradora activo los avisos desde el panel. El servidor manda el aviso
+// firmado; aca se muestra. Sin permiso o sin suscripcion, nada de esto corre nunca.
+
+self.addEventListener('push', (evento) => {
+  let d = {};
+  try { d = evento.data ? evento.data.json() : {}; } catch { d = {}; }
+
+  // showNotification es OBLIGATORIO: el navegador exige que todo push se traduzca en algo
+  // visible. Si no, deja de mandar los siguientes.
+  evento.waitUntil(
+    self.registration.showNotification(d.titulo || 'Nuevo pedido', {
+      body: d.cuerpo || 'Entro un pedido nuevo.',
+      icon: '/icons/admin-192.png',
+      badge: '/icons/admin-192.png',
+      lang: 'es-AR',
+      // Un aviso por pedido: si se reenvia el mismo, reemplaza en vez de duplicar; pero dos
+      // pedidos distintos se ven por separado (que se pisen seria perder uno de vista).
+      tag: d.tag ? 'teia-' + d.tag : undefined,
+      data: { url: d.url || '/administradora#pedidos' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (evento) => {
+  evento.notification.close();
+  const destino = (evento.notification.data && evento.notification.data.url) || '/administradora#pedidos';
+
+  // Si el panel ya esta abierto se le da foco en vez de abrir otra ventana encima.
+  evento.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ventanas) => {
+      for (const v of ventanas) {
+        if (v.url.includes('/administradora') && 'focus' in v) return v.focus();
+      }
+      return self.clients.openWindow(destino);
+    })
+  );
+});

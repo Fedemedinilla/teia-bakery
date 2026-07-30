@@ -107,11 +107,25 @@ create table if not exists teia_categories (
   created_at  timestamptz not null default now()
 );
 
+-- Teléfonos suscriptos a los avisos de pedidos nuevos (notificaciones push del panel).
+-- Una fila por dispositivo que activó los avisos desde /administradora. El `endpoint` es la
+-- dirección que da el navegador (Apple o Google según el teléfono) y es único por dispositivo;
+-- las claves son las que permiten cifrarle el mensaje. Se borran solas cuando el servicio
+-- responde que la suscripción ya no existe (borró la app o revocó el permiso).
+create table if not exists teia_push_subs (
+  id          bigserial primary key,
+  endpoint    text not null unique,
+  p256dh      text not null,
+  auth        text not null,
+  created_at  timestamptz not null default now()
+);
+
 alter table teia_products    enable row level security;
 alter table teia_orders      enable row level security;
 alter table teia_order_items enable row level security;
 alter table teia_categories  enable row level security;
 alter table teia_clients     enable row level security;
+alter table teia_push_subs   enable row level security;
 
 -- Storage: bucket PÚBLICO para las fotos de producto (subida desde /administradora con la
 -- service_role key; lectura pública vía URL). Correr una vez.

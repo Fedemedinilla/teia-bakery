@@ -4,6 +4,7 @@ import { sbSelectStrict, sbInsert, sbPatch, sbDelete, supaConfigured, env } from
 import { readSession } from '../../lib/session';
 import { catalogOf } from '../../lib/catalogs';
 import { avisarPedidoNuevo } from '../../lib/aviso';
+import { avisarPushPedido } from '../../lib/push';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -125,8 +126,18 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     await sbPatch(`teia_orders?id=eq.${order.id}`, { order_number });
   }
 
-  // Aviso a Teia de que entró un pedido. El pedido YA está guardado: esto no puede
-  // voltearlo ni demorarlo (la función tiene su propio timeout y nunca lanza).
+  // Avisos a Teia de que entró un pedido: notificación al celular y mail. El pedido YA está
+  // guardado, así que nada de esto puede voltearlo ni demorarlo (cada función tiene su propio
+  // timeout y nunca lanza). Si falta configuración, simplemente no se manda.
+  const panelUrl = new URL('/administradora#pedidos', request.url).toString();
+
+  await avisarPushPedido({
+    order_number,
+    comercio: account.business_name || client_name,
+    total,
+    url: panelUrl,
+  });
+
   await avisarPedidoNuevo({
     order_number,
     comercio: account.business_name || client_name,
@@ -136,7 +147,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     notas,
     total,
     items: orderItems,
-    panelUrl: new URL('/administradora#pedidos', request.url).toString(),
+    panelUrl,
   });
 
   return json({ ok: true, order_number, total });
