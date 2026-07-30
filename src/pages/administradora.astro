@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 import Base from '../layouts/Base.astro';
+import InstalarApp from '../components/InstalarApp.astro';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
 import { sbSelect, supaConfigured, env } from '../lib/supabase';
 import { fmtCuit } from '../lib/cuit';
@@ -14,6 +15,11 @@ const configured = supaConfigured();
 if (!isTeiaAdmin(Astro.request) && env('TEIA_ADMIN_PASSWORD')) {
   return authChallenge();
 }
+
+// Esta página trae datos de TODOS los clientes (razones sociales, CUITs, precios de las dos
+// listas, pedidos). Que ningún caché intermedio ni el del navegador se quede una copia: sin esta
+// cabecera, el navegador puede guardarla por heurística y esa copia sobrevive al cierre de sesión.
+Astro.response.headers.set('Cache-Control', 'private, no-store');
 
 const products = configured ? await sbSelect('teia_products?order=sort_order.asc,name.asc&select=*') : DEMO_PRODUCTS;
 const orders = configured ? await sbSelect('teia_orders?order=created_at.desc&select=*&limit=200') : DEMO_ORDERS;
@@ -76,6 +82,8 @@ const appUrl = (env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app').replace
       <span>Administradora</span>
     </div>
     <h1 style="margin-bottom:6px">Panel</h1>
+
+    <InstalarApp app="admin" />
 
     {!configured && <p class="card" style="margin-bottom:12px">🧪 <b>Modo demo</b> — datos de ejemplo. Conectá Supabase + la clave para el panel real.</p>}
 

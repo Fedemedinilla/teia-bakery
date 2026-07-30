@@ -1,0 +1,80 @@
+---
+// Aviso para instalar la app en el celular.
+//
+// Existe porque instalar NO es descubrible por sí solo: en Android el navegador avisa cuando
+// quiere (y el cartel se pierde fácil), y en iPhone NO existe ningún aviso — Apple nunca lo
+// implementó, así que hay que ir a Compartir → "Agregar a inicio" a mano. Sin esta ayuda, nadie
+// que no sepa de antemano que la app se puede instalar la va a instalar.
+//
+// Se oculta solo si ya está instalada, y se puede cerrar (queda recordado).
+interface Props {
+  /** Cuál de las dos apps: cambia el ícono y el nombre que se menciona. */
+  app?: 'cliente' | 'admin';
+}
+const { app = 'cliente' } = Astro.props;
+const icono = app === 'admin' ? '/icons/admin-192.png' : '/icons/cliente-192.png';
+const nombre = app === 'admin' ? 'Teia Panel' : 'Teia';
+---
+<aside class="instalar" data-instalar data-nombre={nombre} hidden>
+  <img class="instalar__icono" src={icono} alt="" width="46" height="46" />
+  <div class="instalar__txt">
+    <p class="instalar__t">Tenela como app en tu celular</p>
+    <p class="instalar__d" data-instalar-desc></p>
+  </div>
+  <button class="btn instalar__btn" type="button" data-instalar-btn hidden>Instalar</button>
+  <button class="instalar__x" type="button" data-instalar-x aria-label="Ocultar este aviso">×</button>
+</aside>
+
+<script>
+  const caja = document.querySelector('[data-instalar]');
+  if (caja) {
+    const desc = caja.querySelector('[data-instalar-desc]');
+    const btn = caja.querySelector('[data-instalar-btn]');
+    const nombre = caja.dataset.nombre || 'Teia';
+    const CLAVE = 'teia_instalar_oculto';
+
+    // Ya está instalada: abierta desde el ícono, no hay nada que ofrecer.
+    const yaInstalada =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      ('standalone' in navigator && navigator.standalone === true);
+
+    let cerrado = false;
+    try { cerrado = localStorage.getItem(CLAVE) === '1'; } catch {}
+
+    const esIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+    caja.querySelector('[data-instalar-x]')?.addEventListener('click', () => {
+      caja.hidden = true;
+      try { localStorage.setItem(CLAVE, '1'); } catch {}
+    });
+
+    if (!yaInstalada && !cerrado) {
+      if (esIOS) {
+        // iPhone: no hay botón posible. Se explica el camino manual, y se avisa del error más
+        // común — abrir el link desde WhatsApp u otra app, donde esa opción no existe.
+        desc.textContent =
+          'Tocá Compartir (el cuadrado con la flecha hacia arriba) y elegí “Agregar a inicio”. ' +
+          'Si no ves esa opción, abrí esta página en Safari.';
+        caja.hidden = false;
+      }
+
+      // Android/Chrome: el navegador avisa cuando se puede instalar. Interceptamos ese aviso
+      // para ofrecerlo cuando la persona lo entienda, con un botón nuestro.
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        desc.textContent = 'Queda en tu pantalla de inicio como “' + nombre + '” y entrás con un toque.';
+        btn.hidden = false;
+        caja.hidden = false;
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          e.prompt();
+          const r = await e.userChoice.catch(() => null);
+          if (r && r.outcome === 'accepted') caja.hidden = true;
+          else btn.disabled = false;
+        }, { once: true });
+      });
+    }
+
+    window.addEventListener('appinstalled', () => { caja.hidden = true; });
+  }
+</script>

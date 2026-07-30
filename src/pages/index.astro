@@ -8,6 +8,11 @@ import { codeRequired } from '../lib/accesscode';
 // Si ya tiene sesión válida, derecho al catálogo (no volver a pedir nada cada vez).
 if (readSession(Astro.cookies.get('teia_sess')?.value)) return Astro.redirect('/catalogo');
 
+// La respuesta de la puerta depende de la cookie (con sesión redirige, sin sesión muestra el
+// formulario), y además es el start_url de la app instalada: es la URL que más se va a abrir.
+// Una copia cacheada después de un "Salir" mostraría el estado equivocado.
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
 // El 2º factor se muestra solo si está encendido (env TEIA_REQUIRE_CODE=true).
 const pideCodigo = codeRequired();
 

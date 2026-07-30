@@ -7,28 +7,30 @@
 // de cuenta, o (c) dejar ver el panel sin la clave. Por eso el HTML NUNCA se guarda: siempre va a
 // la red, y si no hay red se muestra una pagina generica de cortesia, sin datos.
 //
-// Solo se cachean archivos estaticos: /_astro/ (llevan hash de contenido en el nombre, asi que es
-// imposible que queden viejos), los iconos y el logo.
+// ⚠️ EL PANEL NO SE TOCA. Las navegaciones a /administradora pasan derecho al navegador, sin
+// pasar por aca. Motivo: el panel usa autenticacion HTTP Basic, y un 401 que llega por un fetch()
+// hecho DESDE el service worker no dispara el cartel de usuario/contrasena (para el navegador esa
+// request no tiene ventana asociada, asi que no pregunta y muestra el 401 pelado). Si Mica
+// perdiera las credenciales guardadas, se quedaria mirando "Autenticacion requerida" sin manera
+// de entrar. Dejandolo pasar, el cartel aparece siempre como corresponde.
 //
-// 🔧 MANTENIMIENTO: los iconos y el logo NO llevan hash, asi que si alguna vez se cambia una de
-// esas imagenes SIN cambiarle el nombre, hay que subir el numero de VERSION de aca abajo. Al
-// activarse, el worker borra todo cache que no coincida con VERSION y se rebajan las nuevas.
+// Lo UNICO que se cachea es /_astro/ : esos archivos llevan un hash de contenido en el nombre, o
+// sea que al cambiar cambian de nombre. Es imposible que queden viejos.
 //
-// Actualizaciones: como el HTML siempre sale de la red, un deploy nuevo se ve en la proxima
-// apertura. skipWaiting + clients.claim hacen que la version nueva tome el control enseguida,
-// sin que nadie tenga que "actualizar" nada a mano.
+// 🔧 MANTENIMIENTO: no hay que acordarse de nada al cambiar un icono, el logo o una foto — esas
+// cosas ya no se cachean. El unico motivo para subir VERSION es editar offline.html (y aun asi,
+// quedarse con la version vieja de una pagina que solo dice "sin conexion" no rompe nada).
 
-const VERSION = 'teia-v1';
+const VERSION = 'teia-v2';
 const CACHE = VERSION;
 const OFFLINE = '/offline.html';
-
-// Lo minimo para poder responder sin red. Nada de esto es privado.
-const PRECARGA = [OFFLINE, '/icons/cliente-192.png', '/icons/admin-192.png'];
 
 self.addEventListener('install', (evento) => {
   evento.waitUntil(
     caches.open(CACHE)
-      .then((c) => c.addAll(PRECARGA))
+      // cache: 'reload' fuerza bajarla de la red: sin esto se podria instalar una copia vieja
+      // que el navegador tuviera guardada en su propio cache HTTP.
+      .then((c) => c.add(new Request(OFFLINE, { cache: 'reload' })))
       .then(() => self.skipWaiting())
   );
 });
@@ -41,9 +43,6 @@ self.addEventListener('activate', (evento) => {
   );
 });
 
-// Rutas de archivos estaticos seguros de cachear (todos con nombre versionado o inmutables).
-const ESTATICO = /^\/(_astro|icons|img)\//;
-
 self.addEventListener('fetch', (evento) => {
   const req = evento.request;
 
@@ -55,6 +54,9 @@ self.addEventListener('fetch', (evento) => {
 
   // Otro origen (fuentes de Google, fotos en Supabase): pasa derecho, no lo administramos.
   if (url.origin !== self.location.origin) return;
+
+  // El panel: fuera del service worker por completo (ver la nota de arriba sobre el 401).
+  if (url.pathname === '/administradora' || url.pathname.startsWith('/administradora/')) return;
 
   // La API nunca se cachea: son datos vivos y privados.
   if (url.pathname.startsWith('/api/')) return;
@@ -74,15 +76,16 @@ self.addEventListener('fetch', (evento) => {
     return;
   }
 
-  // Estaticos: primero el cache (rapido y sirve offline), y si no esta se baja y se guarda.
-  if (ESTATICO.test(url.pathname) || url.pathname === '/logo-teia.png') {
+  // Archivos con hash en el nombre: primero el cache (rapido y sirve offline), si no se baja.
+  if (url.pathname.startsWith('/_astro/')) {
     evento.respondWith(
       caches.match(req).then((guardado) =>
         guardado ||
         fetch(req).then((res) => {
-          if (res && res.status === 200) {
+          // 'basic' = misma procedencia y respuesta completa; no guardamos opacas ni parciales.
+          if (res && res.status === 200 && res.type === 'basic') {
             const copia = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copia));
+            evento.waitUntil(caches.open(CACHE).then((c) => c.put(req, copia)));
           }
           return res;
         })

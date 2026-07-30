@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 import Base from '../layouts/Base.astro';
+import InstalarApp from '../components/InstalarApp.astro';
 import { sbSelect, supaConfigured, env } from '../lib/supabase';
 import { readSession, clearSessionCookie, setSessionCookie } from '../lib/session';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
@@ -104,6 +105,8 @@ const sections = [...groups.keys()]
     <main class="catalog">
       <h1 class="title">Nuestro catálogo</h1>
       <p class="subtitle">Tocá “Agregar” para sumar al pedido. Mirá cada producto tocando la foto.</p>
+
+      <InstalarApp app="cliente" />
 
       {!configured && <p class="demo-banner">🧪 <b>Modo demo</b> — productos de ejemplo. Conectá Supabase para usar los reales.</p>}
 

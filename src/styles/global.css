@@ -528,3 +528,30 @@ html.lenis, html.lenis body { height: auto; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ============================================================================
+   Aviso para instalar la app en el celular (PWA). Discreto: es una sugerencia,
+   no un obstáculo — se puede cerrar y no vuelve.
+   ============================================================================ */
+.instalar {
+  position: relative;
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--r-lg); padding: 12px 34px 12px 14px; margin: 0 0 18px;
+}
+.instalar__icono { border-radius: 10px; flex: none; }
+.instalar__txt { flex: 1; min-width: 0; }
+.instalar__t { margin: 0 0 2px; font-size: 14px; font-weight: 600; }
+.instalar__d { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+.instalar__btn { flex: none; }
+.instalar__x {
+  position: absolute; top: 6px; right: 8px;
+  padding: 4px; border: 0; background: none; cursor: pointer;
+  font-size: 19px; line-height: 1; color: var(--ink-3);
+}
+.instalar__x:hover { color: var(--ink); }
+
+@media (max-width: 560px) {
+  .instalar { flex-wrap: wrap; }
+  .instalar__btn { width: 100%; }
+}
