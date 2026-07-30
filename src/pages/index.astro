@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 import Base from '../layouts/Base.astro';
+import InstalarApp from '../components/InstalarApp.astro';
 import { env } from '../lib/supabase';
 import { readSession } from '../lib/session';
 import { codeRequired } from '../lib/accesscode';
@@ -61,6 +62,11 @@ const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(waTexto)}`;
         {pideCodigo ? '¿Perdiste el código o todavía no pedís por mayor? ' : '¿Todavía no pedís por mayor? '}
         <a href={waLink} target="_blank" rel="noopener">Escribinos por WhatsApp</a>
       </p>
+
+      {/* La puerta es el start_url de la app y donde cae todo el mundo: es EL lugar donde tiene
+          que estar el aviso de instalación. Conviene instalar ANTES de entrar, porque la app
+          instalada guarda su sesión aparte del navegador. */}
+      <InstalarApp app="cliente" />
     </div>
   </main>
 

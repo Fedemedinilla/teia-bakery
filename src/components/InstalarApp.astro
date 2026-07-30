@@ -41,7 +41,10 @@ const nombre = app === 'admin' ? 'Teia Panel' : 'Teia';
     let cerrado = false;
     try { cerrado = localStorage.getItem(CLAVE) === '1'; } catch {}
 
-    const esIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    // El iPad moderno se declara "Macintosh": se lo reconoce porque además tiene pantalla táctil.
+    const esIOS =
+      /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+      (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 
     caja.querySelector('[data-instalar-x]')?.addEventListener('click', () => {
       caja.hidden = true;
