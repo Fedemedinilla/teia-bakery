@@ -2,8 +2,18 @@
 import '../styles/global.css';
 interface Props {
   title?: string;
+  /** Cuál de las dos apps instalables es esta página: la tienda del cliente o el panel. */
+  app?: 'cliente' | 'admin';
 }
-const { title = 'Teia Bakery — Mayorista' } = Astro.props;
+const { title = 'Teia Bakery — Mayorista', app = 'cliente' } = Astro.props;
+
+// La app se puede INSTALAR en el celular (PWA). Son DOS apps distintas sobre el mismo sitio, cada
+// una con su manifest, su ícono y su nombre, para que en la pantalla de inicio se distingan:
+//   · cliente → la tienda (ícono crema, "Teia")        · admin → el panel (ícono oscuro, "Teia Panel")
+const esAdmin = app === 'admin';
+const manifest = esAdmin ? '/manifest-admin.webmanifest' : '/manifest-cliente.webmanifest';
+const iconoApple = esAdmin ? '/icons/admin-apple-180.png' : '/icons/cliente-apple-180.png';
+const tituloApp = esAdmin ? 'Teia Panel' : 'Teia';
 ---
 <!doctype html>
 <html lang="es">
@@ -12,12 +22,34 @@ const { title = 'Teia Bakery — Mayorista' } = Astro.props;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="robots" content="noindex" />
+
+    {/* --- instalable en el celular (PWA) --- */}
+    <link rel="manifest" href={manifest} />
+    <meta name="theme-color" content="#F4ECDE" />
+    <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" type="image/png" />
+    {/* iOS no lee el manifest para "Agregar a inicio": usa estas cuatro etiquetas. */}
+    <link rel="apple-touch-icon" href={iconoApple} />
+    <meta name="apple-mobile-web-app-title" content={tituloApp} />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..600&family=Inter:wght@400..700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <slot />
+    <script>
+      // Registra el service worker: es lo que vuelve instalable a la app y lo que la mantiene al
+      // día sola (el HTML siempre sale de la red, así que un deploy nuevo se ve en la próxima
+      // apertura). Va como script de Astro —nunca inline— para no violar la CSP estricta.
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
     <script>
       import Lenis from 'lenis';
       // Smooth scroll (igual que kyndredai.com). Respeta prefers-reduced-motion y no toca el
