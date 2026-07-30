@@ -10,6 +10,64 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
 
 ---
 
+## 🎯 QUÉ FALTA — foto al cierre del 2026-07-30 (auditoría de 4 lentes + refutación)
+*Criterio de prioridad de Federico: **la app de CLIENTES no puede tener bugs** (la usan ~35
+comercios con navegadores desconocidos); el panel lo usa una sola persona.*
+
+**El bloqueante REAL de toda la app no es código: es que Mica dé de alta los CUITs.** El gate es
+cerrado — sin cuenta no entra nadie. Hasta que no cargue los ~30 comercios (y elija la lista de
+cada uno), la app existe pero no la usa ningún cliente.
+
+### 🔴 De Federico — antes o durante la entrega
+1. **Decidir el dominio definitivo ANTES de que alguien instale.** El `id`/`start_url` de los dos
+   manifests son relativos al origen, y los PDF de `teia/instalacion/` llevan el QR a
+   `teia-bakery.vercel.app`. Si Mica instala desde Vercel y después se levanta
+   `app.teiabakery.com.ar`, hay que **reinstalar las dos apps y regenerar los QR**. O se levanta el
+   subdominio antes, o se asume Vercel como origen definitivo. Lo que no sirve es no decidir.
+2. **Verificar `TEIA_WHATSAPP` en Vercel** (2 min). `index.astro` tiene un default hardcodeado: si
+   la env no está, los pedidos de alta de comercios rechazados **te llegan a vos, no a Teia**.
+3. **Resend**: `RESEND_API_KEY` + `TEIA_ALERT_EMAIL` + redeploy, con el remitente verificado.
+   `GET /api/admin/push` ahora te dice si quedó bien (incluido el caso de mail mal escrito).
+4. **Dejar el panel limpio** antes de la demo: borrar TEIA-0009, el pedido de prueba y las cuentas
+   de test. Lo primero que ve Mica no puede ser basura de pruebas.
+5. **Definir el orden**: ¿migrar a SU Supabase antes o después de que cargue el catálogo? Si carga
+   productos y fotos en DEMOS y después se migra, hay que mover filas **y** objetos de Storage.
+6. Confirmar que `TEIA_SESSION_SECRET` ya tomó efecto (hubo muchos deploys hoy; casi seguro sí).
+
+### 🟠 De Mica
+- **Los CUITs de los comercios** (+ los locales de Chungo) ← *el bloqueante real*
+- **El catálogo real**: productos, packs, precios, fotos
+- **La clave del panel** (la elige ella en la llamada)
+- **Instalar las dos apps y tocar Activar** en los avisos (nadie puede darlo por ella)
+- *Post-entrega:* la tipografía de Teia (el archivo nunca apareció) · las capturas de su resumen
+  por cliente (bloquean el Bloque 4)
+
+### 🔵 De código — post-entrega, en orden
+1. **Sin idempotencia en `/api/order`**: si el fetch falla DESPUÉS de guardar, reenviar duplica el
+   pedido. Hoy lo tapa que Mica revisa uno por uno.
+2. **La puerta no funciona si el submit gana la carrera al JS** (3G en un local): el POST nativo es
+   form-encoded y `/api/entrar` solo parsea JSON — además el `checkOrigin` de Astro rechaza los
+   POST de formulario detrás del proxy. Se arregla volviendo atrás; el fix real toca `checkOrigin`.
+3. **Probar en un Android viejo y un iPhone viejo.** Nunca se probó fuera de los equipos de
+   Federico y el bundle sale con el target moderno de Vite. Media hora con dos teléfonos prestados
+   vale más que cualquier auditoría de código.
+4. **Migrar a Astro 7** (cierra los CVEs altos, hoy no explotables) · **Pack 3** de pulido (casi
+   todo del panel) · **PDFs huérfanos** en Storage al borrar un pedido · sacar la variante muerta
+   `'interno'` de `remito.ts`.
+5. **Sincronizar** las instrucciones de instalación: viven en `/instalar` **y** en los PDF de
+   `teia/instalacion/`. Si cambia el dominio o el flujo, hay que tocar los dos.
+6. **Bloque 4** (resumen por cliente en Drive) y **Fase 2** (resumen semanal con IA, estados
+   entregado/anulado, avisos de poco stock, auto-edición del cliente hasta 24 h antes).
+
+### ✅ Cerrado en esta sesión (2026-07-30)
+Botón "Copiar a Chungo" · runbooks DAT-08 y DAT-12 (**+2 al certificado**) · mensaje de
+credenciales · "Generar" ya no borra la ficha · **PWA instalable** (2 apps + asistente + página
+`/instalar`) · **avisos push** configurados y probados con un pedido real · y de la auditoría:
+**un blip de Supabase ya no destruye la sesión del comercio**, anclas de rubro con número, avisos
+en paralelo, botón de instalar que quedaba muerto, README reescrito, CSS muerto y basura fuera.
+
+---
+
 ## ✅ Hecho (el grueso de la app)
 - **/catalogo** — fusión "anti-Tiendanube": carta por rubros + "Agregar"→stepper + panel de pedido en vivo
   (medidor de mínimo) + modal de detalle de producto + recompra ~~por WhatsApp~~ → **por cuenta CUIT**
