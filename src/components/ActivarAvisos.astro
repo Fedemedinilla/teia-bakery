@@ -18,6 +18,7 @@ const clave = vapidPublicKey();
       <p class="avisos__t">Avisos de pedidos nuevos</p>
       <p class="avisos__d" data-avisos-desc></p>
     </div>
+    <button class="btn btn--ghost avisos__btn" type="button" data-avisos-probar hidden>Probar</button>
     <button class="btn btn--ghost avisos__btn" type="button" data-avisos-btn hidden></button>
   </div>
 )}
@@ -45,9 +46,12 @@ const clave = vapidPublicKey();
       return Uint8Array.from([...bin].map((c) => c.charCodeAt(0)));
     };
 
-    const mostrar = (texto, accion) => {
+    const probar = caja.querySelector('[data-avisos-probar]');
+
+    const mostrar = (texto, accion, conPrueba) => {
       desc.textContent = texto;
       if (accion) { btn.textContent = accion; btn.hidden = false; } else { btn.hidden = true; }
+      probar.hidden = !conPrueba;
       caja.hidden = false;
     };
 
@@ -66,9 +70,40 @@ const clave = vapidPublicKey();
 
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = reg ? await reg.pushManager.getSubscription() : null;
-      if (sub) mostrar('Activados en este teléfono. Te avisamos cuando entre un pedido.', 'Desactivar');
-      else mostrar('Recibí una notificación en este teléfono cuando entre un pedido.', 'Activar');
+      if (sub) mostrar('Activados en este teléfono. Te avisamos cuando entre un pedido.', 'Desactivar', true);
+      else mostrar('Recibí una notificación en este teléfono cuando entre un pedido.', 'Activar', false);
     };
+
+    // Manda un aviso de prueba a los teléfonos suscriptos, para comprobar que llega de verdad
+    // sin tener que inventar un pedido.
+    probar.addEventListener('click', async () => {
+      probar.disabled = true;
+      probar.textContent = 'Enviando…';
+      try {
+        const r = await fetch('/api/admin/push', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'prueba' }),
+        });
+        const o = await r.json().catch(() => ({}));
+        if (r.ok && o.entregados > 0) {
+          probar.textContent = '✓ Enviado';
+          desc.textContent = 'Aviso de prueba enviado a ' + o.entregados +
+            (o.entregados === 1 ? ' teléfono.' : ' teléfonos.') + ' Debería aparecer en unos segundos.';
+        } else if (r.ok) {
+          desc.textContent = 'No se pudo entregar en ningún teléfono. Probá desactivar y volver a activar.';
+          probar.textContent = 'Probar';
+        } else {
+          desc.textContent = (o && o.error) || 'No se pudo enviar la prueba.';
+          probar.textContent = 'Probar';
+        }
+      } catch {
+        desc.textContent = 'No se pudo conectar para enviar la prueba.';
+        probar.textContent = 'Probar';
+      } finally {
+        probar.disabled = false;
+        setTimeout(() => { if (probar.textContent === '✓ Enviado') probar.textContent = 'Probar'; }, 4000);
+      }
+    });
 
     btn.addEventListener('click', async () => {
       const original = btn.textContent;

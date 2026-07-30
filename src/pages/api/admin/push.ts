@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbInsert, sbDelete, sbSelectStrict, supaConfigured, env } from '../../../lib/supabase';
+import { probarPush } from '../../../lib/push';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -61,7 +62,10 @@ export const GET: APIRoute = async ({ request }) => {
     base: { tabla_existe: tabla, telefonos_suscriptos: suscripciones },
     falta: [
       !pub || !priv ? 'cargar las dos env vars TEIA_VAPID_* en Vercel y redeployar' : null,
-      pub && priv && !parCoincide ? 'las dos claves NO son del mismo par: regenerar con npm run vapid y pegar AMBAS' : null,
+      pub && !pubFormato ? 'la clave pública no tiene el formato esperado: regenerar con npm run vapid' : null,
+      pub && priv && pubFormato && !parCoincide ? 'las dos claves NO son del mismo par: regenerar con npm run vapid y pegar AMBAS' : null,
+      // null (y no false) = Supabase no está configurado: sin base no hay dónde guardar los teléfonos.
+      tabla === null ? 'configurar Supabase (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)' : null,
       tabla === false ? 'correr el SQL de teia_push_subs en Supabase' : null,
       listo && suscripciones === 0 ? 'que la administradora toque "Activar" desde la app instalada' : null,
     ].filter(Boolean),
@@ -77,6 +81,13 @@ export const POST: APIRoute = async ({ request }) => {
 
   let b: any;
   try { b = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
+
+  // Aviso de prueba a los teléfonos ya suscriptos: sirve para verificar que todo funciona sin
+  // tener que crear un pedido falso (que quedaría en el panel, en la planilla y en Drive).
+  if (b?.action === 'prueba') {
+    const r = await probarPush();
+    return json({ ok: true, ...r });
+  }
 
   const endpoint = String(b?.endpoint || '').trim();
   // El endpoint lo emite el navegador y siempre es https (Apple o Google según el teléfono).

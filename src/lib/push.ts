@@ -50,45 +50,73 @@ export type AvisoPush = {
  * y esto no hace nada — a propósito: una feature apagada no puede tener requisitos de esquema
  * encendidos, que es justo lo que una vez dejó a todos sin poder entrar.
  */
+async function enviarATodos(cuerpo: string): Promise<{ entregados: number; total: number }> {
+  if (!pushConfigured()) return { entregados: 0, total: 0 };
+
+  const subs = await sbSelect<any>('teia_push_subs?select=id,endpoint,p256dh,auth');
+  if (!subs.length) return { entregados: 0, total: 0 };
+
+  configurar();
+  let entregados = 0;
+
+  await Promise.all(
+    subs.map(async (s: any) => {
+      try {
+        await Promise.race([
+          webpush.sendNotification(
+            { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+            cuerpo,
+            { TTL: 3600 } // si el teléfono está apagado, el aviso espera hasta 1 hora
+          ),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), TIMEOUT_MS)),
+        ]);
+        entregados++;
+      } catch (e: any) {
+        // 404/410 = la suscripción murió (borró la app, reinstaló, revocó el permiso).
+        // Se limpia sola para no reintentar contra un teléfono que ya no existe.
+        const code = e?.statusCode;
+        if (code === 404 || code === 410) {
+          await sbDelete(`teia_push_subs?id=eq.${Number(s.id)}`).catch(() => {});
+        }
+      }
+    })
+  );
+
+  return { entregados, total: subs.length };
+}
+
 export async function avisarPushPedido(d: AvisoPush): Promise<void> {
   try {
-    if (!pushConfigured()) return;
-
-    const subs = await sbSelect<any>('teia_push_subs?select=id,endpoint,p256dh,auth');
-    if (!subs.length) return;
-
-    configurar();
-
     const monto = '$' + Number(d.total || 0).toLocaleString('es-AR');
-    const cuerpo = JSON.stringify({
-      titulo: `Nuevo pedido — ${d.order_number}`,
-      cuerpo: `${d.comercio} · ${monto}`,
-      url: d.url,
-      tag: d.order_number, // un aviso por pedido: reenviar el mismo reemplaza, no duplica
-    });
-
-    await Promise.all(
-      subs.map(async (s: any) => {
-        try {
-          await Promise.race([
-            webpush.sendNotification(
-              { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-              cuerpo,
-              { TTL: 3600 } // si el teléfono está apagado, el aviso espera hasta 1 hora
-            ),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), TIMEOUT_MS)),
-          ]);
-        } catch (e: any) {
-          // 404/410 = la suscripción murió (borró la app, reinstaló, revocó el permiso).
-          // Se limpia sola para no reintentar contra un teléfono que ya no existe.
-          const code = e?.statusCode;
-          if (code === 404 || code === 410) {
-            await sbDelete(`teia_push_subs?id=eq.${Number(s.id)}`).catch(() => {});
-          }
-        }
+    await enviarATodos(
+      JSON.stringify({
+        titulo: `Nuevo pedido — ${d.order_number}`,
+        cuerpo: `${d.comercio} · ${monto}`,
+        url: d.url,
+        tag: d.order_number, // un aviso por pedido: reenviar el mismo reemplaza, no duplica
       })
     );
   } catch {
     // El pedido del cliente es sagrado: pase lo que pase acá, ya está guardado.
+  }
+}
+
+/**
+ * Aviso de prueba, disparado a mano desde el panel. A diferencia del de un pedido, acá SÍ
+ * interesa el resultado: quien aprieta el botón quiere saber si llegó o no. Devuelve cuántos
+ * teléfonos lo recibieron para poder decirlo en pantalla.
+ */
+export async function probarPush(): Promise<{ entregados: number; total: number }> {
+  try {
+    return await enviarATodos(
+      JSON.stringify({
+        titulo: 'Prueba de aviso',
+        cuerpo: 'Si ves esto, los avisos de pedidos funcionan en este teléfono.',
+        url: '/administradora#pedidos',
+        tag: 'prueba',
+      })
+    );
+  } catch {
+    return { entregados: 0, total: 0 };
   }
 }
