@@ -55,6 +55,21 @@ const clave = vapidPublicKey();
       caja.hidden = false;
     };
 
+    // Traduce el fallo real a algo accionable. Un "no se pudo" a secas no deja diagnosticar nada.
+    const explicar = (e) => {
+      const n = (e && e.name) || '';
+      const m = (e && e.message) || String(e);
+      if (n === 'NotAllowedError')
+        return 'El navegador bloqueó los avisos para este sitio. Habilitalos en el candado de la barra de direcciones y probá de nuevo.';
+      if (n === 'AbortError' || /push service|registration failed/i.test(m))
+        return 'El navegador no pudo conectarse al servicio de notificaciones. Suele pasar con VPN, bloqueadores de anuncios o redes que filtran tráfico de Google. Probá desactivándolos, o usá Chrome o Edge.';
+      if (n === 'InvalidStateError')
+        return 'Había una suscripción vieja con otra clave. Recargá la página y probá de nuevo.';
+      if (n === 'NotSupportedError')
+        return 'Este navegador no soporta avisos.';
+      return 'No se pudieron activar. Motivo: ' + (n ? n + ' — ' : '') + m;
+    };
+
     const estado = async () => {
       if (!soporta || !clave) return; // navegador viejo: no se muestra nada
 
@@ -64,14 +79,14 @@ const clave = vapidPublicKey();
         return;
       }
       if (Notification.permission === 'denied') {
-        mostrar('Los avisos están bloqueados en este teléfono. Se habilitan desde los ajustes del navegador.', null);
+        mostrar('Los avisos están bloqueados en este dispositivo. Se habilitan desde los ajustes del navegador.', null);
         return;
       }
 
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = reg ? await reg.pushManager.getSubscription() : null;
-      if (sub) mostrar('Activados en este teléfono. Te avisamos cuando entre un pedido.', 'Desactivar', true);
-      else mostrar('Recibí una notificación en este teléfono cuando entre un pedido.', 'Activar', false);
+      if (sub) mostrar('Activados en este dispositivo. Te avisamos cuando entre un pedido.', 'Desactivar', true);
+      else mostrar('Recibí una notificación en este dispositivo (celular o computadora) cuando entre un pedido.', 'Activar', false);
     };
 
     // Manda un aviso de prueba a los teléfonos suscriptos, para comprobar que llega de verdad
@@ -88,9 +103,9 @@ const clave = vapidPublicKey();
         if (r.ok && o.entregados > 0) {
           probar.textContent = '✓ Enviado';
           desc.textContent = 'Aviso de prueba enviado a ' + o.entregados +
-            (o.entregados === 1 ? ' teléfono.' : ' teléfonos.') + ' Debería aparecer en unos segundos.';
+            (o.entregados === 1 ? ' dispositivo.' : ' dispositivos.') + ' Debería aparecer en unos segundos.';
         } else if (r.ok) {
-          desc.textContent = 'No se pudo entregar en ningún teléfono. Probá desactivar y volver a activar.';
+          desc.textContent = 'No se pudo entregar en ningún dispositivo. Probá desactivar y volver a activar.';
           probar.textContent = 'Probar';
         } else {
           desc.textContent = (o && o.error) || 'No se pudo enviar la prueba.';
@@ -126,10 +141,22 @@ const clave = vapidPublicKey();
         const permiso = await Notification.requestPermission();
         if (permiso !== 'granted') { await estado(); return; }
 
-        const sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: aBytes(clave),
-        });
+        const opciones = { userVisibleOnly: true, applicationServerKey: aBytes(clave) };
+        let sub;
+        try {
+          sub = await reg.pushManager.subscribe(opciones);
+        } catch (e) {
+          // Suscripción vieja hecha con OTRA clave (por ejemplo si se rotaron las VAPID): el
+          // navegador se niega a crear una nueva hasta que se descarte la anterior.
+          if (e && e.name === 'InvalidStateError') {
+            const vieja = await reg.pushManager.getSubscription();
+            if (vieja) await vieja.unsubscribe().catch(() => {});
+            sub = await reg.pushManager.subscribe(opciones);
+          } else {
+            throw e;
+          }
+        }
+
         const j = sub.toJSON();
         const r = await fetch('/api/admin/push', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -137,12 +164,18 @@ const clave = vapidPublicKey();
         });
         if (!r.ok) {
           const o = await r.json().catch(() => ({}));
-          await sub.unsubscribe().catch(() => {}); // no dejar el teléfono suscripto si el server no lo guardó
-          alert((o && o.error) || 'No se pudieron activar los avisos.');
+          await sub.unsubscribe().catch(() => {}); // no dejarlo suscripto si el server no lo guardó
+          await estado();
+          desc.textContent = (o && o.error) || 'No se pudieron activar los avisos.';
+          btn.textContent = original;
+          return;
         }
         await estado();
       } catch (e) {
-        alert('No se pudieron activar los avisos en este teléfono.');
+        // El motivo va A LA VISTA, no en un cartel que se cierra: sin la causa no hay forma de
+        // arreglar nada. El texto se puede seleccionar y copiar.
+        await estado().catch(() => {});
+        desc.textContent = explicar(e);
         btn.textContent = original;
       } finally {
         btn.disabled = false;
