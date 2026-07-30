@@ -118,11 +118,14 @@ Cada uno cerrado sube el número del certificado de seguridad del kit de entrega
 - **FRT-10** — la puerta ya no guarda el CUIT en localStorage (lo maneja el llavero del navegador
   vía `autocomplete="username"`).
 
-**⚠️ De Federico para cerrar DAT-02 e IDN-01 del todo:**
-- **SQL en prod** (idempotente, en `supabase/schema.sql`): `update storage.buckets set public=false
-  where id='teia-remitos';` — sin esto el bucket sigue público y las URLs públicas viejas resuelven.
-- **Env nueva en Vercel**: `TEIA_SESSION_SECRET` (string largo al azar) + redeploy. Al cargarla, las
-  sesiones vivas piden re-login una vez (esperado).
+**DAT-02 CERRADO Y VERIFICADO EN PROD (2026-07-28):** Federico corrió el `update ... set
+public=false`; la URL pública de remitos ahora da `Bucket not found / NoSuchBucket` (privado),
+el de fotos sigue público (`NoSuchKey`) y el proxy 401 sin clave. Bucket cerrado.
+
+**⚠️ IDN-01 — falta el REDEPLOY:** Federico agregó la env `TEIA_SESSION_SECRET` en Vercel, pero
+una env nueva no toma efecto hasta un redeploy. Hasta entonces la firma sigue cayendo a la
+service key (por el fallback — nada se rompe). Un Redeploy en Vercel la activa. Al activarse, las
+sesiones vivas piden re-login una vez (hoy cero impacto: no hay clientes reales).
 
 **Quedan de la lista de 10 (no cerrados hoy):** DAT-08/DAT-12 (runbooks, prosa — próximos),
 DEP-12 (repo privado, decisión de Federico), INF-12 (DMARC en teiabakery.com.ar, DNS de Federico),
