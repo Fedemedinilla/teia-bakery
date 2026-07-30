@@ -56,9 +56,13 @@ const catNames = (categories as any[]).map((c) => c.name);
 const requireCode = codeRequired();
 const sinCodigo = (clients as any[]).filter((c) => !c.access_code).length;
 
+// URL pública de la app para el mensaje de bienvenida al cliente. Sale de la env, así que
+// tras el handoff a un dominio propio el link del mensaje apunta solo al dominio nuevo.
+const appUrl = (env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app').replace(/\/+$/, '');
+
 ---
 <Base title="Administradora — Teia Bakery">
-  <div class="container admin-wrap">
+  <div class="container admin-wrap" data-app-url={appUrl}>
     <div class="brand brand--fila">
       <img class="brand__logo" src="/logo-teia.png" alt="Teia Bakery" width="2432" height="273" />
       <span>Administradora</span>
@@ -770,7 +774,10 @@ const sinCodigo = (clients as any[]).filter((c) => !c.access_code).length;
         body.hidden = !body.hidden;
         toggle.textContent = body.hidden ? 'Ver cuenta ▾' : 'Cerrar ▴';
       });
-      // Generar un código nuevo para esta cuenta (se guarda al instante y queda a la vista).
+      // Generar un código nuevo para esta cuenta (se guarda al instante en la base y queda a la
+      // vista). NO se recarga la página: si lo hiciéramos, se cerraría la ficha y se perdería lo
+      // que Mica venía cargando en los campos. El código aparece en su campo y el botón de
+      // WhatsApp lo lee de ahí, así que no hace falta refrescar nada.
       card.querySelector('.gen-code')?.addEventListener('click', async () => {
         const b = card.querySelector('.gen-code');
         if (card.querySelector('.cf-code').value.trim() &&
@@ -782,9 +789,9 @@ const sinCodigo = (clients as any[]).filter((c) => !c.access_code).length;
         });
         const o = await r.json().catch(() => ({}));
         if (r.ok && o.access_code) {
-          card.querySelector('.cf-code').value = o.access_code;
-          b.textContent = '✓ Listo';
-          setTimeout(() => location.reload(), 900); // recarga para refrescar el link de WhatsApp
+          card.querySelector('.cf-code').value = o.access_code; // queda a la vista, sin recargar
+          b.textContent = '✓ Generada';
+          setTimeout(() => { b.textContent = '🔄 Generar'; b.disabled = false; }, 1600);
         } else { alert((o && o.error) || 'No se pudo generar el código.'); b.textContent = '🔄 Generar'; b.disabled = false; }
       });
 
@@ -795,14 +802,18 @@ const sinCodigo = (clients as any[]).filter((c) => !c.access_code).length;
         const v = (sel) => (card.querySelector(sel)?.value || '').trim();
         const codigo = v('.cf-code');
         if (!codigo) { alert('Primero generá la contraseña con el botón "Generar" — la cuenta no está lista hasta tenerla.'); return; }
+        const appUrl = document.querySelector('.admin-wrap')?.dataset.appUrl || 'https://teia-bakery.vercel.app';
         const texto =
+          '¡Hola! 👋 Te damos la bienvenida a Teia mayorista 🧁\n\n' +
           'Estas son tus credenciales para acceder:\n\n' +
-          '* CUIT: ' + v('.cf-cuit') + '\n' +
-          '* Password: ' + codigo + '\n\n' +
+          '🔑 CUIT: ' + v('.cf-cuit') + '\n' +
+          '🔒 Contraseña: ' + codigo + '\n\n' +
           'Estos son los datos de tu comercio:\n\n' +
-          '* Nombre: ' + v('.cf-name') + '\n' +
-          '* Contacto: ' + v('.cf-contact') + '\n' +
-          '* Direccion: ' + v('.cf-addr');
+          '🏪 Nombre: ' + v('.cf-name') + '\n' +
+          '📞 Contacto: ' + v('.cf-contact') + '\n' +
+          '📍 Dirección: ' + v('.cf-addr') + '\n\n' +
+          '📝 Nota: para entrar, abrí la plataforma de Teia acá 👉 ' + appUrl + '\n' +
+          'Ingresás con tu CUIT y la contraseña, y ya ves tu catálogo con precios para hacer el pedido. Cualquier duda, respondé este mismo mensaje. 💛';
         const ok = document.createElement('textarea'); // fallback si clipboard falla (http, permisos)
         const marcarCopiado = () => {
           const msg = card.querySelector('.wa-copied');
