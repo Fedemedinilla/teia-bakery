@@ -39,11 +39,19 @@ for (const o of orderRows) { if (o.client_id) (ordersByClient[o.client_id] ||= [
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 
 // Stock flags precomputed (Astro can't mix `<=` with adjacent JSX).
-const productRows = (products as any[]).map((p) => ({
-  ...p,
-  isOut: Number(p.stock) <= 0,
-  isLow: Number(p.stock) > 0 && Number(p.stock) <= Number(p.low_stock_threshold),
-}));
+// otherCatalog/otherLabel: el catálogo "de enfrente", para el botón "Copiar a …" (clonar un
+// producto al otro catálogo cambiándole solo el precio, sin recargarlo a mano).
+const productRows = (products as any[]).map((p) => {
+  const cat = catalogOf(p.catalog);
+  const other = CATALOGS.find((k) => k.slug !== cat) || CATALOGS[0];
+  return {
+    ...p,
+    isOut: Number(p.stock) <= 0,
+    isLow: Number(p.stock) > 0 && Number(p.stock) <= Number(p.low_stock_threshold),
+    otherCatalog: other.slug,
+    otherLabel: other.label,
+  };
+});
 
 // Rubros/categorías (gestionables en la pestaña Rubros); fallback a los defaults en demo.
 const categories = configured
@@ -333,6 +341,7 @@ const appUrl = (env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app').replace
                 </span></td>
                 <td class="prod-actions">
                   <button class="btn btn--ghost editp" data-p={JSON.stringify(p)}>Editar</button>
+                  <button class="btn btn--ghost copy-prod" type="button" data-p={JSON.stringify(p)} data-target={p.otherCatalog} data-target-label={p.otherLabel}>⧉ Copiar a {p.otherLabel}</button>
                   <button class="btn btn--danger del-prod" type="button" data-id={p.id} data-name={attrSafe(p.name)}>Borrar</button>
                 </td>
               </tr>
@@ -574,6 +583,22 @@ const appUrl = (env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app').replace
         document.getElementById('formTitle').textContent = 'Editar producto';
         showTab('nuevo');
         window.scrollTo({ top: 0, behavior: 'smooth' });
+      })
+    );
+
+    // "Copiar a <otro catálogo>": clona el producto al otro catálogo como NUEVO (id vacío) y
+    // deja el form listo con el precio enfocado. Mica solo cambia el precio y guarda — así no
+    // tiene que recargar a mano el mismo producto en el catálogo VIP.
+    document.querySelectorAll('.copy-prod').forEach((b) =>
+      b.addEventListener('click', () => {
+        let p; try { p = JSON.parse(b.dataset.p); } catch { return; }
+        fillForm({ ...p, id: '', catalog: b.dataset.target });
+        document.getElementById('formTitle').textContent =
+          'Copia para ' + (b.dataset.targetLabel || 'el otro catálogo') + ' — ajustá el precio y guardá';
+        showTab('nuevo');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        const price = document.getElementById('pf-price');
+        if (price) { price.focus(); price.select(); }
       })
     );
 
