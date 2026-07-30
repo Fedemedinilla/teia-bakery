@@ -19,9 +19,7 @@ const pideCodigo = codeRequired();
 
 // WhatsApp de Teia para el que no está habilitado: el "no" se convierte en una consulta.
 const WHATSAPP = (env('TEIA_WHATSAPP') || '5491176239937').replace(/\D/g, '');
-const waTexto = pideCodigo
-  ? '¡Hola Teia! Quiero pedir por mayor. Mi CUIT es: '
-  : '¡Hola Teia! Quiero pedir por mayor. Mi CUIT es: ';
+const waTexto = '¡Hola Teia! Quiero pedir por mayor. Mi CUIT es: ';
 const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(waTexto)}`;
 ---
 <Base title="Pedidos mayoristas — Teia Bakery">

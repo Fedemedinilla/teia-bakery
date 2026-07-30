@@ -538,7 +538,7 @@ html.lenis, html.lenis body { height: auto; }
   display: flex; align-items: center; gap: 13px;
   /* separado de lo de arriba: es una sugerencia aparte, no parte del formulario */
   margin: 28px 0 4px;
-  padding: 14px 38px 14px 14px;
+  padding: 14px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
@@ -559,12 +559,6 @@ html.lenis, html.lenis body { height: auto; }
   font-size: 13.5px; font-weight: 600; color: var(--accent-2);
 }
 .instalar__btn { flex: none; }
-.instalar__x {
-  position: absolute; top: 7px; right: 9px;
-  padding: 4px; border: 0; background: none; cursor: pointer;
-  font-size: 18px; line-height: 1; color: var(--ink-3);
-}
-.instalar__x:hover { color: var(--ink); }
 
 /* dentro del catálogo el aviso no cierra la sección: necesita aire abajo */
 .catalog .instalar { margin-bottom: 20px; }

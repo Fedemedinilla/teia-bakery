@@ -10,7 +10,8 @@
 //   · Android → botón "Instalar" propio, que dispara el instalador del navegador.
 //   · iPhone  → invitación corta + link a /instalar, que explica los cuatro pasos con dibujos.
 //
-// Se oculta solo si ya está instalada, y se puede cerrar (queda recordado).
+// NO se puede cerrar a propósito: si alguien lo cierra una vez, no lo vuelve a ver nunca y pierde
+// la app para siempre. Se queda ahí, sin estorbar, hasta que la instale — y ahí se oculta solo.
 interface Props {
   /** Cuál de las dos apps: cambia el ícono y el nombre que se menciona. */
   app?: 'cliente' | 'admin';
@@ -27,7 +28,6 @@ const nombre = app === 'admin' ? 'Teia Panel' : 'Teia';
     <a class="instalar__link" href="/instalar" data-instalar-link hidden>Ver cómo instalarla →</a>
   </div>
   <button class="btn instalar__btn" type="button" data-instalar-btn hidden>Instalar</button>
-  <button class="instalar__x" type="button" data-instalar-x aria-label="Ocultar este aviso">×</button>
 </aside>
 
 <script>
@@ -38,27 +38,18 @@ const nombre = app === 'admin' ? 'Teia Panel' : 'Teia';
     const link = caja.querySelector('[data-instalar-link]');
     const btn = caja.querySelector('[data-instalar-btn]');
     const nombre = caja.dataset.nombre || 'Teia';
-    const CLAVE = 'teia_instalar_oculto';
 
     // Ya está instalada: abierta desde el ícono, no hay nada que ofrecer.
     const yaInstalada =
       window.matchMedia('(display-mode: standalone)').matches ||
       ('standalone' in navigator && navigator.standalone === true);
 
-    let cerrado = false;
-    try { cerrado = localStorage.getItem(CLAVE) === '1'; } catch {}
-
     // El iPad moderno se declara "Macintosh": se lo reconoce porque además tiene pantalla táctil.
     const esIOS =
       /iphone|ipad|ipod/i.test(navigator.userAgent) ||
       (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 
-    caja.querySelector('[data-instalar-x]')?.addEventListener('click', () => {
-      caja.hidden = true;
-      try { localStorage.setItem(CLAVE, '1'); } catch {}
-    });
-
-    if (!yaInstalada && !cerrado) {
+    if (!yaInstalada) {
       if (esIOS) {
         // iPhone: no hay botón posible. Invitación corta y el paso a paso en su propia página.
         titulo.textContent = '¿Querés tener la app de Teia Bakery para hacer tus pedidos más rápido?';

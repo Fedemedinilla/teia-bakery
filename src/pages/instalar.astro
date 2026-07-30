@@ -25,9 +25,10 @@ const dominio = appUrl.replace(/^https?:\/\//, '');
       <li class="paso">
         <span class="paso__n">1</span>
         <h2 class="paso__t">Abrí esta página en Safari</h2>
+        <p class="hecho">✅ ¡Ya estás en esta página!</p>
         <p class="paso__d">
-          La instalación funciona únicamente desde Safari. Si llegaste desde WhatsApp u otra
-          aplicación, abrí Safari y escribí la dirección:
+          La instalación funciona únicamente desde Safari. Si la abriste desde WhatsApp u otra
+          aplicación, copiá esta dirección y pegala en Safari:
         </p>
         <p class="paso__url">{dominio}</p>
       </li>
@@ -190,8 +191,20 @@ const dominio = appUrl.replace(/^https?:\/\//, '');
     fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round;
   }
 
+  /* ---- confirmación del paso 1 ---- */
+  .hecho {
+    margin: 0 0 8px;
+    font-size: 14.5px; font-weight: 600; color: var(--good);
+  }
+
   /* ---- resultado ---- */
-  .listo { display: flex; align-items: center; gap: 13px; margin-top: 14px; }
+  /* Mismo recuadro blanco que el resto de los dibujos: sobre el fondo crema, el ícono de la
+     tienda (que también es crema) se perdía. */
+  .listo {
+    display: flex; align-items: center; gap: 13px;
+    margin-top: 14px; padding: 14px 16px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  }
   .listo__icono { border-radius: 14px; box-shadow: var(--sh-md); }
   .listo__nombre { font-size: 14.5px; font-weight: 600; }
 
