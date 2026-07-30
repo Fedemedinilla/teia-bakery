@@ -238,6 +238,34 @@ viceversa). Verificado en demo.
 
 ---
 
+### 📱 PWA — LA APP SE INSTALA EN EL CELULAR (2026-07-30, live y verificado en prod)
+Dos apps instalables desde el mismo sitio, sin App Store ni cuenta de desarrollador:
+**"Teia"** (tienda, start_url `/`, ícono crema) y **"Teia Panel"** (start_url `/administradora`,
+ícono oscuro). Íconos = la "T" del logo real (`scripts/pwa-icons.py`). El deploy no cambia:
+`git push` y los teléfonos ya instalados se actualizan solos (verificado en prod: un navegador con
+la versión vieja pasó a v2 y purgó el caché anterior sin intervención).
+
+**Asistente de instalación** (`src/components/InstalarApp.astro`, en /catalogo y /administradora):
+en iPhone **no existe** el aviso de instalación de Apple, así que se explica el camino manual
+(Compartir → "Agregar a inicio") y se avisa del error común (abrir el link desde otra app, donde
+esa opción no aparece); en Android se captura `beforeinstallprompt` y se muestra un botón propio.
+
+**Seguridad del caché** (revisión adversarial de 4 lentes; 3 hallazgos corregidos):
+- El **panel queda FUERA del service worker**: un 401 devuelto por un `fetch()` hecho desde el SW
+  no dispara el cartel de usuario/clave → Mica podía quedarse sin poder entrar. ← era el grave.
+- Se cachea **solo `/_astro/`** (lleva hash de contenido). Íconos/logo/img no se cachean: sin hash,
+  quedarían pegados salvo subir VERSION a mano, lo que contradecía "se actualiza sola".
+- **`Cache-Control: private, no-store` en `/administradora` y `/`** (faltaban; /catalogo y /pedido
+  ya lo tenían). El panel devuelve la base entera.
+- Auditoría en prod: el caché tiene **solo `offline.html`** — cero HTML de panel/catálogo y cero API.
+- **La CSP no se tocó**: `worker-src` cae en `script-src` y `manifest-src` en `default-src`, ambos `'self'`.
+
+**Entregables:** `teia/instalacion/instalar-app-cliente.pdf` y `instalar-panel-teia.pdf` (QR + pasos
+Android/iPhone). **⚠️ Handoff:** el `id` del manifest es relativo al origen → instalar en el
+teléfono de Mica **desde el dominio definitivo**, no desde el de Vercel, o hay que reinstalar.
+
+---
+
 ### 🟠 BLOQUE 4 — Resumen por cliente en Drive · depende de las screenshots de Mica
 *Ella quiere entrar a la carpeta de un cliente y ver SU resumen, no todo junto en un cuadro.*
 - `Remitos Teia/Clientes/<Comercio>/` con una planilla **"Resumen — <Comercio>"**: pedidos (con link a cada remito), totales por semana, por mes, y ranking de sus productos.
