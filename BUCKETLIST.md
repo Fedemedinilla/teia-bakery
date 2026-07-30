@@ -261,8 +261,44 @@ esa opción no aparece); en Android se captura `beforeinstallprompt` y se muestr
 - **La CSP no se tocó**: `worker-src` cae en `script-src` y `manifest-src` en `default-src`, ambos `'self'`.
 
 **Entregables:** `teia/instalacion/instalar-app-cliente.pdf` y `instalar-panel-teia.pdf` (QR + pasos
-Android/iPhone). **⚠️ Handoff:** el `id` del manifest es relativo al origen → instalar en el
-teléfono de Mica **desde el dominio definitivo**, no desde el de Vercel, o hay que reinstalar.
+Android/iPhone) + la página **`/instalar`** dentro de la app (timeline de 4 pasos con la barra de
+Safari dibujada en SVG). ⚠️ Las instrucciones viven en DOS lugares: si se cambian, sincronizar.
+**⚠️ Handoff:** el `id` del manifest es relativo al origen → instalar en el teléfono de Mica
+**desde el dominio definitivo**, no desde el de Vercel, o hay que reinstalar.
+
+### 🔔 AVISOS AL CELULAR (push) — CONSTRUIDO 2026-07-30, **APAGADO** hasta el traspaso
+Al entrar un pedido, notificación al celular de Mica: *"Nuevo pedido — TEIA-0042 / Comercio ·
+$48.000"*; al tocarla abre el panel en Pedidos (si ya está abierto, le da foco). Un aviso por
+pedido (tag = nº de pedido): dos pedidos distintos no se pisan.
+
+**Queda INERTE**: sin las claves VAPID y sin el permiso de Mica no manda nada. Piezas:
+`scripts/vapid-keys.mjs` (genera el par, una vez) · `src/lib/push.ts` (envío best-effort, nunca
+lanza, timeout 6s, borra sola la suscripción ante 404/410) · handlers `push` y `notificationclick`
+en `public/sw.js` · `api/admin/push.ts` (alta/baja, gate de admin primero) ·
+`ActivarAvisos.astro` (el botón; en iPhone sin app instalada NO lo ofrece, manda a instalarla) ·
+tabla `teia_push_subs` en schema.sql · 2 env vars.
+
+Usa la librería **web-push** (no se escribió la criptografía a mano: un error ahí es invisible
+hasta que el aviso no llega, y la entrega no se puede probar sin un teléfono). No agrega alertas
+de `npm audit`.
+
+**Verificado:** sin claves → 0 ms sin excepción; con claves pero SIN la tabla → 46 ms, tampoco
+lanza ⇒ **un pedido no se puede romper ni demorar por esto** (es la trampa del `access_code`,
+cubierta por diseño). En prod tras el deploy: `/api/order` responde 401 normal (no 500), o sea que
+web-push se empaquetó bien. **NO verificable sin teléfono: que la notificación efectivamente
+llegue** — se prueba en la llamada.
+
+**Para activar (3 pasos, en el traspaso):** `node scripts/vapid-keys.mjs` → pegar
+`TEIA_VAPID_PUBLIC_KEY` y `TEIA_VAPID_PRIVATE_KEY` (Sensitive) en Vercel + Redeploy · correr el SQL
+de `teia_push_subs` · con Mica: app instalada → botón **Activar** → pedido de prueba.
+
+### ⚠️ SEGURIDAD — CVEs de Astro 5 (detectado 2026-07-30, NO explotable hoy)
+`npm audit` marca varios avisos **altos** en Astro ≤7.0.9 y `@astrojs/vercel` (XSS varios, y
+**override de ruta vía header `x-astro-path`**). Probado contra prod: el override **funciona**,
+pero `/administradora` y `/api/admin/{client,confirm,order,product,remito}` devuelven **401** y el
+cuerpo servido es la puerta de login, sin rastro del panel. Aguanta porque la auth está DENTRO de
+cada endpoint y no en un middleware (fix del audit 22/07). **Se cierra migrando a Astro 7**, que ya
+estaba en la lista post-entrega — esto le sube la prioridad. No tocar antes de entregar: es breaking.
 
 ---
 
