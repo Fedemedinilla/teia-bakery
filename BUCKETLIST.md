@@ -127,7 +127,13 @@ una env nueva no toma efecto hasta un redeploy. Hasta entonces la firma sigue ca
 service key (por el fallback — nada se rompe). Un Redeploy en Vercel la activa. Al activarse, las
 sesiones vivas piden re-login una vez (hoy cero impacto: no hay clientes reales).
 
-**Quedan de la lista de 10 (no cerrados hoy):** DAT-08/DAT-12 (runbooks, prosa — próximos),
+**DAT-08 y DAT-12 CERRADOS 2026-07-30** (runbooks de una hoja): rotación de secretos
+(`teia/RUNBOOK-ROTACION-SECRETOS.md` — lista de llaves = grep, orden seguro, efecto de cada una
+y la regla de oro del acoplamiento IDN-01) y respuesta a incidentes (`teia/RUNBOOK-INCIDENTES.md`
+— clave filtrada / abuso de endpoint / dependencia comprometida, cada paso con pantalla+comando+
+aviso+plazo, con ensayo tabletop registrado). Suben dos el certificado.
+
+**Quedan de la lista de 10 (no cerrados hoy):**
 DEP-12 (repo privado, decisión de Federico), INF-12 (DMARC en teiabakery.com.ar, DNS de Federico),
 IDN-11 (invalidación server-side de sesión — sobre-ingeniería para el porte; parcial vía `active`
 + rotar el secreto), IDN-09 (riesgo aceptado: CUIT es dato público — el 2º factor opcional lo cubre).
@@ -225,8 +231,10 @@ Las 3 listas quedan así: **sin cuenta → no entra** · **`general` → catálo
 **⚠️ SQL para prod** (`supabase/schema.sql`, sección migración):
 `teia_clients.catalog`, `teia_clients.active`, `teia_products.catalog`.
 
-**Falta del Bloque 3 (chico):** botón "Copiar a Chungo" para clonar un producto y solo
-cambiarle el precio (hoy se carga a mano en cada catálogo).
+**Bloque 3 COMPLETO 2026-07-30:** botón "Copiar a &lt;otro catálogo&gt;" en la pestaña Productos
+— clona el producto al otro catálogo como NUEVO (id vacío), abre el form de alta precargado con el
+precio enfocado; Mica solo ajusta el precio y guarda. Se adapta al origen (general→Chungo y
+viceversa). Verificado en demo.
 
 ---
 
