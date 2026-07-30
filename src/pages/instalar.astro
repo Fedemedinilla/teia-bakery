@@ -1,25 +1,45 @@
 ---
-// Instrucciones para instalar la app en iPhone/iPad.
+export const prerender = false;
+// Instrucciones para instalar en iPhone/iPad. Sirve a las DOS apps:
+//   /instalar            → la tienda del cliente
+//   /instalar?app=admin  → el panel de la administradora
 //
 // Existe porque en iOS no hay ningún botón de instalación: Apple no lo permite. La única forma es
-// Compartir → "Agregar a inicio", y nadie lo adivina. El aviso de la puerta linkea acá.
-// Es una página estática (no necesita sesión): la persona todavía no entró cuando la lee.
+// Compartir → "Agregar a inicio", y nadie lo adivina.
+//
+// ⚠️ ESTA PÁGINA DECLARA EL MANIFEST DE LA APP QUE EXPLICA. Es imprescindible: al "Agregar a
+// inicio", iOS instala lo que declara LA PÁGINA EN LA QUE ESTÁS. Si el panel linkeara acá y acá
+// se declarara la app del cliente, seguir los pasos instalaría la app equivocada — que es
+// exactamente lo que pasaba antes.
 import Base from '../layouts/Base.astro';
 import { env } from '../lib/supabase';
 
+const esAdmin = Astro.url.searchParams.get('app') === 'admin';
+
 const appUrl = (env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app').replace(/\/+$/, '');
 const dominio = appUrl.replace(/^https?:\/\//, '');
+const direccion = esAdmin ? `${dominio}/administradora` : dominio;
+
+const titulo = esAdmin ? 'Cómo instalar el panel' : 'Cómo instalar la app';
+const bajada = esAdmin
+  ? 'En iPhone y iPad el panel se agrega desde Safari, en cuatro pasos. Lleva menos de un minuto.'
+  : 'En iPhone y iPad la app se agrega desde Safari, en cuatro pasos. Lleva menos de un minuto.';
+const icono = esAdmin ? '/icons/admin-192.png' : '/icons/cliente-192.png';
+const nombreIcono = esAdmin ? 'Teia Panel' : 'Teia';
+const cierre = esAdmin
+  ? 'Abrí el panel desde ese ícono. Te va a pedir la clave una vez y después entrás directo.'
+  : 'Abrí la app desde ese ícono e ingresá tu CUIT una sola vez. Después entrás directo.';
+const volver = esAdmin ? '/administradora' : '/';
+const volverTexto = esAdmin ? 'Volver al panel' : 'Volver a la pantalla de ingreso';
 ---
-<Base title="Cómo instalar la app — Teia Bakery">
+<Base title={`${titulo} — Teia Bakery`} app={esAdmin ? 'admin' : 'cliente'}>
   <main class="inst">
-    <a class="inst__volver" href="/">← Volver</a>
+    <a class="inst__volver" href={volver}>← Volver</a>
 
     <img class="inst__logo" src="/logo-teia.png" alt="Teia Bakery" width="2432" height="273" />
 
-    <h1 class="inst__t">Cómo instalar la app</h1>
-    <p class="inst__s">
-      En iPhone y iPad la app se agrega desde Safari, en cuatro pasos. Lleva menos de un minuto.
-    </p>
+    <h1 class="inst__t">{titulo}</h1>
+    <p class="inst__s">{bajada}</p>
 
     <ol class="pasos">
       <li class="paso">
@@ -30,7 +50,7 @@ const dominio = appUrl.replace(/^https?:\/\//, '');
           La instalación funciona únicamente desde Safari. Si la abriste desde WhatsApp u otra
           aplicación, copiá esta dirección y pegala en Safari:
         </p>
-        <p class="paso__url">{dominio}</p>
+        <p class="paso__url">{direccion}</p>
       </li>
 
       <li class="paso">
@@ -44,7 +64,7 @@ const dominio = appUrl.replace(/^https?:\/\//, '');
         <div class="barra" role="img" aria-label="Barra inferior de Safari con el botón Compartir resaltado">
           <div class="barra__url">
             <span class="barra__aa">aA</span>
-            <span class="barra__dom">{dominio}</span>
+            <span class="barra__dom">{direccion}</span>
           </div>
           <div class="barra__iconos">
             <svg class="barra__ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
@@ -86,21 +106,19 @@ const dominio = appUrl.replace(/^https?:\/\//, '');
         <span class="paso__n">4</span>
         <h2 class="paso__t">Confirmá con “Agregar”</h2>
         <p class="paso__d">
-          El botón está arriba a la derecha. El ícono de Teia queda en tu pantalla de inicio.
+          El botón está arriba a la derecha. Fijate que el nombre diga <b>{nombreIcono}</b>.
         </p>
 
         <div class="listo">
-          <img class="listo__icono" src="/icons/cliente-192.png" alt="" width="62" height="62" />
-          <span class="listo__nombre">Teia</span>
+          <img class="listo__icono" src={icono} alt="" width="62" height="62" />
+          <span class="listo__nombre">{nombreIcono}</span>
         </div>
       </li>
     </ol>
 
-    <p class="inst__cierre">
-      Abrí la app desde ese ícono e ingresá tu CUIT una sola vez. Después entrás directo.
-    </p>
+    <p class="inst__cierre">{cierre}</p>
 
-    <p class="inst__foot"><a href="/">Volver a la pantalla de ingreso</a></p>
+    <p class="inst__foot"><a href={volver}>{volverTexto}</a></p>
   </main>
 </Base>
 
@@ -145,6 +163,9 @@ const dominio = appUrl.replace(/^https?:\/\//, '');
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm);
     font-family: ui-monospace, Consolas, monospace; font-size: 14px; word-break: break-all;
   }
+
+  /* ---- confirmación del paso 1 ---- */
+  .hecho { margin: 0 0 8px; font-size: 14.5px; font-weight: 600; color: var(--good); }
 
   /* ---- barra de Safari ---- */
   .barra {
@@ -191,15 +212,9 @@ const dominio = appUrl.replace(/^https?:\/\//, '');
     fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round;
   }
 
-  /* ---- confirmación del paso 1 ---- */
-  .hecho {
-    margin: 0 0 8px;
-    font-size: 14.5px; font-weight: 600; color: var(--good);
-  }
-
   /* ---- resultado ---- */
   /* Mismo recuadro blanco que el resto de los dibujos: sobre el fondo crema, el ícono de la
-     tienda (que también es crema) se perdía. */
+     tienda (que también es crema) se perdía contra el fondo. */
   .listo {
     display: flex; align-items: center; gap: 13px;
     margin-top: 14px; padding: 14px 16px;

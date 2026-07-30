@@ -17,15 +17,25 @@ interface Props {
   app?: 'cliente' | 'admin';
 }
 const { app = 'cliente' } = Astro.props;
-const icono = app === 'admin' ? '/icons/admin-192.png' : '/icons/cliente-192.png';
-const nombre = app === 'admin' ? 'Teia Panel' : 'Teia';
+const esAdmin = app === 'admin';
+const icono = esAdmin ? '/icons/admin-192.png' : '/icons/cliente-192.png';
+const nombre = esAdmin ? 'Teia Panel' : 'Teia';
+// ⚠️ Cada app manda a SU página de instrucciones. Al "Agregar a inicio", iOS instala lo que
+// declara la página en la que estás: si el panel linkeara a la página del cliente, seguir los
+// pasos ahí instalaría la app equivocada.
+const comoInstalar = esAdmin ? '/instalar?app=admin' : '/instalar';
+const pregunta = esAdmin
+  ? '¿Querés tener el panel en tu pantalla de inicio y abrirlo con un toque?'
+  : '¿Querés tener la app de Teia Bakery para hacer tus pedidos más rápido?';
 ---
-<aside class="instalar" data-instalar data-nombre={nombre} hidden>
+<aside class="instalar" data-instalar data-nombre={nombre} data-pregunta={pregunta} hidden>
   <img class="instalar__icono" src={icono} alt="" width="44" height="44" />
   <div class="instalar__txt">
     <p class="instalar__t" data-instalar-titulo>Tenela como app en tu celular</p>
     <p class="instalar__d" data-instalar-desc hidden></p>
-    <a class="instalar__link" href="/instalar" data-instalar-link hidden>Ver cómo instalarla →</a>
+    <a class="instalar__link" href={comoInstalar} data-instalar-link hidden>
+      {esAdmin ? 'Ver cómo instalarlo →' : 'Ver cómo instalarla →'}
+    </a>
   </div>
   <button class="btn instalar__btn" type="button" data-instalar-btn hidden>Instalar</button>
 </aside>
@@ -52,7 +62,7 @@ const nombre = app === 'admin' ? 'Teia Panel' : 'Teia';
     if (!yaInstalada) {
       if (esIOS) {
         // iPhone: no hay botón posible. Invitación corta y el paso a paso en su propia página.
-        titulo.textContent = '¿Querés tener la app de Teia Bakery para hacer tus pedidos más rápido?';
+        titulo.textContent = caja.dataset.pregunta || '¿Querés tenerla en tu pantalla de inicio?';
         link.hidden = false;
         caja.hidden = false;
       }
