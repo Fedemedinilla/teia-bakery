@@ -111,9 +111,12 @@ export async function probarPush(): Promise<{ entregados: number; total: number 
     return await enviarATodos(
       JSON.stringify({
         titulo: 'Prueba de aviso',
-        cuerpo: 'Si ves esto, los avisos de pedidos funcionan en este teléfono.',
+        cuerpo: 'Si ves esto, los avisos de pedidos funcionan en este dispositivo.',
         url: '/administradora#pedidos',
-        tag: 'prueba',
+        // Etiqueta ÚNICA por prueba. Con una fija, la segunda prueba reemplazaba en silencio a
+        // la anterior que seguía en el centro de notificaciones de Windows: parecía que el
+        // aviso solo funcionaba una vez.
+        tag: 'prueba-' + Date.now(),
       })
     );
   } catch {

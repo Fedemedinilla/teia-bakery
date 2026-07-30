@@ -104,20 +104,26 @@ self.addEventListener('push', (evento) => {
   let d = {};
   try { d = evento.data ? evento.data.json() : {}; } catch { d = {}; }
 
+  const opciones = {
+    body: d.cuerpo || 'Entro un pedido nuevo.',
+    icon: '/icons/admin-192.png',
+    badge: '/icons/admin-192.png',
+    lang: 'es-AR',
+    data: { url: d.url || '/administradora#pedidos' },
+  };
+
+  // Un aviso por pedido: dos pedidos distintos NUNCA se pisan (que se pisen seria perder uno
+  // de vista). Si la etiqueta llegara a repetirse, `renotify` hace que igual SUENE en vez de
+  // reemplazar en silencio: en Windows, reemplazar sin renotify no muestra banner ni sonido y
+  // parece que el aviso no llego. Mejor un aviso repetido que un pedido perdido.
+  if (d.tag) {
+    opciones.tag = 'teia-' + d.tag;
+    opciones.renotify = true; // ojo: renotify sin tag lanza TypeError, por eso va acá adentro
+  }
+
   // showNotification es OBLIGATORIO: el navegador exige que todo push se traduzca en algo
   // visible. Si no, deja de mandar los siguientes.
-  evento.waitUntil(
-    self.registration.showNotification(d.titulo || 'Nuevo pedido', {
-      body: d.cuerpo || 'Entro un pedido nuevo.',
-      icon: '/icons/admin-192.png',
-      badge: '/icons/admin-192.png',
-      lang: 'es-AR',
-      // Un aviso por pedido: si se reenvia el mismo, reemplaza en vez de duplicar; pero dos
-      // pedidos distintos se ven por separado (que se pisen seria perder uno de vista).
-      tag: d.tag ? 'teia-' + d.tag : undefined,
-      data: { url: d.url || '/administradora#pedidos' },
-    })
-  );
+  evento.waitUntil(self.registration.showNotification(d.titulo || 'Nuevo pedido', opciones));
 });
 
 self.addEventListener('notificationclick', (evento) => {
