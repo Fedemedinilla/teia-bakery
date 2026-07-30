@@ -66,10 +66,10 @@ const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(waTexto)}`;
     const btn = document.getElementById('gateBtn');
     const msg = document.getElementById('gateMsg');
 
-    // Se recuerda el último CUIT usado en ESTE dispositivo (comodidad, no es la llave: la
-    // llave es la cookie firmada que devuelve el servidor). El código nunca se guarda acá:
-    // de eso se encarga el llavero del navegador, que es donde corresponde.
-    try { const last = localStorage.getItem('teia_cuit'); if (last && !input.value) input.value = last; } catch {}
+    // El CUIT NO se guarda en localStorage: con el 2º factor apagado el CUIT es la credencial
+    // de ingreso, así que dejarlo persistido sin vencimiento es exponerlo. El autocompletado
+    // lo maneja el llavero del navegador (autocomplete="username" en el campo), que es el lugar
+    // correcto — cifrado y junto al resto de las credenciales.
 
     // Ver/ocultar el código (los de celular lo tipean a mano desde el WhatsApp).
     document.getElementById('gateEye')?.addEventListener('click', () => {
@@ -104,9 +104,8 @@ const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(waTexto)}`;
         });
         const o = await r.json().catch(() => ({}));
         if (r.ok && o.ok) {
-          try { localStorage.setItem('teia_cuit', cuit); } catch {}
           // El submit del form (aunque lo hayamos interceptado) ya le dio al navegador la
-          // señal para ofrecer guardar las credenciales en su llavero.
+          // señal para ofrecer guardar el CUIT en su llavero — no lo persistimos nosotros.
           location.href = '/catalogo';
           return;
         }

@@ -7,12 +7,16 @@ import { env } from './supabase';
 export const SESSION_COOKIE = 'teia_sess';
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 90; // 90 días
 
-// El secreto de firma. Si no hay NINGUNA fuente, se lanza en vez de caer a un valor conocido:
-// un fallback hardcodeado dejaría que cualquiera firme una sesión para cualquier comercio.
+// El secreto de firma. Su propia env var (TEIA_SESSION_SECRET): NO se reusa la de la base,
+// para que rotar la credencial de Supabase no invalide todas las sesiones y para que una
+// filtración de una no alcance a la otra. Fallback a la de la base hasta que se cargue la
+// propia (al cargarla, las sesiones vivas se re-firman una vez — un re-login, aceptable).
+// Si no hay NINGUNA fuente en producción, se lanza en vez de caer a un valor conocido: un
+// fallback hardcodeado dejaría que cualquiera firme una sesión para cualquier comercio.
 function secret(): string {
-  const s = env('SUPABASE_SERVICE_ROLE_KEY') || env('TEIA_ADMIN_PASSWORD');
+  const s = env('TEIA_SESSION_SECRET') || env('SUPABASE_SERVICE_ROLE_KEY') || env('TEIA_ADMIN_PASSWORD');
   if (s) return s;
-  if (env('NODE_ENV') === 'production') throw new Error('Falta el secreto de sesión (SUPABASE_SERVICE_ROLE_KEY o TEIA_ADMIN_PASSWORD).');
+  if (env('NODE_ENV') === 'production') throw new Error('Falta el secreto de sesión (TEIA_SESSION_SECRET).');
   return 'teia-dev-only-secret'; // solo dev/demo local, nunca con datos reales
 }
 

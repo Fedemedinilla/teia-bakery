@@ -27,13 +27,17 @@ export const POST: APIRoute = async ({ request }) => {
   const cuit = normCuit(b?.cuit);
   if (!hasCuitShape(cuit)) return json({ error: 'Ingresá tu CUIT completo (11 números).' }, 400);
 
-  const denied = { error: 'Ese CUIT todavía no está habilitado para pedir. Escribinos y te damos de alta.' };
-  const badCode = { error: 'El CUIT o el código no coinciden. Revisalos, o pedinos el código de nuevo.' };
+  // UN solo mensaje para todos los rechazos: no revela si un CUIT está dado de alta o no
+  // (evita que alguien enumere la cartera probando CUITs). Cubre los tres casos —no habilitado,
+  // dado de baja, código incorrecto— sin distinguirlos.
+  const denied = {
+    error: 'No pudimos verificar tus datos. Si ya sos cliente, revisá el CUIT y el código; si todavía no pedís por mayor, escribinos y te damos de alta.',
+  };
 
   if (!supaConfigured()) {
     const c: any = DEMO_CLIENTS.find((x) => x.cuit === cuit);
     if (!c) return json(denied, 403);
-    if (codeRequired() && !codeMatches(b?.code, c.access_code)) return json(badCode, 403);
+    if (codeRequired() && !codeMatches(b?.code, c.access_code)) return json(denied, 403);
     return enter(request, c.id);
   }
 
@@ -48,7 +52,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   // Segundo factor, solo si está encendido (TEIA_REQUIRE_CODE). Una cuenta sin código cargado
   // NO puede entrar cuando el modo está activo: fallar cerrado, no dejar pasar sin verificar.
-  if (codeRequired() && !codeMatches(b?.code, c.access_code)) return json(badCode, 403);
+  if (codeRequired() && !codeMatches(b?.code, c.access_code)) return json(denied, 403);
 
   return enter(request, c.id);
 };

@@ -111,7 +111,9 @@ export async function sbDelete(path: string): Promise<boolean> {
   }
 }
 
-// UPLOAD a Storage — sube bytes a un bucket y devuelve la URL pública, o null si falla.
+// UPLOAD a Storage — sube bytes a un bucket. Devuelve el PATH del objeto (no una URL) en
+// éxito, o null si falla. El path sirve tanto para armar la URL pública (bucket público, ej.
+// fotos) como para pedir una URL firmada (bucket privado, ej. remitos — ver sbSignedUrl).
 // x-upsert:true → idempotente: reintentar con el mismo path sobreescribe, no duplica.
 export async function sbUpload(bucket: string, path: string, bytes: Uint8Array | Buffer, contentType: string): Promise<string | null> {
   if (!supaConfigured()) return null;
@@ -122,7 +124,29 @@ export async function sbUpload(bucket: string, path: string, bytes: Uint8Array |
       headers: { apikey: k, Authorization: `Bearer ${k}`, 'Content-Type': contentType, 'x-upsert': 'true' },
       body: bytes as any,
     });
-    return r.ok ? `${url}/storage/v1/object/public/${bucket}/${path}` : null;
+    return r.ok ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+// URL FIRMADA temporal para un objeto de un bucket PRIVADO. Devuelve la URL absoluta que
+// sirve el archivo durante `expiresIn` segundos, o null si falla. Se genera on-demand con la
+// service key (server-only) — así los remitos (que tienen datos del comercio) no quedan en un
+// bucket público con URL permanente. `path` sale SIEMPRE de la base, nunca del cliente.
+export async function sbSignedUrl(bucket: string, path: string, expiresIn = 120): Promise<string | null> {
+  if (!supaConfigured() || !path) return null;
+  const url = base(), k = key();
+  try {
+    const r = await fetch(`${url}/storage/v1/object/sign/${bucket}/${path}`, {
+      method: 'POST',
+      headers: { apikey: k, Authorization: `Bearer ${k}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expiresIn }),
+    });
+    if (!r.ok) return null;
+    const o: any = await r.json();
+    // La API devuelve un path relativo tipo "/object/sign/<bucket>/<path>?token=..."
+    return o?.signedURL ? `${url}/storage/v1${o.signedURL}` : null;
   } catch {
     return null;
   }

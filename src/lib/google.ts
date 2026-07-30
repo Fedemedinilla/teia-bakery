@@ -290,9 +290,12 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
   ]);
 
   // Link al remito como fórmula HYPERLINK (clickeable de verdad): es VALOR, no formato,
-  // así que el reset de estilos de cada rebuild no lo puede despintar.
+  // así que el reset de estilos de cada rebuild no lo puede despintar. Apunta al proxy
+  // gated por la clave del panel (el bucket es privado): Mica lo abre; un tercero que reciba
+  // el Sheet reenviado, no.
+  const appUrl = (env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app').replace(/\/+$/, '');
   const linkRows = (orders as any[]).map((o) => [
-    o.remito_cliente_url ? `=HYPERLINK("${o.remito_cliente_url}";"📄 Remito")` : '',
+    o.remito_cliente_url ? `=HYPERLINK("${appUrl}/api/admin/remito?id=${o.id}";"📄 Remito")` : '',
   ]);
   if (linkRows.length) {
     await gFetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${q(`'Pedidos'!L2:L${linkRows.length + 1}`)}?valueInputOption=USER_ENTERED`, {

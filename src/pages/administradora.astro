@@ -158,10 +158,10 @@ const waLink = (c: any) => {
           {o.status === 'confirmado' && (
             <div class="ordcard__arch">
               {o.archived && <span class="arch arch--ok">✓ Remito</span>}
-              {o.archived && <a class="arch-link" href={o.remito_cliente_url} target="_blank" rel="noopener">📄 Abrir</a>}
+              {o.archived && <a class="arch-link" href={`/api/admin/remito?id=${o.id}`} target="_blank" rel="noopener">📄 Abrir</a>}
               {o.archived && (
                 <button class="btn btn--ghost share-rem" type="button"
-                  data-url={attrSafe(o.remito_cliente_url)} data-num={o.order_number || `#${o.id}`}>📤 Compartir</button>
+                  data-url={`/api/admin/remito?id=${o.id}`} data-num={o.order_number || `#${o.id}`}>📤 Compartir</button>
               )}
               {!o.archived && <span class="arch arch--err">⚠️ Sin archivar{o.archive_error ? `: ${o.archive_error}` : ''}</span>}
               {!o.archived && <button class="btn btn--ghost retry-arch" type="button" data-id={o.id}>Reintentar</button>}
@@ -257,14 +257,14 @@ const waLink = (c: any) => {
                     date: String(o.created_at || '').slice(0, 10), ddate: o.delivery_date || '',
                     address: o.delivery_address || '', total: o.total, pct: o.discount_pct || 0,
                     notes: o.notes || '', archived: o.archived,
-                    rc: o.remito_cliente_url || '',
+                    rc: o.archived ? `/api/admin/remito?id=${o.id}` : '',
                     items: (itemsByOrder[o.id] || []).map((it: any) => ({ n: it.name, p: it.pack_label, q: it.qty, t: it.line_total })),
                   })}>{o.order_number || `#${o.id}`}</button>
                   <span class={`badge badge--${o.status === 'confirmado' ? 'ok' : 'wait'}`}>{o.status}</span>
                   <span class="muted">{String(o.created_at || '').slice(0, 10)}</span>
                   {Number(o.discount_pct) > 0 && <span class="muted">−{o.discount_pct}%</span>}
                   <b>{money(o.total)}</b>
-                  {o.archived && <a class="arch-link" href={o.remito_cliente_url} target="_blank" rel="noopener">📄 remito</a>}
+                  {o.archived && <a class="arch-link" href={`/api/admin/remito?id=${o.id}`} target="_blank" rel="noopener">📄 remito</a>}
                 </li>
               ))}
               {(ordersByClient[c.id] || []).length === 0 && <li class="muted">Sin pedidos todavía.</li>}
@@ -726,17 +726,30 @@ const waLink = (c: any) => {
     });
 
     // ---- compartir el remito (celular → WhatsApp, sin descargar ni buscar el archivo) ----
-    // Cascada: compartir el ARCHIVO (Web Share nivel 2) → compartir el link → copiar el link.
+    // Se trae el PDF por el proxy (URL firmada, gated por la clave del panel) y se comparte
+    // el ARCHIVO en sí. Como el bucket es privado, NO se comparte ninguna URL: si el celular
+    // no soporta compartir archivos (desktop / navegadores viejos), se descarga el PDF para
+    // que Mica lo adjunte a mano — nunca un link que el cliente no podría abrir.
     document.querySelectorAll('.share-rem').forEach((b) =>
       b.addEventListener('click', async () => {
         const url = b.dataset.url, num = b.dataset.num || 'Remito';
         const original = b.textContent;
         b.disabled = true; b.textContent = 'Preparando…';
         const restore = () => { b.textContent = original; b.disabled = false; };
+
+        let blob;
         try {
           const res = await fetch(url);
-          const blob = await res.blob();
-          const file = new File([blob], `${num} - Teia Bakery.pdf`, { type: 'application/pdf' });
+          if (!res.ok) throw new Error('http ' + res.status);
+          blob = await res.blob();
+        } catch {
+          restore();
+          alert('No se pudo preparar el remito. Probá de nuevo.');
+          return;
+        }
+
+        const file = new File([blob], `${num} - Teia Bakery.pdf`, { type: 'application/pdf' });
+        try {
           if (navigator.canShare && navigator.canShare({ files: [file] })) {
             await navigator.share({ files: [file], title: `Remito ${num}` });
             return restore();
@@ -744,18 +757,19 @@ const waLink = (c: any) => {
         } catch (e) {
           if (e && e.name === 'AbortError') return restore(); // el usuario cerró el menú
         }
+
+        // Fallback: descargar el PDF (para adjuntarlo a mano). No se comparte ninguna URL.
         try {
-          if (navigator.share) { await navigator.share({ title: `Remito ${num}`, url }); return restore(); }
-        } catch (e) {
-          if (e && e.name === 'AbortError') return restore();
-        }
-        try {
-          await navigator.clipboard.writeText(url);
-          b.textContent = '✓ Link copiado';
+          const objUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = objUrl; a.download = `${num} - Teia Bakery.pdf`;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+          b.textContent = '✓ Descargado';
           setTimeout(restore, 2200);
         } catch {
-          window.open(url, '_blank');
           restore();
+          alert('No se pudo descargar el remito.');
         }
       })
     );

@@ -100,6 +100,35 @@ Stack: Astro 5 + Supabase (proyecto DEMOS, tablas `teia_`) + Vercel. Es el **tem
 Contexto completo: `teia/MEET-01-resumen.md` · transcript: `teia/MEET-01-transcript.md`.
 Resumen entregado a Mica: `teia/resumen-meet-mica.html` → PDF en Downloads.*
 
+### 🔐 SEGURIDAD — hallazgos de la auditoría 27/07 CERRADOS 2026-07-28
+*Fuente: `teia/TRASPASO-2026-07-28.md` §4 + `seguridad/hallazgos/teia-bakery/2026-07-27/`.
+Cada uno cerrado sube el número del certificado de seguridad del kit de entrega.*
+
+**Cerrados por código (deployado + revisión adversarial de 5 lentes limpia, todo "verificado sano"):**
+- **DAT-02** — el bucket `teia-remitos` pasa a PRIVADO. Los remitos se sirven por un proxy nuevo
+  `/api/admin/remito?id=X` (gated por la clave del panel) que genera una URL FIRMADA de 120 s.
+  `archive.ts` guarda el PATH (no la URL pública); `sbSignedUrl` en `supabase.ts`; panel, botón
+  Compartir y HYPERLINK del Sheet apuntan al proxy. El botón Compartir descarga el PDF en el
+  fallback (no comparte un link admin-only). **El código anda con el bucket público o privado**
+  (las URLs firmadas sirven en ambos); el cierre EFECTIVO exige el SQL de abajo.
+- **IDN-01** — el secreto de firma de sesión usa su env propia `TEIA_SESSION_SECRET` (fallback a
+  la de la base para no cortar sesiones). Ya no se reusa la service key.
+- **IDN-12/PUB-07** — `entrar.ts` unificó los tres rechazos en un solo mensaje/403: no se puede
+  distinguir un CUIT dado de alta de uno que no (verificado con 2FA on: los tres idénticos).
+- **FRT-10** — la puerta ya no guarda el CUIT en localStorage (lo maneja el llavero del navegador
+  vía `autocomplete="username"`).
+
+**⚠️ De Federico para cerrar DAT-02 e IDN-01 del todo:**
+- **SQL en prod** (idempotente, en `supabase/schema.sql`): `update storage.buckets set public=false
+  where id='teia-remitos';` — sin esto el bucket sigue público y las URLs públicas viejas resuelven.
+- **Env nueva en Vercel**: `TEIA_SESSION_SECRET` (string largo al azar) + redeploy. Al cargarla, las
+  sesiones vivas piden re-login una vez (esperado).
+
+**Quedan de la lista de 10 (no cerrados hoy):** DAT-08/DAT-12 (runbooks, prosa — próximos),
+DEP-12 (repo privado, decisión de Federico), INF-12 (DMARC en teiabakery.com.ar, DNS de Federico),
+IDN-11 (invalidación server-side de sesión — sobre-ingeniería para el porte; parcial vía `active`
++ rotar el secreto), IDN-09 (riesgo aceptado: CUIT es dato público — el 2º factor opcional lo cubre).
+
 ### 🔐 SEGURIDAD — auditoría 2026-07-22 (informe: `teia/AUDITORIA-SEGURIDAD.md`)
 Corregido y deployado: **XSS almacenado** cliente→admin (bug de escapeo de atributos de Astro,
 verificado ejecutando su runtime; fix `attrSafe()`), XSS reflejado en el callback de Google,

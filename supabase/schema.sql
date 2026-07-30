@@ -119,8 +119,11 @@ insert into storage.buckets (id, name, public)
 values ('teia-productos', 'teia-productos', true)
 on conflict (id) do nothing;
 
--- Storage: bucket PÚBLICO para los remitos PDF (el archivador sube con la service_role key;
--- los links públicos van al panel y al Sheet espejo). El path lleva un token HMAC no adivinable.
+-- Storage: bucket PRIVADO para los remitos PDF (tienen datos del comercio: razón social,
+-- dirección, contacto, ítems y precios). Se suben con la service_role key y se sirven con
+-- URLs FIRMADAS temporales vía /api/admin/remito (gated por la clave del panel). NUNCA públicos.
 insert into storage.buckets (id, name, public)
-values ('teia-remitos', 'teia-remitos', true)
+values ('teia-remitos', 'teia-remitos', false)
 on conflict (id) do nothing;
+-- Si el bucket ya existía como público, esto lo pasa a privado (idempotente):
+update storage.buckets set public = false where id = 'teia-remitos';

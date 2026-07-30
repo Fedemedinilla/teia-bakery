@@ -45,11 +45,13 @@ export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: s
     // UN solo remito (decisión de la clienta en la Meet 01): el mismo que le manda al cliente
     // es el que archiva. La hoja interna de preparación quedó fuera de scope.
     const bytesCliente = await withRetry(() => buildRemito(order, items as any[], 'cliente'));
-    const cliente = await withRetry(async () => {
+    // Se guarda el PATH del objeto (no una URL): el bucket es privado y el remito se sirve
+    // con una URL firmada temporal vía /api/admin/remito (gated por la clave del panel).
+    const remitoPath = await withRetry(async () => {
       const path = `remito-${id}-${token}-cliente-v${version}.pdf`;
-      const url = await sbUpload('teia-remitos', path, Buffer.from(bytesCliente), 'application/pdf');
-      if (!url) throw new Error('No se pudo subir el remito.');
-      return url;
+      const ok = await sbUpload('teia-remitos', path, Buffer.from(bytesCliente), 'application/pdf');
+      if (!ok) throw new Error('No se pudo subir el remito.');
+      return path;
     });
 
     // Espejo a DRIVE (cuenta de la clienta, OAuth drive.file): carpeta año/mes/comercio con
@@ -72,10 +74,10 @@ export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: s
       archive_status: 'archivado',
       archive_error: null,
       archived_at: new Date().toISOString(),
-      remito_cliente_url: cliente,
+      remito_cliente_url: remitoPath, // el PATH del objeto, no una URL pública
       remito_interno_url: null, // ya no se genera hoja interna
     });
-    return { ok: true, cliente };
+    return { ok: true, cliente: remitoPath };
   } catch (e: any) {
     const msg = ((e && e.message) || 'Error desconocido').slice(0, 300);
     await sbPatch(`teia_orders?id=eq.${id}`, { archive_status: 'error', archive_error: msg });
