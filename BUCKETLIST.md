@@ -266,7 +266,13 @@ Safari dibujada en SVG). ⚠️ Las instrucciones viven en DOS lugares: si se ca
 **⚠️ Handoff:** el `id` del manifest es relativo al origen → instalar en el teléfono de Mica
 **desde el dominio definitivo**, no desde el de Vercel, o hay que reinstalar.
 
-### 🔔 AVISOS AL CELULAR (push) — CONSTRUIDO 2026-07-30, **APAGADO** hasta el traspaso
+### 🔔 AVISOS AL CELULAR (push) — CONSTRUIDO Y **CONFIGURADO** 2026-07-30
+**Estado real: solo falta que Mica toque "Activar".** Federico ya cargó las dos claves VAPID en
+Vercel + Redeploy y corrió el SQL de `teia_push_subs`. Verificado con `GET /api/admin/push`
+(diagnóstico admin-gated): `listo: true`, `par_coincide: true`, `tabla_existe: true`,
+`telefonos_suscriptos: 0`. Ese endpoint es la forma de re-chequear la config en cualquier momento
+— entre otras cosas detecta que las dos claves NO sean del mismo par, un fallo que si no es
+invisible hasta que el aviso no llega.
 Al entrar un pedido, notificación al celular de Mica: *"Nuevo pedido — TEIA-0042 / Comercio ·
 $48.000"*; al tocarla abre el panel en Pedidos (si ya está abierto, le da foco). Un aviso por
 pedido (tag = nº de pedido): dos pedidos distintos no se pisan.
