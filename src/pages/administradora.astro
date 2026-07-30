@@ -56,18 +56,6 @@ const catNames = (categories as any[]).map((c) => c.name);
 const requireCode = codeRequired();
 const sinCodigo = (clients as any[]).filter((c) => !c.access_code).length;
 
-// Mensaje listo para mandarle el acceso al cliente por WhatsApp (se abre wa.me con el texto).
-const APP_URL = env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app';
-const waLink = (c: any) => {
-  const tel = String(c.client_contact || '').replace(/\D/g, '');
-  const texto =
-    `¡Hola ${c.business_name}! Ya podés hacer tus pedidos mayoristas por acá:\n${APP_URL}\n\n` +
-    `Entrás con:\nCUIT: ${fmtCuit(c.cuit)}\n` +
-    (c.access_code ? `Código: ${c.access_code}\n\n` : '\n') +
-    `Te lo pide una sola vez por teléfono. ¡Gracias!`;
-  return `https://wa.me/${tel.length >= 10 ? (tel.length === 10 ? '54' + tel : tel) : ''}?text=${encodeURIComponent(texto)}`;
-};
-
 ---
 <Base title="Administradora — Teia Bakery">
   <div class="container admin-wrap">
@@ -223,8 +211,8 @@ const waLink = (c: any) => {
                 <input class="cf-code" value={attrSafe(c.access_code)} placeholder="sin código" readonly />
               </div>
               <button class="btn btn--ghost gen-code" type="button">🔄 Generar</button>
-              <button class="btn btn--ghost wa-code" type="button"
-                data-wa={attrSafe(waLink(c))}>💬 Enviar por WhatsApp</button>
+              <button class="btn btn--ghost wa-code" type="button">💬 Enviar por WhatsApp</button>
+              <span class="wa-copied" hidden>✓ Copiado con éxito</span>
             </div>
             <div class="grid2">
               <div>
@@ -800,11 +788,37 @@ const waLink = (c: any) => {
         } else { alert((o && o.error) || 'No se pudo generar el código.'); b.textContent = '🔄 Generar'; b.disabled = false; }
       });
 
-      // Mandarle el acceso por WhatsApp con el mensaje ya escrito.
-      card.querySelector('.wa-code')?.addEventListener('click', () => {
-        const url = card.querySelector('.wa-code').dataset.wa || '';
-        if (!/wa\.me\/\d/.test(url)) return alert('Esta cuenta no tiene un WhatsApp válido cargado en "Contacto".');
-        window.open(url, '_blank', 'noopener');
+      // COPIA al portapapeles el resumen de credenciales + datos, listo para pegar en WhatsApp.
+      // Lee los valores ACTUALES de los campos (si Mica los editó, van los editados). Una cuenta
+      // sin contraseña generada no está lista: se avisa en vez de copiar credenciales incompletas.
+      card.querySelector('.wa-code')?.addEventListener('click', async () => {
+        const v = (sel) => (card.querySelector(sel)?.value || '').trim();
+        const codigo = v('.cf-code');
+        if (!codigo) { alert('Primero generá la contraseña con el botón "Generar" — la cuenta no está lista hasta tenerla.'); return; }
+        const texto =
+          'Estas son tus credenciales para acceder:\n\n' +
+          '* CUIT: ' + v('.cf-cuit') + '\n' +
+          '* Password: ' + codigo + '\n\n' +
+          'Estos son los datos de tu comercio:\n\n' +
+          '* Nombre: ' + v('.cf-name') + '\n' +
+          '* Contacto: ' + v('.cf-contact') + '\n' +
+          '* Direccion: ' + v('.cf-addr');
+        const ok = document.createElement('textarea'); // fallback si clipboard falla (http, permisos)
+        const marcarCopiado = () => {
+          const msg = card.querySelector('.wa-copied');
+          if (msg) { msg.hidden = false; setTimeout(() => (msg.hidden = true), 2600); }
+        };
+        try {
+          await navigator.clipboard.writeText(texto);
+          marcarCopiado();
+        } catch {
+          ok.value = texto; ok.style.position = 'fixed'; ok.style.opacity = '0';
+          document.body.appendChild(ok); ok.focus(); ok.select();
+          const done = document.execCommand && document.execCommand('copy');
+          ok.remove();
+          if (done) marcarCopiado();
+          else alert('No se pudo copiar. Copialo a mano:\n\n' + texto);
+        }
       });
 
       card.querySelector('.save-cli')?.addEventListener('click', async () => {

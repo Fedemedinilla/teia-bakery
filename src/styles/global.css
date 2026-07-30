@@ -242,6 +242,7 @@ h1.title { font-family: var(--font-display); font-weight: 600; font-size: clamp(
 .cf-code-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: end; margin-top: 10px; }
 .cf-code-row .btn { white-space: nowrap; }
 .cf-code { font-family: ui-monospace, monospace; letter-spacing: .1em; font-weight: 700; }
+.wa-copied { align-self: center; color: var(--good); font-weight: 600; font-size: 13px; white-space: nowrap; }
 @media (max-width: 620px) { .cf-code-row { grid-template-columns: 1fr; } }
 
 /* chip del catálogo VIP en el catálogo y en el panel */
