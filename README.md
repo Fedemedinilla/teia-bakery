@@ -85,6 +85,12 @@ demorar un pedido; si falta configuración, no se mandan y no rompen):
 5. Deploy: push a `main` → Vercel.
 
 ## Scripts
+- **`npm run check`** — verificador de tipos. ⚠️ `npm run build` **NO evalúa el frontmatter de las
+  páginas**: un identificador que no existe (por ejemplo un helper que se dejó de importar) compila
+  igual y revienta con 500 recién en producción, y **solo en la rama con Supabase conectado** — el
+  modo demo no la ejecuta. Ya pasó una vez. Antes de deployar un cambio en el frontmatter de una
+  página, correr esto y mirar los errores **`ts(2304) Cannot find name`**: esa clase es real. El
+  resto del ruido es tipado laxo preexistente, todavía sin limpiar.
 - `npm run vapid` — genera el par de claves VAPID para las notificaciones (una sola vez).
 - `python scripts/pwa-icons.py` — regenera los íconos de las dos apps desde el logo.
 - `npx tsx scripts/test-remito.ts` — remitos con inputs hostiles (emoji, NFD, 30 ítems con
