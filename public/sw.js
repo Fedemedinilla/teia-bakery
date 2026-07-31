@@ -109,7 +109,21 @@ self.addEventListener('push', (evento) => {
 
   // showNotification es OBLIGATORIO: el navegador exige que todo push se traduzca en algo
   // visible. Si no, deja de mandar los siguientes.
-  evento.waitUntil(self.registration.showNotification(d.titulo || 'Nuevo pedido', opciones));
+  const tareas = [self.registration.showNotification(d.titulo || 'Nuevo pedido', opciones)];
+
+  // Globo con el numero de pedidos pendientes sobre el icono de la app.
+  // El aviso momentaneo se pierde entre otras notificaciones; el globo QUEDA hasta que se miren
+  // los pedidos. Es lo que pidio Mica: "un puntito o un uno... por si justo no veo cuando llega".
+  // Si el numero no vino (no se pudo contar), no se toca: borrarlo diria "no tenes nada".
+  if (typeof d.pendientes === 'number' && self.navigator && 'setAppBadge' in self.navigator) {
+    tareas.push(
+      d.pendientes > 0
+        ? self.navigator.setAppBadge(d.pendientes)
+        : self.navigator.clearAppBadge()
+    );
+  }
+
+  evento.waitUntil(Promise.all(tareas).catch(() => {}));
 });
 
 self.addEventListener('notificationclick', (evento) => {

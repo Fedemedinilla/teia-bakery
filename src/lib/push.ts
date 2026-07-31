@@ -11,9 +11,24 @@
 // La criptografía (firma VAPID + cifrado del contenido) la hace `web-push`: es un estándar con
 // varios pasos donde un error es invisible hasta que el aviso simplemente no llega.
 import webpush from 'web-push';
-import { env, sbSelect, sbDelete } from './supabase';
+import { env, sbSelect, sbSelectStrict, sbDelete } from './supabase';
 
 const TIMEOUT_MS = 6000;
+
+/**
+ * Cuántos pedidos están esperando acción. Es el número del globo sobre el ícono de la app.
+ *
+ * Pedido de Mica en la Meet 02: el aviso momentáneo se le pasa —recibe muchas notificaciones a la
+ * vez— y quería "un puntito o un uno" que quede hasta que lo mire. Sin eso se le escapan pedidos.
+ *
+ * sbSelectStrict y no sbSelect: este último devuelve [] si la consulta falla, y un 0 le BORRARÍA
+ * el globo haciéndole creer que no tiene nada pendiente. Ante la duda, se devuelve null y el
+ * globo no se toca.
+ */
+async function pedidosPendientes(): Promise<number | null> {
+  const filas = await sbSelectStrict('teia_orders?status=eq.pendiente&select=id');
+  return filas === null ? null : (filas as any[]).length;
+}
 
 export function pushConfigured(): boolean {
   return !!(env('TEIA_VAPID_PUBLIC_KEY') && env('TEIA_VAPID_PRIVATE_KEY'));
@@ -88,12 +103,15 @@ async function enviarATodos(cuerpo: string): Promise<{ entregados: number; total
 export async function avisarPushPedido(d: AvisoPush): Promise<void> {
   try {
     const monto = '$' + Number(d.total || 0).toLocaleString('es-AR');
+    const pendientes = await pedidosPendientes();
     await enviarATodos(
       JSON.stringify({
         titulo: `Nuevo pedido — ${d.order_number}`,
         cuerpo: `${d.comercio} · ${monto}`,
         url: d.url,
         tag: d.order_number, // un aviso por pedido: reenviar el mismo reemplaza, no duplica
+        // Va solo si se pudo contar: null significa "no sé", y no saber no puede borrarle el globo.
+        ...(pendientes === null ? {} : { pendientes }),
       })
     );
   } catch {

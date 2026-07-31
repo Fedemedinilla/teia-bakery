@@ -90,7 +90,12 @@ export async function ensureMonthClientPath(dateIso: string, clientName: string)
   const mm = parts.find((p) => p.type === 'month')!.value.padStart(2, '0');
   const root = await ensureRoot();
   const year = await ensureFolder(yy, root.id);
-  const month = await ensureFolder(`${mm} - ${MESES[Number(mm) - 1] || mm}`, year.id);
+  // Solo el nombre del mes ("Julio"), sin el número delante: pedido de Mica en la Meet 02.
+  // ⚠️ Efecto secundario: ordenadas por nombre quedan alfabéticas (Abril, Agosto, Diciembre…) y
+  // no cronológicas. Se ordenan bien poniendo Drive en "Última modificación". Si algún día
+  // molesta, se vuelve a `${mm} - ${nombre}` y las carpetas viejas conviven sin romper nada
+  // (cada una se busca por su nombre exacto).
+  const month = await ensureFolder(MESES[Number(mm) - 1] || mm, year.id);
   const safeName = String(clientName || 'Sin nombre').replace(/[\\/:*?"<>|]/g, '·').slice(0, 80).trim() || 'Sin nombre';
   const client = await ensureFolder(safeName, month.id);
   return client.id;

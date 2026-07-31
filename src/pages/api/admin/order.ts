@@ -59,12 +59,18 @@ export const POST: APIRoute = async ({ request }) => {
     }
   }
 
-  // Recalcular el total: subtotal de los ítems, menos el descuento fiel (0 o 10%).
+  // Recalcular el total: subtotal de los ítems, menos el descuento fiel.
+  //
+  // El porcentaje sale de una LISTA CERRADA y se valida acá, no en el navegador: el descuento es
+  // plata, así que un valor inventado en el body (105, -20, "abc") no puede llegar a la base.
+  // Cualquier cosa fuera de la lista se trata como 0 — el pedido entra a precio de lista, que es
+  // el error que no perjudica a Teia.
+  const DESCUENTOS = [0, 5, 10, 15, 20];
   const fresh = await sbSelect(`teia_order_items?order_id=eq.${orderId}&select=line_total`);
   const subtotal = (fresh as any[]).reduce((s, i) => s + (Number(i.line_total) || 0), 0);
   let pct: number;
   if ('discount_pct' in b) {
-    pct = [0, 10].includes(Number(b.discount_pct)) ? Number(b.discount_pct) : 0;
+    pct = DESCUENTOS.includes(Number(b.discount_pct)) ? Number(b.discount_pct) : 0;
   } else {
     // No vino el descuento en este request → mantener el que ya tenía el pedido.
     const cur = await sbSelect(`teia_orders?id=eq.${orderId}&select=discount_pct`);
