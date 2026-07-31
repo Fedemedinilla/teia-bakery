@@ -2,7 +2,9 @@
 export const prerender = false;
 import Base from '../layouts/Base.astro';
 import InstalarApp from '../components/InstalarApp.astro';
-import { sbSelectStrict, supaConfigured, env } from '../lib/supabase';
+// sbSelect (no estricto) se sigue usando para los rubros: si esa consulta falla, lo único que
+// pasa es que las secciones quedan sin ordenar. No justifica cortarle el catálogo a nadie.
+import { sbSelect, sbSelectStrict, supaConfigured, env } from '../lib/supabase';
 import { respuestaNoDisponible } from '../lib/nodisponible';
 import { readSession, clearSessionCookie, setSessionCookie } from '../lib/session';
 import { isTeiaAdmin, authChallenge } from '../lib/auth';
