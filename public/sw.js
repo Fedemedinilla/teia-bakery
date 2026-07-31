@@ -1,38 +1,27 @@
 // Service worker de Teia Bakery.
 //
-// ⚠️ REGLA PRINCIPAL: NO se cachea nada privado.
-// Esta app es un gate: /catalogo muestra precios mayoristas DISTINTOS segun la lista de cada
-// cliente, y /administradora esta detras de la clave del panel. Un HTML guardado en cache podria
-// (a) mostrarle a un comercio los precios de otra lista, (b) sobrevivir a un "Salir" o a una baja
-// de cuenta, o (c) dejar ver el panel sin la clave. Por eso el HTML NUNCA se guarda: siempre va a
-// la red, y si no hay red se muestra una pagina generica de cortesia, sin datos.
+// ⚠️ HACE UNA SOLA COSA: guardar los archivos de /_astro/ para que la app abra rapido.
+// Nada mas. Ni HTML, ni la API, ni las navegaciones.
 //
-// ⚠️ EL PANEL NO SE TOCA. Las navegaciones a /administradora pasan derecho al navegador, sin
-// pasar por aca. Motivo: el panel usa autenticacion HTTP Basic, y un 401 que llega por un fetch()
-// hecho DESDE el service worker no dispara el cartel de usuario/contrasena (para el navegador esa
-// request no tiene ventana asociada, asi que no pregunta y muestra el 401 pelado). Si Mica
-// perdiera las credenciales guardadas, se quedaria mirando "Autenticacion requerida" sin manera
-// de entrar. Dejandolo pasar, el cartel aparece siempre como corresponde.
+// El HTML NO se cachea nunca porque esta app es un gate: /catalogo muestra precios mayoristas
+// DISTINTOS segun la lista de cada cliente y /administradora esta detras de una clave. Una copia
+// guardada podria mostrarle a un comercio los precios de otra lista o sobrevivir a un "Salir".
+//
+// Las NAVEGACIONES pasan derecho al navegador (ver la nota en el handler): interceptarlas rompia
+// la entrada en iPhone y, en el panel, el cartel de usuario/contrasena.
 //
 // Lo UNICO que se cachea es /_astro/ : esos archivos llevan un hash de contenido en el nombre, o
 // sea que al cambiar cambian de nombre. Es imposible que queden viejos.
 //
 // 🔧 MANTENIMIENTO: no hay que acordarse de nada al cambiar un icono, el logo o una foto — esas
-// cosas ya no se cachean. El unico motivo para subir VERSION es editar offline.html (y aun asi,
-// quedarse con la version vieja de una pagina que solo dice "sin conexion" no rompe nada).
+// cosas no se cachean. Subir VERSION solo si alguna vez se cambia QUE se cachea.
 
-const VERSION = 'teia-v2';
+const VERSION = 'teia-v3';
 const CACHE = VERSION;
-const OFFLINE = '/offline.html';
 
 self.addEventListener('install', (evento) => {
-  evento.waitUntil(
-    caches.open(CACHE)
-      // cache: 'reload' fuerza bajarla de la red: sin esto se podria instalar una copia vieja
-      // que el navegador tuviera guardada en su propio cache HTTP.
-      .then((c) => c.add(new Request(OFFLINE, { cache: 'reload' })))
-      .then(() => self.skipWaiting())
-  );
+  // Nada que precargar: el worker no sirve contenido propio, solo guarda lo que ya se pidio.
+  evento.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', (evento) => {
@@ -61,20 +50,17 @@ self.addEventListener('fetch', (evento) => {
   // La API nunca se cachea: son datos vivos y privados.
   if (url.pathname.startsWith('/api/')) return;
 
-  // Navegaciones = HTML. SIEMPRE a la red. Sin red, pagina de cortesia; nunca HTML guardado.
-  if (req.mode === 'navigate') {
-    evento.respondWith(
-      fetch(req).catch(() =>
-        caches.match(OFFLINE).then((r) =>
-          r || new Response('Sin conexion.', {
-            status: 503,
-            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-          })
-        )
-      )
-    );
-    return;
-  }
+  // ⚠️ LAS NAVEGACIONES NO SE TOCAN. Pasan derecho al navegador.
+  //
+  // Se interceptaban para mostrar una pagina de cortesia sin conexion, y eso ROMPIA la entrada en
+  // iPhone: cuando /catalogo redirige (sesion ausente o vencida) devuelve un 302 sin
+  // Content-Type; al pasar esa redireccion por el worker, Safari no la sigue — muestra
+  // "¿Quieres descargar 'catalogo'?" y el comercio se queda afuera sin entender por que.
+  // (WebKit y las redirecciones opacas devueltas desde un service worker.)
+  //
+  // No se pierde nada que importe: esta app necesita red igual (el catalogo y los precios son
+  // vivos, no se puede pedir sin conexion). Menos interceptacion = menos casos raros.
+  if (req.mode === 'navigate') return;
 
   // Archivos con hash en el nombre: primero el cache (rapido y sirve offline), si no se baja.
   if (url.pathname.startsWith('/_astro/')) {
