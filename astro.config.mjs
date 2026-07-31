@@ -6,7 +6,11 @@ import vercel from '@astrojs/vercel';
 // opt out with `export const prerender = false` (the catalog, the admin panel, and the /api
 // endpoints) — those run as on-demand Vercel serverless functions so they read live Supabase data.
 export default defineConfig({
-  site: 'https://app.teiabakery.com.ar',
+  // El dominio real de la app. Hoy es el de Vercel: se decidió entregar sobre este origen y
+  // mudar más adelante. ⚠️ El día que se levante app.teiabakery.com.ar hay que cambiarlo ACÁ,
+  // poner TEIA_APP_URL en Vercel y REINSTALAR las apps de los celulares (el `id` de los manifests
+  // es relativo al origen, así que para el teléfono el dominio nuevo es otra app distinta).
+  site: 'https://teia-bakery.vercel.app',
   output: 'static',
   adapter: vercel({ maxDuration: 30 }),
   // Sin scripts INLINE: en el build de producción Astro inlinea los scripts chicos, y la CSP

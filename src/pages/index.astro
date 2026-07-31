@@ -18,7 +18,9 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
 const pideCodigo = codeRequired();
 
 // WhatsApp de Teia para el que no está habilitado: el "no" se convierte en una consulta.
-const WHATSAPP = (env('TEIA_WHATSAPP') || '5491176239937').replace(/\D/g, '');
+// El default es el WhatsApp REAL de Teia (+54 9 11 3101-9238): si algún día falta la env var,
+// el comercio rechazado le escribe igual a ella y no a nadie más.
+const WHATSAPP = (env('TEIA_WHATSAPP') || '5491131019238').replace(/\D/g, '');
 const waTexto = '¡Hola Teia! Quiero pedir por mayor. Mi CUIT es: ';
 const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(waTexto)}`;
 ---
