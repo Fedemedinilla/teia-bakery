@@ -1,15 +1,16 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
-import { isTeiaAdmin, authChallenge } from '../../../lib/auth';
+import { isTeiaAdmin, redirigirAlIngreso } from '../../../lib/auth';
 import { sbSelectStrict, sbSignedUrl, supaConfigured } from '../../../lib/supabase';
 
 // Sirve el remito de un pedido con una URL FIRMADA temporal. El bucket `teia-remitos` es
 // privado: sin este proxy no hay forma de leer un remito. Gated por la clave del panel, así
 // que un link del Sheet o del panel reenviado a un tercero NO abre el PDF sin la clave.
-// authChallenge (no 401 pelado) para que al abrir el link en una pestaña nueva el navegador
-// pida la clave si hace falta, en vez de mostrar un error.
+// Sin sesión se manda a la pantalla de ingreso (no un 401 pelado): el link se abre en una
+// pestaña nueva —o desde la planilla de Google— y ahí conviene poder escribir la clave y seguir,
+// en vez de toparse con un error. Después de entrar vuelve solo a este mismo remito.
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!isTeiaAdmin(request)) return authChallenge();
+  if (!isTeiaAdmin(request)) return redirigirAlIngreso(new URL(request.url).pathname + new URL(request.url).search);
   if (!supaConfigured()) return new Response('Sin configurar.', { status: 503 });
 
   const id = Number(url.searchParams.get('id'));

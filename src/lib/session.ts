@@ -13,7 +13,7 @@ export const SESSION_MAX_AGE = 60 * 60 * 24 * 90; // 90 días
 // propia (al cargarla, las sesiones vivas se re-firman una vez — un re-login, aceptable).
 // Si no hay NINGUNA fuente en producción, se lanza en vez de caer a un valor conocido: un
 // fallback hardcodeado dejaría que cualquiera firme una sesión para cualquier comercio.
-function secret(): string {
+export function secret(): string {
   const s = env('TEIA_SESSION_SECRET') || env('SUPABASE_SERVICE_ROLE_KEY') || env('TEIA_ADMIN_PASSWORD');
   if (s) return s;
   if (env('NODE_ENV') === 'production') throw new Error('Falta el secreto de sesión (TEIA_SESSION_SECRET).');

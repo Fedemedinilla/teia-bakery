@@ -1,7 +1,7 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
 import crypto from 'node:crypto';
-import { isTeiaAdmin, authChallenge } from '../../../../lib/auth';
+import { isTeiaAdmin, redirigirAlIngreso } from '../../../../lib/auth';
 import { env } from '../../../../lib/supabase';
 import { readOAuthState, OAUTH_STATE_COOKIE, clearOAuthStateCookie } from '../../../../lib/session';
 
@@ -12,7 +12,7 @@ const esc = (s: any) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 
 export const GET: APIRoute = async ({ request }) => {
-  if (!isTeiaAdmin(request)) return authChallenge();
+  if (!isTeiaAdmin(request)) return redirigirAlIngreso(new URL(request.url).pathname + new URL(request.url).search);
   const u = new URL(request.url);
   const code = u.searchParams.get('code');
   const err = u.searchParams.get('error');

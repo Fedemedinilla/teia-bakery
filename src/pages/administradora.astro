@@ -3,7 +3,7 @@ export const prerender = false;
 import Base from '../layouts/Base.astro';
 import InstalarApp from '../components/InstalarApp.astro';
 import ActivarAvisos from '../components/ActivarAvisos.astro';
-import { isTeiaAdmin, authChallenge } from '../lib/auth';
+import { isTeiaAdmin, redirigirAlIngreso } from '../lib/auth';
 import { sbSelect, supaConfigured, env } from '../lib/supabase';
 import { fmtCuit } from '../lib/cuit';
 import { CATALOGS, catalogOf, catalogLabel, DEFAULT_CATALOG, attrSafe } from '../lib/catalogs';
@@ -14,7 +14,7 @@ import { DEMO_PRODUCTS, DEMO_ORDERS, DEMO_ORDER_ITEMS, DEMO_CLIENTS } from '../l
 // Supabase estaba conectado — un deploy sin esas env vars abría el panel entero.
 const configured = supaConfigured();
 if (!isTeiaAdmin(Astro.request) && env('TEIA_ADMIN_PASSWORD')) {
-  return authChallenge();
+  return redirigirAlIngreso();
 }
 
 // Esta página trae datos de TODOS los clientes (razones sociales, CUITs, precios de las dos
@@ -97,6 +97,7 @@ const appUrl = (env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app').replace
       <a class="btn btn--ghost" id="gSheet" href="#" target="_blank" rel="noopener" hidden>📊 Planilla</a>
       <a class="btn btn--ghost" id="gConnect" href="/api/admin/google/start" hidden>🔗 Conectar Google</a>
       <a class="btn btn--ghost" href="mailto:hello@kyndredai.com">🛟 Soporte</a>
+      {env('TEIA_ADMIN_PASSWORD') && <button class="btn btn--ghost" type="button" id="salirPanel">🔒 Salir</button>}
     </p>
 
     <div class="tabs" role="tablist">
@@ -466,6 +467,18 @@ const appUrl = (env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app').replace
   </div>
 
   <script>
+    // ---- salir del panel ----
+    // Va por fetch con JSON (no un form): detrás del proxy de Vercel, el checkOrigin de Astro
+    // rechaza los POST con content-type de formulario aunque salgan del propio sitio.
+    document.getElementById('salirPanel')?.addEventListener('click', async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true; b.textContent = 'Saliendo…';
+      try {
+        await fetch('/api/admin/salir', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      } catch {}
+      location.href = '/administradora';
+    });
+
     // ---- tabs ----
     const showTab = (name) => {
       document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('is-active', t.dataset.tab === name));

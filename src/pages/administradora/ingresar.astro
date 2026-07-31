@@ -1,0 +1,95 @@
+---
+export const prerender = false;
+// Pantalla de ingreso al panel. Reemplaza al cartel de usuario/contraseña del navegador, que
+// dentro de una app instalada en iPhone NO se puede mostrar (ver src/lib/auth.ts).
+//
+// ⚠️ Vive DENTRO de /administradora/ a propósito: el alcance de la app instalada del panel es
+// `/administradora`, así que una pantalla de ingreso en otra ruta se abriría en el navegador y
+// sacaría a Mica de la app justo al entrar.
+import Base from '../../layouts/Base.astro';
+import { isTeiaAdmin } from '../../lib/auth';
+import { env } from '../../lib/supabase';
+
+// Ya entró: no tiene sentido pedirle la clave de nuevo.
+if (isTeiaAdmin(Astro.request)) return Astro.redirect('/administradora');
+
+// Sin clave configurada el panel queda abierto (modo demo/local): no hay nada que pedir.
+if (!env('TEIA_ADMIN_PASSWORD')) return Astro.redirect('/administradora');
+
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+// A dónde volver después de entrar. SOLO rutas internas del panel: un `volver` libre sería un
+// redirect abierto (se lo podría usar para mandar a alguien a una página falsa desde un link que
+// parece nuestro). Se exige que empiece con "/" y NO con "//" — "//otrositio.com" es una URL
+// absoluta disfrazada de ruta.
+const pedido = Astro.url.searchParams.get('volver') || '';
+const interno =
+  pedido.startsWith('/') &&
+  !pedido.startsWith('//') &&
+  (pedido.startsWith('/administradora') || pedido.startsWith('/api/admin/') || pedido.startsWith('/catalogo?ver='));
+const volver = interno ? pedido : '/administradora';
+---
+<Base title="Ingresar al panel — Teia Bakery" app="admin">
+  <main class="gate">
+    <div class="gate__card">
+      <img class="gate__logo" src="/logo-teia.png" alt="Teia Bakery" width="2432" height="273" />
+      <h1 class="gate__t">Panel de Teia</h1>
+      <p class="gate__s">Ingresá tu clave para administrar los pedidos.</p>
+
+      {/* Form real con autocomplete estándar: así el llavero del celular ofrece guardar la clave
+          y la completa sola la próxima vez. */}
+      <form id="panelForm" method="POST" action="/api/admin/entrar" novalidate>
+        <input type="hidden" id="panelVolver" value={volver} />
+        <label for="panelClave">Clave del panel</label>
+        <div class="gate__pw">
+          <input id="panelClave" name="clave" type="password" autocomplete="current-password"
+                 required autofocus />
+          <button type="button" class="gate__eye" id="panelEye" aria-label="Mostrar la clave">👁</button>
+        </div>
+        <button class="btn btn--block" type="submit" id="panelBtn">Entrar</button>
+        <p class="gate__msg" id="panelMsg" role="status" aria-live="polite" hidden></p>
+      </form>
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById('panelForm');
+    const clave = document.getElementById('panelClave');
+    const btn = document.getElementById('panelBtn');
+    const msg = document.getElementById('panelMsg');
+    const volver = document.getElementById('panelVolver');
+
+    document.getElementById('panelEye')?.addEventListener('click', () => {
+      const ver = clave.type === 'password';
+      clave.type = ver ? 'text' : 'password';
+      document.getElementById('panelEye').textContent = ver ? '🙈' : '👁';
+    });
+
+    const mostrar = (texto) => {
+      msg.hidden = false;
+      msg.className = 'gate__msg err';
+      msg.textContent = texto;
+    };
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!clave.value) { clave.focus(); return mostrar('Escribí la clave.'); }
+      btn.disabled = true; btn.textContent = 'Entrando…';
+      try {
+        // JSON y no formulario: detrás del proxy de Vercel, el checkOrigin de Astro rechaza los
+        // POST con content-type de formulario aunque vengan del propio sitio.
+        const r = await fetch('/api/admin/entrar', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clave: clave.value }),
+        });
+        const o = await r.json().catch(() => ({}));
+        if (r.ok && o.ok) { location.href = volver.value || '/administradora'; return; }
+        mostrar((o && o.error) || 'No pudimos verificar la clave.');
+      } catch {
+        mostrar('No se pudo conectar. Revisá tu internet y probá de nuevo.');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Entrar';
+      }
+    });
+  </script>
+</Base>

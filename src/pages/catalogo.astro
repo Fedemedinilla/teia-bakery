@@ -7,7 +7,7 @@ import InstalarApp from '../components/InstalarApp.astro';
 import { sbSelect, sbSelectStrict, supaConfigured, env } from '../lib/supabase';
 import { respuestaNoDisponible } from '../lib/nodisponible';
 import { readSession, clearSessionCookie, setSessionCookie } from '../lib/session';
-import { isTeiaAdmin, authChallenge } from '../lib/auth';
+import { isTeiaAdmin, redirigirAlIngreso } from '../lib/auth';
 import { catalogOf, catalogLabel, DEFAULT_CATALOG, attrSafe } from '../lib/catalogs';
 import { DEMO_PRODUCTS, DEMO_CLIENTS } from '../lib/demo';
 
@@ -24,7 +24,7 @@ const configured = supaConfigured();
 // (Para previsualizar en local, poné TEIA_ADMIN_PASSWORD en el .env.)
 const preview = Astro.url.searchParams.get('ver');
 const isAdminPreview = Boolean(preview) && isTeiaAdmin(Astro.request);
-if (preview && !isAdminPreview) return authChallenge();
+if (preview && !isAdminPreview) return redirigirAlIngreso(Astro.url.pathname + Astro.url.search);
 
 const sessionId = isAdminPreview ? null : readSession(Astro.cookies.get('teia_sess')?.value);
 if (!isAdminPreview && !sessionId) return Astro.redirect('/');
