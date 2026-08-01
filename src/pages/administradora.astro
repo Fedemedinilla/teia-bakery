@@ -246,7 +246,7 @@ const pendientes = (orders as any[]).filter((o) => o.status === 'pendiente').len
               </div>
               <button class="btn btn--ghost gen-code" type="button">🔄 Generar</button>
               <button class="btn btn--ghost wa-code" type="button">💬 Enviar por WhatsApp</button>
-              <span class="wa-copied" hidden>✓ Copiado con éxito</span>
+              <span class="wa-copied" hidden>✓ Copiado — pegalo en WhatsApp</span>
             </div>
             <div class="grid2">
               <div>
@@ -919,8 +919,25 @@ const pendientes = (orders as any[]).filter((o) => o.status === 'pendiente').len
         const ok = document.createElement('textarea'); // fallback si clipboard falla (http, permisos)
         const marcarCopiado = () => {
           const msg = card.querySelector('.wa-copied');
-          if (msg) { msg.hidden = false; setTimeout(() => (msg.hidden = true), 2600); }
+          if (msg) { msg.hidden = false; setTimeout(() => (msg.hidden = true), 3200); }
         };
+
+        // PRIMERO compartir DE VERDAD. El botón dice "Enviar por WhatsApp" y antes solo copiaba
+        // al portapapeles: Mica lo tocaba, veía "copiado con éxito" y esperaba que le llegara
+        // algo — el botón prometía una cosa y hacía otra. Con la hoja de compartir del celular
+        // elige WhatsApp y el contacto, y el mensaje sale de una. Es la misma mecánica del botón
+        // de compartir el remito, que ya usa.
+        if (navigator.share) {
+          try {
+            await navigator.share({ text: texto });
+            return; // se compartió: no hace falta tocar el portapapeles
+          } catch (e) {
+            // Cerró el menú a propósito: no es un error, y no hay que copiarle nada a sus espaldas.
+            if (e && e.name === 'AbortError') return;
+            // Cualquier otro fallo (escritorio, permisos): sigue al portapapeles.
+          }
+        }
+
         try {
           await navigator.clipboard.writeText(texto);
           marcarCopiado();
