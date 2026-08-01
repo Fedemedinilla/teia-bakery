@@ -124,9 +124,14 @@ export async function avisarPushPedido(d: AvisoPush): Promise<void> {
  * interesa el resultado: quien aprieta el botón quiere saber si llegó o no. Devuelve cuántos
  * teléfonos lo recibieron para poder decirlo en pantalla.
  */
-export async function probarPush(): Promise<{ entregados: number; total: number }> {
+export async function probarPush(): Promise<{ entregados: number; total: number; pendientes: number | null }> {
   try {
-    return await enviarATodos(
+    // ⚠️ El aviso de prueba TAMBIÉN manda el número de pendientes. Sin esto, el service worker
+    // no encendía el globo del ícono —su condición es que el número venga— así que probar con
+    // este botón parecía demostrar que el globo no funciona, cuando en realidad nunca se le
+    // pedía que lo pintara. Solo lo mandaban los pedidos reales.
+    const pendientes = await pedidosPendientes();
+    const r = await enviarATodos(
       JSON.stringify({
         titulo: 'Prueba de aviso',
         cuerpo: 'Si ves esto, los avisos de pedidos funcionan en este dispositivo.',
@@ -135,9 +140,11 @@ export async function probarPush(): Promise<{ entregados: number; total: number 
         // la anterior que seguía en el centro de notificaciones de Windows: parecía que el
         // aviso solo funcionaba una vez.
         tag: 'prueba-' + Date.now(),
+        ...(pendientes === null ? {} : { pendientes }),
       })
     );
+    return { ...r, pendientes };
   } catch {
-    return { entregados: 0, total: 0 };
+    return { entregados: 0, total: 0, pendientes: null };
   }
 }

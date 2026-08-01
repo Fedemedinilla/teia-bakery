@@ -102,8 +102,16 @@ const clave = vapidPublicKey();
         const o = await r.json().catch(() => ({}));
         if (r.ok && o.entregados > 0) {
           probar.textContent = '✓ Enviado';
+          // Se dice qué esperar del GLOBO del ícono, que es lo que más confunde: si no hay
+          // pedidos pendientes no se enciende ninguno, y eso no es una falla.
+          const globo = typeof o.pendientes !== 'number'
+            ? ''
+            : o.pendientes > 0
+              ? ' El globo del ícono debería marcar ' + o.pendientes + '.'
+              : ' No tenés pedidos pendientes, así que el globo del ícono no se va a encender.';
           desc.textContent = 'Aviso de prueba enviado a ' + o.entregados +
-            (o.entregados === 1 ? ' dispositivo.' : ' dispositivos.') + ' Debería aparecer en unos segundos.';
+            (o.entregados === 1 ? ' dispositivo.' : ' dispositivos.') +
+            ' Debería aparecer en unos segundos.' + globo;
         } else if (r.ok) {
           desc.textContent = 'No se pudo entregar en ningún dispositivo. Probá desactivar y volver a activar.';
           probar.textContent = 'Probar';

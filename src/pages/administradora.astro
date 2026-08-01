@@ -90,6 +90,8 @@ const pendientes = (orders as any[]).filter((o) => o.status === 'pendiente').len
 
     <InstalarApp app="admin" />
     <ActivarAvisos />
+    {/* Estado del globo del ícono. Se llena desde el script; oculto si no hay nada que decir. */}
+    <p class="muted" id="badgeEstado" style="margin:-8px 0 14px;font-size:12.5px" hidden></p>
 
     {!configured && <p class="card" style="margin-bottom:12px">🧪 <b>Modo demo</b> — datos de ejemplo. Conectá Supabase + la clave para el panel real.</p>}
 
@@ -480,12 +482,34 @@ const pendientes = (orders as any[]).filter((o) => o.status === 'pendiente').len
     // Abrir el panel pone el globo en el número REAL de pedidos que esperan acción (no lo borra
     // por el solo hecho de abrirlo): si entra, mira y no confirma nada, el recordatorio sigue.
     // Al confirmar o borrar un pedido la página recarga y el número baja solo.
-    // Solo funciona sobre la app instalada y con los avisos activados; si no, no hace nada.
-    (() => {
+    //
+    // El resultado se REPORTA en pantalla en vez de tragarse: la primera versión hacía
+    // `.catch(() => {})` y cuando no funcionó no había forma de saber por qué. Mismo error que
+    // con Opera. Si algo falla, acá abajo dice qué.
+    (async () => {
+      const aviso = document.getElementById('badgeEstado');
+      const decir = (t) => { if (aviso) { aviso.textContent = t; aviso.hidden = false; } };
       const n = Number(document.querySelector('.admin-wrap')?.dataset.pendientes || 0);
-      if (!('setAppBadge' in navigator)) return;
-      const p = n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge();
-      p?.catch?.(() => {}); // sin permiso o fuera de la app instalada: silencioso, no es un error
+
+      const instalada =
+        window.matchMedia('(display-mode: standalone)').matches ||
+        ('standalone' in navigator && navigator.standalone === true);
+
+      if (!('setAppBadge' in navigator)) {
+        return decir('Globo del ícono: este navegador no lo soporta (' +
+          (instalada ? 'app instalada' : 'abierto en el navegador') + ').');
+      }
+      if (!instalada) {
+        return decir('Globo del ícono: solo aparece en la app instalada. Ahora estás en el navegador.');
+      }
+      try {
+        if (n > 0) await navigator.setAppBadge(n); else await navigator.clearAppBadge();
+        // OJO: que la llamada resuelva NO garantiza que se vea. En una pestaña común resuelve
+        // igual y no dibuja nada. Por eso se informa qué se PIDIÓ, no que haya funcionado.
+        if (n === 0) decir('Globo del ícono: no tenés pedidos pendientes, así que está apagado.');
+      } catch (e) {
+        decir('Globo del ícono: no se pudo. Motivo: ' + ((e && e.name ? e.name + ' — ' : '') + (e && e.message || e)));
+      }
     })();
 
     // ---- salir del panel ----
