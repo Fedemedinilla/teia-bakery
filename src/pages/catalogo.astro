@@ -187,15 +187,18 @@ const sections = [...groups.keys()]
         </div>
       </aside>
 
+      {/* Plegada: abierta ocupaba más que la pantalla y le metía scroll a la columna del
+          pedido. Cerrada es un botón; el que necesita el dato lo abre. (En /pedido queda
+          desplegada: ahí es el último momento antes de confirmar, y es donde de verdad se lee.) */}
       {(infoCliente as any[]).length > 0 && (
-        <div class="info-lat">
-          <h3>Antes de enviar, tené en cuenta</h3>
+        <details class="info-lat">
+          <summary>Antes de enviar, tené en cuenta</summary>
           <dl>
             {(infoCliente as any[]).map((f: any) => (
               <div><dt>{f.pregunta}</dt><dd>{f.respuesta}</dd></div>
             ))}
           </dl>
-        </div>
+        </details>
       )}
       <div class="backdrop" id="backdrop"></div>
     </div>

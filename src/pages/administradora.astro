@@ -924,7 +924,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         if (!codigo) { alert('Escribí la contraseña y tocá "Guardar cuenta" antes de mandarla: la cuenta no está lista hasta tenerla.'); return; }
         const appUrl = document.querySelector('.admin-wrap')?.dataset.appUrl || 'https://teia-bakery.vercel.app';
         const texto =
-          '¡Hola! 👋 Te damos la bienvenida a Teia Bakery 🧁\n\n' +
+          '¡Hola! 👋 Te damos la bienvenida a Teia Bakery\n\n' +
           'Estas son tus credenciales para acceder:\n\n' +
           '🔑 CUIT: ' + v('.cf-cuit') + '\n' +
           '🔒 Contraseña: ' + codigo + '\n\n' +

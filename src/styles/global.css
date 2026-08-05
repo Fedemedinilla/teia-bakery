@@ -416,9 +416,16 @@ input[type="checkbox"] { width: auto; }
 
 /* Información en el CATÁLOGO: debajo del carrito, en la misma columna. En celular el carrito
    es una barra fija abajo, así que este bloque cae al final de la página (que es donde se lee). */
-.info-lat { border: 1px solid var(--line-2); background: var(--surface-2); border-radius: var(--r-md); padding: 14px 16px; margin: 34px 0 8px; }
-.info-lat h3 { font-size: 14px; margin: 0 0 10px; }
-.info-lat dl { margin: 0; display: grid; gap: 10px; }
+.info-lat { border: 1px solid var(--line-2); background: var(--surface-2); border-radius: var(--r-md); margin: 34px 0 8px; }
+.info-lat > summary {
+  cursor: pointer; list-style: none; font-size: 14px; font-weight: 600;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 13px 16px;
+}
+.info-lat > summary::-webkit-details-marker { display: none; }
+.info-lat > summary::after { content: '＋'; color: var(--accent); font-weight: 400; }
+.info-lat[open] > summary::after { content: '−'; }
+.info-lat dl { margin: 0; padding: 0 16px 14px; display: grid; gap: 10px; }
 .info-lat dt { font-size: 13px; font-weight: 600; }
 .info-lat dd { margin: 2px 0 0; font-size: 13px; line-height: 1.55; color: var(--ink-2); white-space: pre-line; }
 
