@@ -4,7 +4,7 @@ import { isTeiaAdmin } from '../../../lib/auth';
 import { sbInsert, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
 import { isValidCuit, hasCuitShape, normCuit } from '../../../lib/cuit';
 import { isCatalog } from '../../../lib/catalogs';
-import { newAccessCode, normCode } from '../../../lib/accesscode';
+import { normCode, CODE_MIN } from '../../../lib/accesscode';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -44,13 +44,17 @@ export const POST: APIRoute = async ({ request }) => {
   }
   if ('active' in b) patch.active = b.active !== false;
 
-  // Código de acceso: 'generar' crea uno nuevo, '' lo borra, y cualquier otro valor se
-  // guarda tal cual (por si Mica prefiere elegirlo ella). Se devuelve para que lo vea/copie.
-  let generated: string | undefined;
+  // Contraseña del cliente. La escribe la administradora a mano, como el resto de los campos.
+  // Se guarda TAL CUAL la escribió (solo sin espacios sobrantes): así el mensaje que le manda al
+  // comercio dice exactamente lo mismo que ella ve en la ficha. Al entrar se compara ignorando
+  // mayúsculas, espacios, símbolos y acentos (ver normCode), así que el comercio no falla por un
+  // detalle de escritura. Vacío = la cuenta queda sin contraseña.
   if ('access_code' in b) {
-    if (b.access_code === 'generar') { generated = newAccessCode(); patch.access_code = generated; }
-    else if (!String(b.access_code ?? '').trim()) patch.access_code = null;
-    else { generated = normCode(b.access_code); patch.access_code = generated; }
+    const escrita = String(b.access_code ?? '').trim().slice(0, 80);
+    if (!escrita) patch.access_code = null;
+    else if (normCode(escrita).length < CODE_MIN) {
+      return json({ error: `La contraseña necesita al menos ${CODE_MIN} letras o números.` }, 400);
+    } else patch.access_code = escrita;
   }
   if ('discount_pct' in b) {
     patch.discount_pct = [0, 10].includes(Number(b.discount_pct)) ? Number(b.discount_pct) : 0;
@@ -68,22 +72,18 @@ export const POST: APIRoute = async ({ request }) => {
 
   if (id) {
     const ok = await sbPatch(`teia_clients?id=eq.${id}`, patch);
-    return ok ? json({ ok: true, warning, access_code: generated }) : json({ error: 'No se pudo guardar (¿el CUIT ya existe en otra cuenta?).' }, 409);
+    return ok ? json({ ok: true, warning }) : json({ error: 'No se pudo guardar (¿el CUIT ya existe en otra cuenta?).' }, 409);
   }
 
   if (!patch.cuit) return json({ error: 'Falta el CUIT de la cuenta nueva.' }, 400);
   if (!patch.business_name) return json({ error: 'Falta el nombre del comercio.' }, 400);
-  // Toda cuenta nueva nace con código, aunque el modo esté apagado: así el día que se
-  // encienda no hay que salir a generarlos de apuro para toda la cartera.
-  if (!('access_code' in patch)) { generated = newAccessCode(); patch.access_code = generated; }
   let created = await sbInsert('teia_clients', patch);
   if (!created && 'access_code' in patch) {
-    // Reintento sin el código: la base todavía puede no tener la columna (el SQL es
+    // Reintento sin la contraseña: la base todavía puede no tener la columna (el SQL es
     // opcional mientras el 2º factor esté apagado). Dar de alta un cliente nunca puede
     // fallar por una función que ni siquiera está activa.
     const { access_code, ...sinCodigo } = patch;
     created = await sbInsert('teia_clients', sinCodigo);
-    if (created) generated = undefined;
   }
-  return created ? json({ ok: true, warning, access_code: generated }) : json({ error: 'No se pudo crear (¿ya existe una cuenta con ese CUIT?).' }, 409);
+  return created ? json({ ok: true, warning }) : json({ error: 'No se pudo crear (¿ya existe una cuenta con ese CUIT?).' }, 409);
 };

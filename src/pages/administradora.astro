@@ -217,7 +217,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         {requireCode
           ? <span><b>🔒 Entrada con CUIT + código.</b> Cada comercio necesita su código para entrar la primera vez en cada teléfono.</span>
           : <span><b>🔓 Entrada solo con CUIT.</b> Alcanza el CUIT para entrar. Los códigos ya se generan y quedan guardados, listos para cuando quieras activarlos.</span>}
-        {sinCodigo > 0 && <span class="cli-modo__warn"> · {sinCodigo} cuenta{sinCodigo === 1 ? '' : 's'} sin código todavía</span>}
+        {sinCodigo > 0 && <span class="cli-modo__warn"> · {sinCodigo} cuenta{sinCodigo === 1 ? '' : 's'} sin contraseña todavía</span>}
       </p>
       {(clients as any[]).map((c: any) => (
         <div class="card clicard" data-id={c.id}>
@@ -247,11 +247,10 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
             </div>
             <div class="cf-code-row">
               <div>
-                <label>Código de acceso {!requireCode && <span class="muted">(todavía no se pide al entrar)</span>}</label>
-                <input class="cf-code" value={attrSafe(c.access_code)} placeholder="sin código" readonly />
+                <label>Contraseña {!requireCode && <span class="muted">(todavía no se pide al entrar)</span>}</label>
+                <input class="cf-code" value={attrSafe(c.access_code)} placeholder="escribila vos" autocomplete="off" />
               </div>
-              <button class="btn btn--ghost gen-code" type="button">🔄 Generar</button>
-              <button class="btn btn--ghost wa-code" type="button">💬 Enviar por WhatsApp</button>
+                            <button class="btn btn--ghost wa-code" type="button">💬 Enviar por WhatsApp</button>
               <span class="wa-copied" hidden>✓ Copiado — pegalo en WhatsApp</span>
             </div>
             <div class="grid2">
@@ -919,34 +918,14 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         body.hidden = !body.hidden;
         toggle.textContent = body.hidden ? 'Ver cuenta ▾' : 'Cerrar ▴';
       });
-      // Generar un código nuevo para esta cuenta (se guarda al instante en la base y queda a la
-      // vista). NO se recarga la página: si lo hiciéramos, se cerraría la ficha y se perdería lo
-      // que Mica venía cargando en los campos. El código aparece en su campo y el botón de
-      // WhatsApp lo lee de ahí, así que no hace falta refrescar nada.
-      card.querySelector('.gen-code')?.addEventListener('click', async () => {
-        const b = card.querySelector('.gen-code');
-        if (card.querySelector('.cf-code').value.trim() &&
-            !confirm('Ya tiene un código. Si generás uno nuevo, el anterior deja de servir y hay que avisarle al cliente. ¿Seguimos?')) return;
-        b.disabled = true; b.textContent = 'Generando…';
-        const r = await fetch('/api/admin/client', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: card.dataset.id, access_code: 'generar' }),
-        });
-        const o = await r.json().catch(() => ({}));
-        if (r.ok && o.access_code) {
-          card.querySelector('.cf-code').value = o.access_code; // queda a la vista, sin recargar
-          b.textContent = '✓ Generada';
-          setTimeout(() => { b.textContent = '🔄 Generar'; b.disabled = false; }, 1600);
-        } else { alert((o && o.error) || 'No se pudo generar el código.'); b.textContent = '🔄 Generar'; b.disabled = false; }
-      });
 
-      // COPIA al portapapeles el resumen de credenciales + datos, listo para pegar en WhatsApp.
-      // Lee los valores ACTUALES de los campos (si Mica los editó, van los editados). Una cuenta
-      // sin contraseña generada no está lista: se avisa en vez de copiar credenciales incompletas.
+      // Manda las credenciales por WhatsApp (o las copia si no hay hoja de compartir).
+      // Lee los valores ACTUALES de los campos, así que van los que Mica tenga escritos. Una
+      // cuenta sin contraseña no está lista: se avisa en vez de mandar credenciales incompletas.
       card.querySelector('.wa-code')?.addEventListener('click', async () => {
         const v = (sel) => (card.querySelector(sel)?.value || '').trim();
         const codigo = v('.cf-code');
-        if (!codigo) { alert('Primero generá la contraseña con el botón "Generar" — la cuenta no está lista hasta tenerla.'); return; }
+        if (!codigo) { alert('Escribí la contraseña y tocá "Guardar cuenta" antes de mandarla: la cuenta no está lista hasta tenerla.'); return; }
         const appUrl = document.querySelector('.admin-wrap')?.dataset.appUrl || 'https://teia-bakery.vercel.app';
         const texto =
           '¡Hola! 👋 Te damos la bienvenida a Teia Bakery 🧁\n\n' +
@@ -1005,6 +984,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
             business_name: v('.cf-name'), client_contact: v('.cf-contact'),
             delivery_address: v('.cf-addr'), notes: v('.cf-notes'), cuit: v('.cf-cuit'),
             catalog: v('.cf-catalog'), active: v('.cf-active') === '1',
+            access_code: v('.cf-code'), // la escribe ella a mano, como el resto
           }),
         });
         if (r.ok) {
