@@ -72,7 +72,15 @@ export const POST: APIRoute = async ({ request }) => {
 
   if (id) {
     const ok = await sbPatch(`teia_clients?id=eq.${id}`, patch);
-    return ok ? json({ ok: true, warning }) : json({ error: 'No se pudo guardar (¿el CUIT ya existe en otra cuenta?).' }, 409);
+    if (ok) return json({ ok: true, warning });
+    // El motivo casi siempre es un CUIT repetido, pero si la base no tiene todavía la columna
+    // access_code (el SQL del 2º factor sin correr) el error es el mismo y el cartel mandaba a
+    // buscar donde no era. Se nombran las dos causas cuando la contraseña viene en el pedido.
+    return json({
+      error: 'access_code' in patch
+        ? 'No se pudo guardar. Puede ser que ese CUIT ya esté en otra cuenta, o que a la base le falte la columna de contraseñas (hay que correr supabase/schema.sql).'
+        : 'No se pudo guardar (¿el CUIT ya existe en otra cuenta?).',
+    }, 409);
   }
 
   if (!patch.cuit) return json({ error: 'Falta el CUIT de la cuenta nueva.' }, 400);
@@ -84,6 +92,14 @@ export const POST: APIRoute = async ({ request }) => {
     // fallar por una función que ni siquiera está activa.
     const { access_code, ...sinCodigo } = patch;
     created = await sbInsert('teia_clients', sinCodigo);
+    // ⚠️ Pero se AVISA. Antes devolvía ok a secas: la cuenta se creaba, la contraseña se perdía
+    // en silencio y el comercio recibía por WhatsApp una clave que no existía en ningún lado.
+    if (created) {
+      return json({
+        ok: true,
+        warning: 'La cuenta se creó, pero la CONTRASEÑA no se guardó: a la base le falta la columna. Corré supabase/schema.sql y volvé a escribirla.',
+      });
+    }
   }
   return created ? json({ ok: true, warning }) : json({ error: 'No se pudo crear (¿ya existe una cuenta con ese CUIT?).' }, 409);
 };

@@ -215,8 +215,8 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
 
       <p class="card cli-modo">
         {requireCode
-          ? <span><b>🔒 Entrada con CUIT + código.</b> Cada comercio necesita su código para entrar la primera vez en cada teléfono.</span>
-          : <span><b>🔓 Entrada solo con CUIT.</b> Alcanza el CUIT para entrar. Los códigos ya se generan y quedan guardados, listos para cuando quieras activarlos.</span>}
+          ? <span><b>🔒 Entrada con CUIT + contraseña.</b> Cada comercio necesita su contraseña para entrar la primera vez en cada teléfono.</span>
+          : <span><b>🔓 Entrada solo con CUIT.</b> Hoy alcanza el CUIT para entrar: la contraseña se guarda pero todavía no se pide. Podés ir cargándolas igual.</span>}
         {sinCodigo > 0 && <span class="cli-modo__warn"> · {sinCodigo} cuenta{sinCodigo === 1 ? '' : 's'} sin contraseña todavía</span>}
       </p>
       {(clients as any[]).map((c: any) => (
@@ -247,7 +247,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
             </div>
             <div class="cf-code-row">
               <div>
-                <label>Contraseña {!requireCode && <span class="muted">(todavía no se pide al entrar)</span>}</label>
+                <label>Contraseña</label>
                 <input class="cf-code" value={attrSafe(c.access_code)} placeholder="escribila vos" autocomplete="off" />
               </div>
                             <button class="btn btn--ghost wa-code" type="button">💬 Enviar por WhatsApp</button>
@@ -915,13 +915,40 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         toggle.textContent = body.hidden ? 'Ver cuenta ▾' : 'Cerrar ▴';
       });
 
+      // Guarda la ficha y devuelve si salió bien. NO recarga: el que llama decide, porque el
+      // botón de WhatsApp necesita seguir vivo después de guardar para abrir la hoja de compartir.
+      const guardarCuenta = async () => {
+        const val = (sel) => { const e = card.querySelector(sel); return e ? e.value : ''; };
+        const r = await fetch('/api/admin/client', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: card.dataset.id,
+            business_name: val('.cf-name'), client_contact: val('.cf-contact'),
+            delivery_address: val('.cf-addr'), notes: val('.cf-notes'), cuit: val('.cf-cuit'),
+            catalog: val('.cf-catalog'), active: val('.cf-active') === '1',
+            access_code: val('.cf-code'), // la escribe ella a mano, como el resto
+          }),
+        });
+        const o = await r.json().catch(() => ({}));
+        return { ok: r.ok, warning: o && o.warning, error: (o && o.error) || 'No se pudo guardar la cuenta.' };
+      };
+
       // Manda las credenciales por WhatsApp (o las copia si no hay hoja de compartir).
-      // Lee los valores ACTUALES de los campos, así que van los que Mica tenga escritos. Una
-      // cuenta sin contraseña no está lista: se avisa en vez de mandar credenciales incompletas.
+      // GUARDA PRIMERO, siempre. Antes leía los campos sin guardar: se podía escribir una
+      // contraseña, tocar este botón y mandársela al comercio sin que quedara nunca en la base
+      // — el comercio recibía una clave que no existía y no podía entrar. Ahora el mensaje sale
+      // solo si lo que dice ya está guardado.
       card.querySelector('.wa-code')?.addEventListener('click', async () => {
+        const boton = card.querySelector('.wa-code');
         const v = (sel) => (card.querySelector(sel)?.value || '').trim();
         const codigo = v('.cf-code');
-        if (!codigo) { alert('Escribí la contraseña y tocá "Guardar cuenta" antes de mandarla: la cuenta no está lista hasta tenerla.'); return; }
+        if (!codigo) { alert('Escribí la contraseña antes de mandarla: la cuenta no está lista hasta tenerla.'); return; }
+        const rotulo = boton.textContent;
+        boton.textContent = 'Guardando…'; boton.disabled = true;
+        const guardado = await guardarCuenta();
+        boton.textContent = rotulo; boton.disabled = false;
+        if (!guardado.ok) { alert('No se mandó nada: primero hay que poder guardar la cuenta.\n\n' + guardado.error); return; }
+        if (guardado.warning) alert(guardado.warning);
         const appUrl = document.querySelector('.admin-wrap')?.dataset.appUrl || 'https://teia-bakery.vercel.app';
         const texto =
           '¡Hola! 👋 Te damos la bienvenida a Teia Bakery\n\n' +
@@ -971,25 +998,13 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
 
       card.querySelector('.save-cli')?.addEventListener('click', async () => {
         const btn = card.querySelector('.save-cli');
-        const v = (sel) => { const e = card.querySelector(sel); return e ? e.value : ''; };
         btn.textContent = 'Guardando…'; btn.disabled = true;
-        const r = await fetch('/api/admin/client', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: card.dataset.id,
-            business_name: v('.cf-name'), client_contact: v('.cf-contact'),
-            delivery_address: v('.cf-addr'), notes: v('.cf-notes'), cuit: v('.cf-cuit'),
-            catalog: v('.cf-catalog'), active: v('.cf-active') === '1',
-            access_code: v('.cf-code'), // la escribe ella a mano, como el resto
-          }),
-        });
-        if (r.ok) {
-          const o = await r.json().catch(() => ({}));
-          if (o && o.warning) alert(o.warning); // CUIT sin verificador válido: se guarda igual
+        const guardado = await guardarCuenta();
+        if (guardado.ok) {
+          if (guardado.warning) alert(guardado.warning); // CUIT sin verificador válido: se guarda igual
           location.reload();
         } else {
-          const o = await r.json().catch(() => ({}));
-          alert((o && o.error) || 'No se pudo guardar la cuenta.');
+          alert(guardado.error);
           btn.textContent = 'Guardar cuenta'; btn.disabled = false;
         }
       });
