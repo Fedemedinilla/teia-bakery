@@ -107,6 +107,18 @@ create table if not exists teia_categories (
   created_at  timestamptz not null default now()
 );
 
+-- Información para el cliente: medios de pago, envíos, cuánto duran los productos.
+-- La edita la ADMINISTRADORA desde la pestaña "Información" del panel — si mañana cambia el
+-- mínimo para envío sin cargo, lo cambia ella sin depender de nadie. Se muestra al final del
+-- catálogo (plegada) y resumida arriba del botón de enviar el pedido.
+create table if not exists teia_info (
+  id          bigint generated always as identity primary key,
+  pregunta    text not null,
+  respuesta   text not null,
+  sort_order  int default 0,
+  created_at  timestamptz not null default now()
+);
+
 -- Teléfonos suscriptos a los avisos de pedidos nuevos (notificaciones push del panel).
 -- Una fila por dispositivo que activó los avisos desde /administradora. El `endpoint` es la
 -- dirección que da el navegador (Apple o Google según el teléfono) y es único por dispositivo;
@@ -126,6 +138,7 @@ alter table teia_order_items enable row level security;
 alter table teia_categories  enable row level security;
 alter table teia_clients     enable row level security;
 alter table teia_push_subs   enable row level security;
+alter table teia_info        enable row level security;
 
 -- Storage: bucket PÚBLICO para las fotos de producto (subida desde /administradora con la
 -- service_role key; lectura pública vía URL). Correr una vez.

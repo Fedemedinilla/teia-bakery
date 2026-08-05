@@ -1,7 +1,9 @@
 ---
 export const prerender = false;
 import Base from '../layouts/Base.astro';
-import { sbSelectStrict, supaConfigured } from '../lib/supabase';
+// sbSelect (no estricto) para la info del cliente: si esa tabla falla o no existe, devuelve [] y
+// el checkout sigue andando sin el bloque. La cuenta sí va con la estricta, más abajo.
+import { sbSelect, sbSelectStrict, supaConfigured } from '../lib/supabase';
 import { respuestaNoDisponible } from '../lib/nodisponible';
 import { readSession, clearSessionCookie, setSessionCookie } from '../lib/session';
 import { fmtCuit } from '../lib/cuit';
@@ -30,6 +32,10 @@ if (!client || client.active === false) {
     headers: { Location: '/', 'Set-Cookie': clearSessionCookie(Astro.request), 'Cache-Control': 'no-store' },
   });
 }
+
+// Info que Teia carga desde el panel. sbSelect y no la estricta: si la tabla todavía no existe
+// devuelve [] y el checkout funciona igual, sin el bloque. Nada puede frenar un pedido por esto.
+const infoCliente = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&select=pregunta,respuesta') : [];
 
 // Sesión deslizante + esta página lleva datos del comercio: nunca cacheada.
 Astro.response.headers.append('Set-Cookie', setSessionCookie(Astro.request, sessionId));
@@ -84,6 +90,21 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
             <ul class="order__items co-items" id="cart"></ul>
             <div class="co-total"><span>Total</span><b id="coTotal">$0</b></div>
             <p class="co-trust">🤝 Sin pago online — coordinás el pago con Teia al recibir.</p>
+
+            {/* La info que carga Teia, JUSTO antes de confirmar: es el momento en que el comercio
+                se pregunta cómo paga y cuánto sale el envío. En el catálogo está plegada al final;
+                acá se muestra abierta porque es donde de verdad se lee. */}
+            {(infoCliente as any[]).length > 0 && (
+              <div class="info-antes">
+                <h3>Antes de enviar, tené en cuenta</h3>
+                <dl>
+                  {(infoCliente as any[]).map((f: any) => (
+                    <div><dt>{f.pregunta}</dt><dd>{f.respuesta}</dd></div>
+                  ))}
+                </dl>
+              </div>
+            )}
+
             <button class="btn btn--block" type="submit" form="form" id="submitBtn">Enviar pedido</button>
             <p id="msg" class="co-msg" role="status" aria-live="polite" hidden></p>
           </div>

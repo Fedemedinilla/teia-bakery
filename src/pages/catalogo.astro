@@ -72,6 +72,11 @@ const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 const slug = (s: string) =>
   String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
+// Info que Teia carga desde el panel (pagos, envíos, duración). sbSelect y no la estricta: si la
+// tabla todavía no existe devuelve [] y el catálogo abre igual, sin el bloque. Una sección nueva
+// no puede dejar sin catálogo a 35 comercios por un SQL que falta correr.
+const infoCliente = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&select=pregunta,respuesta') : [];
+
 // Rubro order comes from teia_categories (gestionadas en /administradora); fallback a los defaults.
 const cats = configured
   ? await sbSelect('teia_categories?order=sort_order.asc,name.asc&select=name')
@@ -155,6 +160,22 @@ const sections = [...groups.keys()]
 
       {sections.length === 0 && configured && (
         <p class="card">Todavía no hay productos cargados. Cargalos desde <a href="/administradora">la administradora</a>.</p>
+      )}
+
+      {/* Info que carga Teia desde el panel (pagos, envíos, duración). Va PLEGADA y al final:
+          mientras el comercio arma el pedido no estorba, y queda a mano para quien la busque. */}
+      {(infoCliente as any[]).length > 0 && (
+        <details class="info-cliente">
+          <summary>Cómo compramos en Teia</summary>
+          <div class="info-cliente__cuerpo">
+            {(infoCliente as any[]).map((f: any) => (
+              <div>
+                <h3>{f.pregunta}</h3>
+                <p>{f.respuesta}</p>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
     </main>
 

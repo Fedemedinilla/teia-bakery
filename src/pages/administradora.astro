@@ -79,6 +79,11 @@ const appUrl = (env('TEIA_APP_URL') || 'https://teia-bakery.vercel.app').replace
 // cada carga del panel, así que confirmar o borrar un pedido lo baja solo.
 const pendientes = (orders as any[]).filter((o) => o.status === 'pendiente').length;
 
+// Información para el cliente (pagos, envíos, duración). sbSelect y NO la variante estricta a
+// propósito: si la tabla todavía no existe, devuelve [] y el panel abre igual con la pestaña
+// vacía. Una feature nueva no puede voltear el panel entero por un SQL que falta correr.
+const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&select=*') : [];
+
 ---
 <Base title="Administradora — Teia Bakery" app="admin">
   <div class="container admin-wrap" data-app-url={appUrl} data-pendientes={String(pendientes)}>
@@ -112,6 +117,7 @@ const pendientes = (orders as any[]).filter((o) => o.status === 'pendiente').len
       <button class="tab" data-tab="productos" type="button">Productos</button>
       <button class="tab" data-tab="nuevo" type="button">＋ Nuevo producto</button>
       <button class="tab" data-tab="rubros" type="button">Rubros</button>
+      <button class="tab" data-tab="info" type="button">Información</button>
     </div>
 
     <!-- PEDIDOS -->
@@ -475,6 +481,43 @@ const pendientes = (orders as any[]).filter((o) => o.status === 'pendiente').len
         </form>
       </div>
     </section>
+
+      <!-- INFORMACIÓN PARA EL CLIENTE -->
+      <section class="panel" data-panel="info" hidden>
+        <div class="card form-card">
+          <h2 style="margin-top:0">Información para tus clientes</h2>
+          <p class="hint">
+            Medios de pago, envíos, cuánto duran los productos. Aparece al final del catálogo y
+            resumida justo antes de que confirmen el pedido. <b>La editás vos</b>: si cambia el
+            mínimo para envío sin cargo, lo cambiás acá y listo.
+          </p>
+
+          <ul class="info-list">
+            {(info as any[]).map((f: any) => (
+              <li class="info-item" data-id={f.id}>
+                <input class="if-q" value={attrSafe(f.pregunta)} placeholder="Título" />
+                <textarea class="if-a" rows="3" placeholder="Texto">{f.respuesta}</textarea>
+                <div class="form-actions">
+                  <button class="btn save-info" type="button">Guardar</button>
+                  <button class="btn btn--danger del-info" type="button" data-name={attrSafe(f.pregunta)}>Eliminar</button>
+                </div>
+              </li>
+            ))}
+            {(info as any[]).length === 0 && (
+              <li class="muted">Todavía no cargaste nada. Agregá lo primero acá abajo.</li>
+            )}
+          </ul>
+
+          <form id="infoform" style="margin-top:18px">
+            <label for="info-q">Título</label>
+            <input id="info-q" name="pregunta" placeholder="Ej: ¿Cuáles son los medios de pago?" autocomplete="off" required />
+            <label for="info-a">Texto</label>
+            <textarea id="info-a" name="respuesta" rows="3" placeholder="Ej: En efectivo o por transferencia + IVA." required></textarea>
+            <div class="form-actions"><button class="btn" type="submit">Agregar</button></div>
+            <p id="infomsg" class="muted"></p>
+          </form>
+        </div>
+      </section>
   </div>
 
   <script>
@@ -1071,8 +1114,58 @@ const pendientes = (orders as any[]).filter((o) => o.status === 'pendiente').len
     );
 
     // deep-link por hash (#pedidos / #clientes / #productos / #nuevo / #rubros)
+    // ---- información para el cliente (pestaña Información) ----
+    // Guardar edita la fila; el form de abajo crea una nueva. Igual que Rubros, pero editable:
+    // esto lo va a cambiar sola cada vez que le cambie el mínimo de envío o los medios de pago.
+    document.querySelectorAll('.info-item').forEach((li) => {
+      li.querySelector('.save-info')?.addEventListener('click', async (e) => {
+        const b = e.currentTarget;
+        const q = li.querySelector('.if-q').value.trim();
+        const a = li.querySelector('.if-a').value.trim();
+        if (!q || !a) { alert('Completá el título y el texto.'); return; }
+        b.disabled = true; b.textContent = 'Guardando…';
+        const r = await fetch('/api/admin/info', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: li.dataset.id, pregunta: q, respuesta: a }),
+        });
+        if (r.ok) { b.textContent = '✓ Guardado'; setTimeout(() => { b.textContent = 'Guardar'; b.disabled = false; }, 1500); }
+        else { const o = await r.json().catch(() => ({})); alert((o && o.error) || 'No se pudo guardar.'); b.textContent = 'Guardar'; b.disabled = false; }
+      });
+      li.querySelector('.del-info')?.addEventListener('click', async (e) => {
+        const b = e.currentTarget;
+        if (!confirm('¿Eliminar "' + (b.dataset.name || 'esto') + '"? Deja de verse en el catálogo.')) return;
+        b.disabled = true; b.textContent = '…';
+        const r = await fetch('/api/admin/info', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete', id: li.dataset.id }),
+        });
+        if (r.ok) location.reload();
+        else { b.textContent = 'Eliminar'; b.disabled = false; alert('No se pudo eliminar.'); }
+      });
+    });
+
+    const infoform = document.getElementById('infoform');
+    if (infoform) {
+      const infomsg = document.getElementById('infomsg');
+      infoform.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        infomsg.className = 'muted';
+        infomsg.textContent = 'Agregando…';
+        const r = await fetch('/api/admin/info', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pregunta: infoform.elements.namedItem('pregunta').value,
+            respuesta: infoform.elements.namedItem('respuesta').value,
+            sort_order: document.querySelectorAll('.info-item').length,
+          }),
+        });
+        if (r.ok) { location.hash = 'info'; location.reload(); }
+        else { const o = await r.json().catch(() => ({})); infomsg.textContent = (o && o.error) || 'No se pudo agregar.'; }
+      });
+    }
+
     const initTab = (location.hash || '').slice(1);
-    if (['pedidos', 'clientes', 'productos', 'nuevo', 'rubros'].includes(initTab)) { if (initTab === 'nuevo') resetForm(); showTab(initTab); }
+    if (['pedidos', 'clientes', 'productos', 'nuevo', 'rubros', 'info'].includes(initTab)) { if (initTab === 'nuevo') resetForm(); showTab(initTab); }
 
     updatePreview();
 
