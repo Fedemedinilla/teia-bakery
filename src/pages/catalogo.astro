@@ -161,46 +161,44 @@ const sections = [...groups.keys()]
       {sections.length === 0 && configured && (
         <p class="card">Todavía no hay productos cargados. Cargalos desde <a href="/administradora">la administradora</a>.</p>
       )}
-
-      {/* Info que carga Teia desde el panel (pagos, envíos, duración). Va PLEGADA y al final:
-          mientras el comercio arma el pedido no estorba, y queda a mano para quien la busque. */}
-      {(infoCliente as any[]).length > 0 && (
-        <details class="info-cliente">
-          <summary>Cómo compramos en Teia</summary>
-          <div class="info-cliente__cuerpo">
-            {(infoCliente as any[]).map((f: any) => (
-              <div>
-                <h3>{f.pregunta}</h3>
-                <p>{f.respuesta}</p>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
     </main>
 
-    <aside class="order empty" id="order" aria-label="Tu pedido">
-      <div class="order__bar" id="orderBar">
-        <div class="order__bar-info">
-          <span class="order__bar-total" id="barTotal">$0</span>
-          <span class="order__bar-sub" id="barSub">0 productos</span>
+    {/* Columna del pedido: el carrito y la información viajan JUNTOS al hacer scroll. */}
+    <div class="shop__lat" data-lenis-prevent>
+      <aside class="order empty" id="order" aria-label="Tu pedido">
+        <div class="order__bar" id="orderBar">
+          <div class="order__bar-info">
+            <span class="order__bar-total" id="barTotal">$0</span>
+            <span class="order__bar-sub" id="barSub">0 productos</span>
+          </div>
+          <button class="order__bar-cta" id="barCta" type="button">Ver pedido ▲</button>
         </div>
-        <button class="order__bar-cta" id="barCta" type="button">Ver pedido ▲</button>
-      </div>
-      <div class="order__panel" id="orderPanel" data-lenis-prevent>
-        <div class="order__handle" aria-hidden="true"></div>
-        <h2 class="order__h">Tu pedido</h2>
-        <p class="order__empty" id="orderEmpty">Tu pedido está vacío. Sumá productos con “Agregar”.</p>
-        <ul class="order__items" id="orderItems"></ul>
-        <div class="meter" id="meter" hidden>
-          <div class="meter__track"><div class="meter__fill" id="meterFill"></div></div>
-          <p class="meter__t" id="meterT"></p>
+        <div class="order__panel" id="orderPanel" data-lenis-prevent>
+          <div class="order__handle" aria-hidden="true"></div>
+          <h2 class="order__h">Tu pedido</h2>
+          <p class="order__empty" id="orderEmpty">Tu pedido está vacío. Sumá productos con “Agregar”.</p>
+          <ul class="order__items" id="orderItems"></ul>
+          <div class="meter" id="meter" hidden>
+            <div class="meter__track"><div class="meter__fill" id="meterFill"></div></div>
+            <p class="meter__t" id="meterT"></p>
+          </div>
+          <div class="order__total" id="orderTotalRow" hidden><span>Total</span><b id="orderTotal">$0</b></div>
+          <a class="btn btn--block" id="confirmBtn" href="/pedido" aria-disabled="true">Confirmar pedido</a>
         </div>
-        <div class="order__total" id="orderTotalRow" hidden><span>Total</span><b id="orderTotal">$0</b></div>
-        <a class="btn btn--block" id="confirmBtn" href="/pedido" aria-disabled="true">Confirmar pedido</a>
-      </div>
-    </aside>
-    <div class="backdrop" id="backdrop"></div>
+      </aside>
+
+      {(infoCliente as any[]).length > 0 && (
+        <div class="info-lat">
+          <h3>Antes de enviar, tené en cuenta</h3>
+          <dl>
+            {(infoCliente as any[]).map((f: any) => (
+              <div><dt>{f.pregunta}</dt><dd>{f.respuesta}</dd></div>
+            ))}
+          </dl>
+        </div>
+      )}
+      <div class="backdrop" id="backdrop"></div>
+    </div>
   </div>
 
   <!-- modal de detalle de producto -->

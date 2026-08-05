@@ -414,20 +414,13 @@ input[type="checkbox"] { width: auto; }
 .info-item .form-actions { margin: 0; }
 .info-item .btn { padding: 7px 14px; font-size: 13px; }
 
-/* Información en el CATÁLOGO: plegada al final, para no estorbar mientras arma el pedido */
-.info-cliente { margin: 34px 0 8px; border-top: 1px solid var(--line); padding-top: 20px; }
-.info-cliente > summary {
-  cursor: pointer; list-style: none; font-weight: 600; font-size: 15px;
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md);
-  background: var(--surface);
-}
-.info-cliente > summary::-webkit-details-marker { display: none; }
-.info-cliente > summary::after { content: '＋'; color: var(--accent); font-weight: 400; }
-.info-cliente[open] > summary::after { content: '−'; }
-.info-cliente__cuerpo { padding: 4px 14px 0; }
-.info-cliente h3 { font-size: 15px; margin: 16px 0 4px; }
-.info-cliente p { font-size: 14px; line-height: 1.6; color: var(--ink-2); margin: 0; white-space: pre-line; }
+/* Información en el CATÁLOGO: debajo del carrito, en la misma columna. En celular el carrito
+   es una barra fija abajo, así que este bloque cae al final de la página (que es donde se lee). */
+.info-lat { border: 1px solid var(--line-2); background: var(--surface-2); border-radius: var(--r-md); padding: 14px 16px; margin: 34px 0 8px; }
+.info-lat h3 { font-size: 14px; margin: 0 0 10px; }
+.info-lat dl { margin: 0; display: grid; gap: 10px; }
+.info-lat dt { font-size: 13px; font-weight: 600; }
+.info-lat dd { margin: 2px 0 0; font-size: 13px; line-height: 1.55; color: var(--ink-2); white-space: pre-line; }
 
 /* Resumen antes de confirmar el pedido: es donde de verdad se lee */
 .info-antes { border: 1px solid var(--line-2); background: var(--surface-2); border-radius: var(--r-md); padding: 13px 15px; margin: 0 0 16px; }
@@ -534,7 +527,13 @@ input[type="checkbox"] { width: auto; }
 @media (min-width: 900px) {
   .shop { display: grid; grid-template-columns: minmax(0, 1fr) 336px; gap: 32px; align-items: start; }
   .order__handle, .order__bar { display: none; }
-  .order { position: sticky; top: 128px; }
+  /* El pegado lo maneja la COLUMNA, no el carrito: así el carrito y la información se mueven
+     juntos al hacer scroll, como una sola ventana (pedido de Federico).
+     El tope de alto evita que, si la suma de los dos pasa la pantalla, el final quede fuera de
+     alcance — en ese caso la columna scrollea por dentro. */
+  .shop__lat { position: sticky; top: 128px; max-height: calc(100dvh - 144px); overflow-y: auto; }
+  .order { position: static; }
+  .shop__lat .info-lat { margin: 14px 0 0; }   /* pegada al carrito, no al final de la página */
   .backdrop { display: none; }
 }
 

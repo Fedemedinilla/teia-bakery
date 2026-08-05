@@ -525,9 +525,9 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
     // por el solo hecho de abrirlo): si entra, mira y no confirma nada, el recordatorio sigue.
     // Al confirmar o borrar un pedido la página recarga y el número baja solo.
     //
-    // El resultado se REPORTA en pantalla en vez de tragarse: la primera versión hacía
-    // `.catch(() => {})` y cuando no funcionó no había forma de saber por qué. Mismo error que
-    // con Opera. Si algo falla, acá abajo dice qué.
+    // Callado mientras todo va bien: solo habla si está en la app instalada y AHÍ falla,
+    // que es lo único accionable. Pero sin TRAGARSE el error como al principio, cuando un
+    // `.catch(() => {})` dejó el problema invisible.
     (async () => {
       const aviso = document.getElementById('badgeEstado');
       const decir = (t) => { if (aviso) { aviso.textContent = t; aviso.hidden = false; } };
@@ -537,18 +537,14 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         window.matchMedia('(display-mode: standalone)').matches ||
         ('standalone' in navigator && navigator.standalone === true);
 
-      if (!('setAppBadge' in navigator)) {
-        return decir('Globo del ícono: este navegador no lo soporta (' +
-          (instalada ? 'app instalada' : 'abierto en el navegador') + ').');
-      }
-      if (!instalada) {
-        return decir('Globo del ícono: solo aparece en la app instalada. Ahora estás en el navegador.');
-      }
+      // El globo es un extra de la app instalada. Abierto en el navegador NO tiene por qué haberlo,
+      // así que no se dice nada: un cartel técnico permanente en el panel es ruido para Mica.
+      // Solo se avisa si está en la app instalada Y ahí falla, que es lo único accionable.
+      if (!instalada || !('setAppBadge' in navigator)) return;
       try {
         if (n > 0) await navigator.setAppBadge(n); else await navigator.clearAppBadge();
-        // OJO: que la llamada resuelva NO garantiza que se vea. En una pestaña común resuelve
-        // igual y no dibuja nada. Por eso se informa qué se PIDIÓ, no que haya funcionado.
-        if (n === 0) decir('Globo del ícono: no tenés pedidos pendientes, así que está apagado.');
+        // OJO: que la llamada resuelva NO garantiza que se vea — en una pestaña común resuelve
+        // igual sin dibujar nada. Por eso no se anuncia ningún éxito, solo se reportan fallas.
       } catch (e) {
         decir('Globo del ícono: no se pudo. Motivo: ' + ((e && e.name ? e.name + ' — ' : '') + (e && e.message || e)));
       }
