@@ -85,6 +85,25 @@ export async function sbInsert<T = any>(table: string, body: unknown): Promise<T
   }
 }
 
+// UPSERT — inserta o pisa la fila existente segun la primary key. Devuelve true si salio bien.
+//
+// Existe para la tabla de ajustes (clave/valor): con insert habria que saber de antemano si la
+// clave ya estaba, y con patch no se crearia la primera vez. El "resolution=merge-duplicates" es
+// la forma de PostgREST de decirle a Postgres "on conflict do update".
+export async function sbUpsert(table: string, body: unknown): Promise<boolean> {
+  if (!supaConfigured()) return false;
+  try {
+    const r = await fetch(sb(table), {
+      method: 'POST',
+      headers: sbHeaders({ Prefer: 'resolution=merge-duplicates,return=minimal' }),
+      body: JSON.stringify(body),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 // PATCH — returns true on success.
 export async function sbPatch(path: string, body: unknown): Promise<boolean> {
   if (!supaConfigured()) return false;

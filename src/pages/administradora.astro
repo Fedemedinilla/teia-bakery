@@ -8,6 +8,8 @@ import { sbSelect, supaConfigured, env } from '../lib/supabase';
 import { fmtCuit } from '../lib/cuit';
 import { CATALOGS, catalogOf, catalogLabel, DEFAULT_CATALOG, attrSafe } from '../lib/catalogs';
 import { codeRequired } from '../lib/accesscode';
+import { readSettings } from '../lib/settings';
+import { umbralDe, umbralesTodos, claveUmbral } from '../lib/envio';
 import { DEMO_PRODUCTS, DEMO_ORDERS, DEMO_ORDER_ITEMS, DEMO_CLIENTS } from '../lib/demo';
 
 // Gate: la clave del panel se exige SIEMPRE que esté configurada. Antes se pedía solo si
@@ -69,6 +71,16 @@ const catNames = (categories as any[]).map((c) => c.name);
 // Segundo factor: solo se PIDE al entrar si TEIA_REQUIRE_CODE=true. El panel lo administra
 // igual aunque esté apagado, para tener los códigos listos antes de encenderlo.
 const requireCode = codeRequired();
+
+// Ajustes que edita Mica (por ahora, los umbrales de envío sin cargo de cada lista).
+const ajustes = await readSettings();
+const umbrales = umbralesTodos(ajustes);
+// Umbral que le toca a cada cuenta segun su lista. Se arma una vez y se consulta por pedido:
+// un pedido sin cuenta (la borraron despues) cae al de la lista general.
+const umbralPorCliente: Record<string, number> = Object.fromEntries(
+  (clients as any[]).map((c: any) => [String(c.id), umbralDe(ajustes, c.catalog)])
+);
+const umbralDelPedido = (o: any) => umbralPorCliente[String(o.client_id)] ?? umbralDe(ajustes, 'general');
 const sinCodigo = (clients as any[]).filter((c) => !c.access_code).length;
 
 // URL pública de la app para el mensaje de bienvenida al cliente. Sale de la env, así que
@@ -118,6 +130,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
       <button class="tab" data-tab="nuevo" type="button">＋ Nuevo producto</button>
       <button class="tab" data-tab="rubros" type="button">Rubros</button>
       <button class="tab" data-tab="info" type="button">Información</button>
+      <button class="tab" data-tab="envios" type="button">Envíos</button>
     </div>
 
     <!-- PEDIDOS -->
@@ -147,6 +160,16 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           {o.status !== 'pendiente' && Number(o.discount_pct) > 0 && (
             <div class="ordcard__disc ordcard__disc--applied">✓ Descuento fiel −{o.discount_pct}% aplicado</div>
           )}
+
+          {/* ¿Este pedido paga envío? Se compara el total YA CON el descuento aplicado, que es el
+              criterio de ella: "si con el desc no llegan al mínimo se les cobra el envío".
+              El comercio NO ve esto: en su pantalla es imposible saberlo, porque el descuento se
+              aplica acá, después de que él manda el pedido. */}
+          <div class={`ordcard__envio ${Number(o.total) >= umbralDelPedido(o) ? 'is-sin' : ''}`} data-umbral={String(umbralDelPedido(o))}>
+            <span data-envio-txt>{Number(o.total) >= umbralDelPedido(o)
+              ? `Llega a ${money(umbralDelPedido(o))}: envío sin cargo`
+              : `No llega a ${money(umbralDelPedido(o))}: se le cobra el envío`}</span>
+          </div>
 
           <div class="ordcard__view">
             <div class="muted ordcard__cli">{o.client_name} · {o.client_contact}</div>
@@ -517,6 +540,37 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           </form>
         </div>
       </section>
+
+      <!-- ENVÍOS: a partir de cuánto el envío va sin cargo, por lista -->
+      <section class="panel" data-panel="envios" hidden>
+        <div class="card form-card">
+          <h2 style="margin-top:0">Envío sin cargo</h2>
+          <p class="hint">
+            A partir de cuánto NO le cobrás el envío, para cada lista. El comercio lo ve en su
+            carrito mientras arma el pedido, y acá abajo, en cada pedido, te avisa si llega o no.
+            <b>No frena ningún pedido</b>: si no llega, entra igual y vos le cobrás el envío.
+          </p>
+          <p class="hint">
+            El <b>costo</b> del envío no se carga acá porque cambia según la zona: se lo ponés al
+            pedido cuando lo confirmás, y sale en el remito.
+          </p>
+
+          <div id="enviosBox">
+            {umbrales.map((u: any) => (
+              <div class="envio-row">
+                <label for={`env-${u.slug}`}>{u.label}</label>
+                <div class="envio-input">
+                  <span aria-hidden="true">$</span>
+                  <input id={`env-${u.slug}`} class="env-monto" data-clave={claveUmbral(u.slug)}
+                         inputmode="numeric" value={String(u.monto)} autocomplete="off" />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div class="form-actions"><button class="btn" type="button" id="envSave">Guardar</button></div>
+          <p id="envMsg" class="muted"></p>
+        </div>
+      </section>
   </div>
 
   <script>
@@ -824,6 +878,24 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
     });
 
     // ---- editar un pedido (datos + cantidades) ----
+    // ---- envíos: umbral de envío sin cargo por lista ----
+    document.getElementById('envSave')?.addEventListener('click', async () => {
+      const btn = document.getElementById('envSave');
+      const msg = document.getElementById('envMsg');
+      const cuerpo = {};
+      document.querySelectorAll('.env-monto').forEach((i) => { cuerpo[i.dataset.clave] = i.value; });
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        const r = await fetch('/api/admin/settings', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo),
+        });
+        const o = await r.json().catch(() => ({}));
+        if (r.ok) { location.reload(); return; }
+        msg.textContent = (o && o.error) || 'No se pudo guardar.';
+      } catch { msg.textContent = 'No se pudo conectar.'; }
+      btn.disabled = false; btn.textContent = 'Guardar';
+    });
+
     document.querySelectorAll('.ordcard').forEach((card) => {
       const totalEl = card.querySelector('[data-total]');
       const rows = [...card.querySelectorAll('.oi-row')];
@@ -838,7 +910,20 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           subtotal += line;
           row.querySelector('[data-line]').textContent = money(line);
         });
-        if (totalEl) totalEl.textContent = money(Math.round(subtotal * (1 - discPct() / 100)));
+        const total = Math.round(subtotal * (1 - discPct() / 100));
+        if (totalEl) totalEl.textContent = money(total);
+        // El aviso de envío se recalcula en vivo mientras ella edita cantidades: si no, decía
+        // "se le cobra el envío" sobre un total que ya había cambiado en la pantalla.
+        const envio = card.querySelector('.ordcard__envio');
+        const envioTxt = card.querySelector('[data-envio-txt]');
+        if (envio && envioTxt) {
+          const umbral = Number(envio.dataset.umbral) || 0;
+          const llega = total >= umbral;
+          envio.classList.toggle('is-sin', llega);
+          envioTxt.textContent = llega
+            ? 'Llega a ' + money(umbral) + ': envío sin cargo'
+            : 'No llega a ' + money(umbral) + ': se le cobra el envío';
+        }
       };
       // Descuento fiel: guarda al instante y recarga (recalcula el total y el remito). Si falla,
       // el selector vuelve al valor que tenía — que no quede mostrando un descuento que no se

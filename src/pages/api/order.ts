@@ -1,6 +1,6 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
-import { sbSelectStrict, sbInsert, sbPatch, sbDelete, supaConfigured, env } from '../../lib/supabase';
+import {sbSelectStrict, sbInsert, sbPatch, sbDelete, supaConfigured } from '../../lib/supabase';
 import { readSession } from '../../lib/session';
 import { catalogOf } from '../../lib/catalogs';
 import { avisarPedidoNuevo } from '../../lib/aviso';
@@ -85,13 +85,20 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     };
   });
 
-  // Pedido mínimo también en el server: la UI del catálogo lo muestra, pero desde /pedido se
-  // pueden bajar cantidades y sin este chequeo entraría cualquier monto. Se evalúa ANTES del
-  // descuento fiel (decisión: el mínimo es sobre precio de lista).
-  const MIN_ORDER = Number(env('TEIA_MIN_ORDER')) || 40000;
-  if (subtotal < MIN_ORDER) {
-    return json({ error: `El pedido mínimo mayorista es de $${MIN_ORDER.toLocaleString('es-AR')}. Sumá productos para llegar.` }, 400);
-  }
+  // ⚠️ ACÁ NO SE RECHAZA NINGÚN PEDIDO POR MONTO, A PROPÓSITO.
+  //
+  // Antes había un pedido mínimo que devolvía 400 y no dejaba confirmar. No era lo que pasa en
+  // la realidad de Teia: el número no impide comprar, decide quién paga el flete. Palabras de la
+  // clienta: "el mínimo para lista general es $140.000 sino se cobra envío" y "por lo general
+  // hacen pedido para llevar al mínimo". Bloquear le hacía perder ventas que ella igual habría
+  // aceptado cobrando el envío aparte — de hecho lo encontró probando su propio sitio.
+  //
+  // El umbral ahora es informativo y vive en teia_settings (ver src/lib/envio.ts): se le muestra
+  // al comercio en el carrito y a ella en el panel, donde decide si cobra el envío.
+  //
+  // Si algún día hace falta un piso de verdad (por ejemplo para frenar pedidos de $500 que no
+  // valen el viaje), tiene que ser un ajuste APARTE del umbral de envío: son dos números que
+  // significan cosas distintas y mezclarlos fue justamente el error original.
 
   // Solo se actualiza la fecha del último pedido. El contacto y la dirección de la CUENTA
   // los edita únicamente Teia desde el panel: si los pisara el checkout, quien tenga el CUIT

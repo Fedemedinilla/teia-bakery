@@ -626,3 +626,16 @@ html.lenis, html.lenis body { height: auto; }
   .instalar { flex-wrap: wrap; }
   .instalar__btn { width: 100%; }
 }
+
+/* ---- envío sin cargo: umbral por lista (panel) y aviso por pedido ---- */
+.envio-row { display: grid; grid-template-columns: minmax(0, 1fr) 180px; gap: 12px; align-items: center; margin-bottom: 10px; }
+.envio-row label { margin: 0; }
+.envio-input { display: flex; align-items: center; gap: 6px; }
+.envio-input span { color: var(--ink-2); font-size: 15px; }
+.envio-input input { width: 100%; }
+/* El aviso arranca en "se cobra" y se pinta verde solo cuando llega: el estado que hay que
+   mirar es el que cuesta plata, así que es el que salta a la vista. */
+.ordcard__envio { font-size: 12.5px; margin: 2px 0 10px; padding: 6px 10px; border-radius: var(--r-sm, 8px);
+  background: #FBF0E8; color: #8A4B2A; border: 1px solid #EBD2C1; }
+.ordcard__envio.is-sin { background: #EDF6EE; color: #2F6B3A; border-color: #CFE6D3; }
+@media (max-width: 560px) { .envio-row { grid-template-columns: 1fr; gap: 6px; } }

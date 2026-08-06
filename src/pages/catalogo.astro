@@ -10,6 +10,8 @@ import { readSession, clearSessionCookie, setSessionCookie } from '../lib/sessio
 import { isTeiaAdmin, redirigirAlIngreso } from '../lib/auth';
 import { catalogOf, catalogLabel, DEFAULT_CATALOG, attrSafe } from '../lib/catalogs';
 import { DEMO_PRODUCTS, DEMO_CLIENTS } from '../lib/demo';
+import { readSettings } from '../lib/settings';
+import { umbralDe } from '../lib/envio';
 
 const configured = supaConfigured();
 
@@ -67,7 +69,11 @@ const rawRows = configured
 if (rawRows === null) return respuestaNoDisponible();
 const raw = rawRows;
 
-const MIN_ORDER = Number(env('TEIA_MIN_ORDER')) || 40000; // pedido mínimo (ARS) — env de Vercel, con default
+// Umbral de ENVÍO SIN CARGO de la lista de este comercio. Ya NO es un pedido mínimo: no bloquea
+// nada, solo dice a partir de cuánto el envío va sin costo. Sale de teia_settings (lo edita Mica
+// desde el panel) y cae a los valores por defecto si esa tabla todavía no existe.
+const ajustes = await readSettings();
+const UMBRAL_ENVIO = umbralDe(ajustes, catalog);
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 const slug = (s: string) =>
   String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -221,10 +227,14 @@ const sections = [...groups.keys()]
 
   <!-- El mínimo viaja por atributo (no por define:vars) para que NO haga falta ningún script
        inline: así la CSP puede ser estricta (script-src 'self', sin 'unsafe-inline'). -->
-  <div id="shopCfg" data-min-order={String(MIN_ORDER)} hidden></div>
+  <div id="shopCfg" data-umbral-envio={String(UMBRAL_ENVIO)} hidden></div>
 
   <script>
-    const MIN_ORDER = Number(document.getElementById('shopCfg')?.dataset.minOrder) || 40000;
+    // ⚠️ Number.isFinite y NO `|| 140000`. Un umbral de 0 es válido (significa "envío sin cargo
+    // siempre"), y con `||` el cero es falso: se pisaba con 140.000 y la pantalla mostraba un
+    // requisito que Mica había sacado. Es el mismo pozo que tenía TEIA_MIN_ORDER.
+    const umbralCrudo = Number(document.getElementById('shopCfg')?.dataset.umbralEnvio);
+    const UMBRAL_ENVIO = Number.isFinite(umbralCrudo) && umbralCrudo >= 0 ? umbralCrudo : 140000;
     const KEY = 'teia_cart';
     const fmt = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
     const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -321,16 +331,25 @@ const sections = [...groups.keys()]
       barTotal.textContent = fmt(t);
       barSub.textContent = c === 1 ? '1 producto' : c + ' productos';
 
-      if (c > 0) {
+      if (c > 0 && UMBRAL_ENVIO > 0) {
         meter.hidden = false;
-        const reached = t >= MIN_ORDER;
-        meterFill.style.width = Math.min(100, Math.round((t / MIN_ORDER) * 100)) + '%';
-        meterFill.classList.toggle('ok', reached);
-        meterT.innerHTML = reached ? '✓ Llegaste al pedido mínimo' : `Te faltan <b>${fmt(MIN_ORDER - t)}</b> para el mínimo`;
-        confirmBtn.setAttribute('aria-disabled', reached ? 'false' : 'true');
+        const llega = t >= UMBRAL_ENVIO;
+        meterFill.style.width = Math.min(100, Math.round((t / UMBRAL_ENVIO) * 100)) + '%';
+        meterFill.classList.toggle('ok', llega);
+        // ⚠️ La frase ENUNCIA LA REGLA, no promete el envío gratis. El descuento fiel lo aplica
+        // Mica pedido por pedido DESPUÉS de recibirlo, así que desde acá es imposible saber el
+        // total final: prometer "tu envío va sin cargo" podía salir mentira justo con los
+        // clientes más fieles. Palabras de ella: "si con el desc no llegan al mínimo se les
+        // cobra el envío".
+        meterT.innerHTML = llega
+          ? `✓ Tu pedido supera los <b>${fmt(UMBRAL_ENVIO)}</b>`
+          : `Recordá: por debajo de <b>${fmt(UMBRAL_ENVIO)}</b> el envío tiene costo aparte. Te faltan <b>${fmt(UMBRAL_ENVIO - t)}</b>.`;
+        // El botón NO se bloquea nunca más: el umbral decide quién paga el flete, no si se puede
+        // comprar. Antes esto le frenaba pedidos que ella igual habría aceptado.
+        confirmBtn.setAttribute('aria-disabled', 'false');
       } else {
         meter.hidden = true;
-        confirmBtn.setAttribute('aria-disabled', 'true');
+        confirmBtn.setAttribute('aria-disabled', 'true'); // carrito vacío: eso sí sigue bloqueado
       }
     }
 
