@@ -658,13 +658,18 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         } catch (e) { hechos.apiEnElWorker = 'error: ' + e; }
 
         if ('setAppBadge' in navigator) {
-          const n = crudo === '' ? 1 : Number(crudo) || 1;
+          // ⚠️ Se pinta un 7 A PROPOSITO, no el numero real.
+          // La primera version hacia `Number(crudo) || 1`, y como el cero es FALSO en JavaScript,
+          // con 0 pendientes pintaba un 1 inventado: el diagnostico mostraba un globo que no
+          // correspondia a nada. Y con el numero real tampoco sirve, porque si es 0 la llamada
+          // BORRA el globo y no se puede ver si funciona.
+          // Un 7 fijo prueba lo unico que interesa: que el sistema dibuje algo en el icono.
           try {
             await Promise.race([
-              navigator.setAppBadge(n),
+              navigator.setAppBadge(7),
               new Promise((_, rej) => setTimeout(() => rej(new Error('NO RESPONDIO en 2s (queda colgado)')), 2000)),
             ]);
-            hechos.intentoDePintar = 'la llamada resolvio OK con el numero ' + n;
+            hechos.intentoDePintar = 'OK — mira el icono: tiene que decir 7 (es de prueba)';
           } catch (e) { hechos.intentoDePintar = 'FALLO: ' + (e && e.name ? e.name + ' — ' : '') + (e && e.message || e); }
         }
 
@@ -675,7 +680,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           aviso.textContent = Object.entries(hechos).map(([k, v]) => k + ': ' + v).join(String.fromCharCode(10));
           const volver = document.createElement('a');
           volver.href = '/administradora';
-          volver.textContent = '← volver al panel';
+          volver.textContent = '← volver al panel (deja el globo en el número real)';
           volver.style.cssText = 'display:inline-block;margin-top:8px;font-family:inherit';
           aviso.appendChild(document.createElement('br'));
           aviso.appendChild(volver);
