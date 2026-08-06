@@ -18,18 +18,26 @@ pdf-lib · web-push.
 
 **Gate privado: sin cuenta dada de alta no se ve nada, ni los precios.**
 
-- **`/`** — la puerta. Se entra con el **CUIT** del comercio (y un **código** si
-  `TEIA_REQUIRE_CODE=true`). Firma una cookie de sesión HMAC, HttpOnly, de 90 días que se renueva
-  en cada visita. Un CUIT no habilitado recibe un mensaje único —indistinguible del rechazo por
-  código incorrecto— y un botón de WhatsApp para pedir el alta.
-- **`/catalogo`** — productos por rubro, carrito en vivo con pedido mínimo. Cada cuenta ve **solo
-  su lista** (`general` o `chungo`), con sus precios.
+- **`/`** — la puerta. Se entra con el **CUIT** del comercio y su **contraseña** (la escribe la
+  administradora a mano; se compara ignorando mayúsculas, espacios, símbolos y acentos). El 2º
+  factor se enciende/apaga **desde el panel**, no con una env var: fila `require_code` de
+  `teia_settings`. Firma una cookie de sesión HMAC, HttpOnly, de 90 días que se renueva en cada
+  visita. Un CUIT no habilitado recibe un mensaje único —indistinguible del rechazo por
+  contraseña incorrecta— y un botón de WhatsApp para pedir el alta.
+- **`/catalogo`** — productos por rubro, carrito en vivo. La barra muestra el **umbral de envío
+  sin cargo** de esa lista; **no bloquea nada**: si no llega, el pedido entra igual y Teia le cobra
+  el envío. Cada cuenta ve **solo su lista** (`general` o `chungo`), con sus precios.
 - **`/pedido`** — checkout. Los datos salen de la cuenta: el cliente no tipea su CUIT.
 - **`/instalar`** — cómo instalar la app en iPhone (`?app=admin` para el panel).
-- **`/administradora`** — panel (Basic Auth): **Pedidos** (detalle, edición, descuento −10% por
-  pedido, confirmar → descuenta stock + genera el remito, borrar → repone stock, compartir el
-  PDF), **Clientes** (alta por CUIT, lista, estado, código de acceso, historial),
-  **Productos** (alta/edición/foto/stock + copiar al otro catálogo), **Rubros**.
+- **`/administradora`** — panel (login por cookie firmada; `/administradora/ingresar`):
+  **Pedidos** (detalle, edición, descuento por pedido, aviso de si el pedido llega o no al umbral
+  de envío, **saldo anterior** y **costo de envío** que salen en el remito, confirmar → descuenta
+  stock + genera el remito, borrar → repone stock, compartir el PDF), **Clientes** (alta por CUIT,
+  contraseña, estado, historial, interruptor de CUIT+contraseña con guarda anti-lockout),
+  **Productos** (alta/edición/stock, **recorte cuadrado de la foto**, copiar al otro catálogo con
+  aviso de duplicados), **Rubros**, **Información** (lo que ven los clientes), **Envíos** (umbral
+  sin cargo por lista).
+  `?diag=1` muestra un diagnóstico técnico del globo del ícono (oculto para la clienta).
 
 ## Instalable en el celular (PWA)
 **Dos apps sobre el mismo origen**, cada una con su manifest, ícono y nombre: **"Teia"** (la
@@ -39,9 +47,13 @@ logo real con `scripts/pwa-icons.py`.
 El service worker (`public/sw.js`) **nunca cachea HTML ni la API**: el catálogo muestra precios
 distintos por lista y el panel está detrás de una clave, así que una copia guardada podría mostrar
 datos de otra cuenta o sobrevivir a un "Salir". Solo se cachea `/_astro/` (lleva hash de contenido)
-y sin red se muestra `public/offline.html`, que no tiene ningún dato. `/administradora` queda
-**fuera** del worker: un 401 devuelto por un `fetch()` del worker no dispara el cartel de Basic
-Auth y dejaría a la administradora sin poder entrar.
+; las navegaciones pasan derecho al navegador (interceptarlas rompía la entrada en iPhone, ver el
+comentario en `sw.js`). `/administradora` queda **fuera** del worker.
+
+⚠️ En el handler de `push`, el aviso **nunca** puede esperar al globo del ícono: `setAppBadge`
+puede no resolver nunca en iPhone y colgar el `waitUntil` hasta que el sistema mata al worker —el
+banner se dibuja pero el aviso no queda guardado ni enciende la pantalla. Se espera el aviso
+primero y el globo después, con tope de 1 s.
 
 ## Avisos de pedido nuevo
 Al entrar un pedido se disparan **en paralelo** y siempre best-effort (nunca pueden voltear ni
@@ -60,7 +72,8 @@ demorar un pedido; si falta configuración, no se mandan y no rompen):
 - La `service_role` key bypassa RLS → SECRETA, **solo** en las env de Vercel.
 - La identidad del cliente sale **siempre de la cookie firmada**, nunca del body: `/api/order`
   relee la cuenta y filtra los productos por su catálogo (un id de la otra lista da 409).
-- Los **precios se re-leen de la base** al crear el pedido y el mínimo se valida server-side.
+- Los **precios se re-leen de la base** al crear el pedido. **Ningún pedido se rechaza por monto**,
+  a propósito: el umbral es informativo y decide quién paga el envío, no si se puede comprar.
 - Todo dato de la base que va dentro de un atributo HTML pasa por **`attrSafe()`** (ver el
   comentario en `src/lib/catalogs.ts`: `addAttribute` de Astro no escapa en un caso puntual).
 - Las páginas con datos de una cuenta mandan `Cache-Control: private, no-store`. Y si la base no

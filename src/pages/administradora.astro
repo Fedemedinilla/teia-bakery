@@ -56,6 +56,21 @@ const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 // Stock flags precomputed (Astro can't mix `<=` with adjacent JSX).
 // otherCatalog/otherLabel: el catálogo "de enfrente", para el botón "Copiar a …" (clonar un
 // producto al otro catálogo cambiándole solo el precio, sin recargarlo a mano).
+// Duplicados: el mismo NOMBRE dos veces en la MISMA lista. Pasa al usar "Copiar a…" sobre un
+// producto que ya existe del otro lado — antes se creaba una segunda fila en silencio y el
+// comercio lo veía repetido en el catálogo, sin que nada avisara. Se marcan para poder borrarlos.
+// La comparación ignora mayúsculas, acentos y espacios de más: "Alfajor  de Almendras" y
+// "alfajor de almendras" son el mismo producto aunque la base los vea distintos.
+const claveProducto = (nombre: any, cat: any) =>
+  catalogOf(cat) + '|' + String(nombre ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+const cuentaPorClave = new Map<string, number>();
+for (const p of products as any[]) {
+  const k = claveProducto(p.name, p.catalog);
+  cuentaPorClave.set(k, (cuentaPorClave.get(k) || 0) + 1);
+}
+const duplicados = [...cuentaPorClave.values()].filter((n) => n > 1).length;
+
 const productRows = (products as any[]).map((p) => {
   const cat = catalogOf(p.catalog);
   const other = CATALOGS.find((k) => k.slug !== cat) || CATALOGS[0];
@@ -65,6 +80,9 @@ const productRows = (products as any[]).map((p) => {
     isLow: Number(p.stock) > 0 && Number(p.stock) <= Number(p.low_stock_threshold),
     otherCatalog: other.slug,
     otherLabel: other.label,
+    esDuplicado: (cuentaPorClave.get(claveProducto(p.name, p.catalog)) || 0) > 1,
+    // Los nombres que YA existen en la lista de enfrente: sirve para avisar antes de copiar.
+    yaEstaEnLaOtra: (cuentaPorClave.get(claveProducto(p.name, other.slug)) || 0) > 0,
   };
 });
 
@@ -418,6 +436,13 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
 
     <!-- PRODUCTOS -->
     <section class="panel" data-panel="productos" hidden>
+      {duplicados > 0 && (
+        <p class="card cli-modo__warn" style="margin-bottom:12px">
+          <b>Hay {duplicados === 1 ? 'un producto repetido' : `${duplicados} productos repetidos`}.</b>{' '}
+          Están marcados abajo con <span class="badge badge--dup">repetido</span>. Tus clientes los ven
+          dos veces en el catálogo: borrá el que sobre.
+        </p>
+      )}
       <div class="card">
         <div class="table-scroll">
         <table>
@@ -425,7 +450,9 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           <tbody>
             {productRows.map((p: any) => (
               <tr>
-                <td data-label="Producto"><span class="td-v">{p.name}{!p.active && <span class="muted"> (oculto)</span>}</span></td>
+                <td data-label="Producto"><span class="td-v">{p.name}{!p.active && <span class="muted"> (oculto)</span>}
+                  {p.esDuplicado && <span class="badge badge--dup" title="Hay otro producto con el mismo nombre en esta misma lista. Tus clientes lo ven dos veces.">repetido</span>}
+                </span></td>
                 <td data-label="Catálogo"><span class="td-v">
                   {catalogOf(p.catalog) === DEFAULT_CATALOG
                     ? <span class="muted">General</span>
@@ -980,6 +1007,14 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
     document.querySelectorAll('.copy-prod').forEach((b) =>
       b.addEventListener('click', () => {
         let p; try { p = JSON.parse(b.dataset.p); } catch { return; }
+        // Antes esto creaba una segunda fila en silencio si el producto ya existía del otro lado.
+        // Ahora se avisa: duplicar es casi siempre un accidente, y el que lo paga es el comercio,
+        // que ve el mismo producto dos veces en su catálogo.
+        if (p.yaEstaEnLaOtra && !confirm(
+          '"' + p.name + '" ya existe en ' + (b.dataset.targetLabel || 'la otra lista') + '.' +
+          String.fromCharCode(10) + String.fromCharCode(10) +
+          'Si lo copiás igual, va a quedar dos veces y tus clientes lo van a ver repetido.' +
+          String.fromCharCode(10) + '¿Copiar de todas formas?')) return;
         fillForm({ ...p, id: '', catalog: b.dataset.target });
         document.getElementById('formTitle').textContent =
           'Copia para ' + (b.dataset.targetLabel || 'el otro catálogo') + ' — ajustá el precio y guardá';

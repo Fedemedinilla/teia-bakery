@@ -687,3 +687,4 @@ html.lenis, html.lenis body { height: auto; }
 .cropper__msg { margin: 10px 0 0; font-size: 12.5px; }
 .btn--mini { padding: 5px 10px; font-size: 12px; }
 @media (max-width: 380px) { .cropper__vista { width: 260px; height: 260px; } }
+.badge--dup { background: #FBEAE4; color: #8A3B22; border: 1px solid #EFC9B9; margin-left: 6px; }
