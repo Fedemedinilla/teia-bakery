@@ -85,8 +85,29 @@ const clave = vapidPublicKey();
 
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = reg ? await reg.pushManager.getSubscription() : null;
-      if (sub) mostrar('Activados en este dispositivo. Te avisamos cuando entre un pedido.', 'Desactivar', true);
-      else mostrar('Recibí una notificación en este dispositivo (celular o computadora) cuando entre un pedido.', 'Activar', false);
+      if (sub) {
+        mostrar('Activados en este dispositivo. Te avisamos cuando entre un pedido.' +
+                (instalada ? '' : ' El numerito sobre el ícono aparece solo en la app instalada.'),
+                'Desactivar', true);
+        // ── RE-SINCRONIZACIÓN: el arreglo del "anduvo una sola vez" ──────────────────────────
+        // Este cartel decía "Activados" mirando SOLO al navegador. Pero el que manda los avisos
+        // es el servidor, y su fila se puede haber borrado sin que el navegador se entere: el
+        // aviso salió, el servicio contestó 410 (la dirección venció o rotó) y la fila se limpió
+        // sola. A partir de ahí el navegador seguía diciendo "Activados" y no llegaba nada nunca
+        // más, sin ningún síntoma.
+        // Ahora cada vez que se abre el panel se vuelve a registrar el aparato. Del otro lado es
+        // idempotente (si ya está con las mismas claves no toca nada), así que esto no cuesta
+        // nada y resucita la suscripción sin que Mica tenga que hacer nada.
+        try {
+          const k = sub.toJSON().keys || {};
+          fetch('/api/admin/push', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: sub.endpoint, p256dh: k.p256dh, auth: k.auth }),
+          }).catch(() => {});
+        } catch { /* no puede demorar ni romper la pantalla */ }
+      } else {
+        mostrar('Recibí una notificación en este dispositivo (celular o computadora) cuando entre un pedido.', 'Activar', false);
+      }
     };
 
     // Manda un aviso de prueba a los teléfonos suscriptos, para comprobar que llega de verdad
@@ -109,9 +130,20 @@ const clave = vapidPublicKey();
             : o.pendientes > 0
               ? ' El globo del ícono debería marcar ' + o.pendientes + '.'
               : ' No tenés pedidos pendientes, así que el globo del ícono no se va a encender.';
+          // Si hay más aparatos anotados que entregas, uno quedó sin registrar: decirlo, porque
+          // es exactamente el síntoma de "a Mica le llega y a la PC no".
+          const faltan = typeof o.total === 'number' && o.total > o.entregados
+            ? ' Ojo: se entregó en ' + o.entregados + ' de ' + o.total + ' dispositivos anotados.'
+            : '';
           desc.textContent = 'Aviso de prueba enviado a ' + o.entregados +
             (o.entregados === 1 ? ' dispositivo.' : ' dispositivos.') +
-            ' Debería aparecer en unos segundos.' + globo;
+            ' Debería aparecer en unos segundos.' + globo + faltan;
+        } else if (r.ok && o.fallo === 'base') {
+          // ⚠️ Este caso antes caía en el mensaje de abajo, que aconseja desactivar y volver a
+          // activar — justo lo que DESTRUYE una suscripción que estaba sana. Acá no falló el
+          // aviso: falló leer la lista de aparatos.
+          desc.textContent = 'No se pudo leer la lista de dispositivos. NO toques Desactivar: probá de nuevo en un minuto.';
+          probar.textContent = 'Probar';
         } else if (r.ok) {
           desc.textContent = 'No se pudo entregar en ningún dispositivo. Probá desactivar y volver a activar.';
           probar.textContent = 'Probar';

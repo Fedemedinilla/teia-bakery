@@ -109,21 +109,58 @@ self.addEventListener('push', (evento) => {
 
   // showNotification es OBLIGATORIO: el navegador exige que todo push se traduzca en algo
   // visible. Si no, deja de mandar los siguientes.
-  const tareas = [self.registration.showNotification(d.titulo || 'Nuevo pedido', opciones)];
+  const mostrar = self.registration.showNotification(d.titulo || 'Nuevo pedido', opciones);
 
   // Globo con el numero de pedidos pendientes sobre el icono de la app.
   // El aviso momentaneo se pierde entre otras notificaciones; el globo QUEDA hasta que se miren
   // los pedidos. Es lo que pidio Mica: "un puntito o un uno... por si justo no veo cuando llega".
   // Si el numero no vino (no se pudo contar), no se toca: borrarlo diria "no tenes nada".
+  let globo = Promise.resolve();
   if (typeof d.pendientes === 'number' && self.navigator && 'setAppBadge' in self.navigator) {
-    tareas.push(
-      d.pendientes > 0
+    try {
+      globo = d.pendientes > 0
         ? self.navigator.setAppBadge(d.pendientes)
-        : self.navigator.clearAppBadge()
-    );
+        : self.navigator.clearAppBadge();
+    } catch (e) { globo = Promise.resolve(); }
   }
 
-  evento.waitUntil(Promise.all(tareas).catch(() => {}));
+  // ⚠️ allSettled y NO all. Antes era Promise.all([aviso, globo]).catch(()=>{}): si setAppBadge
+  // rechazaba —y en Windows/Edge rechaza en varios escenarios— el waitUntil se resolvia ANTES de
+  // que el aviso terminara de pintarse. Un push que no muestra nada visible incumple
+  // userVisibleOnly, y el navegador castiga eso: deja de entregar los siguientes o directamente da
+  // de baja la suscripcion. Es la explicacion mas probable del "llego una sola vez y nunca mas".
+  // Con allSettled, el globo no puede voltear al aviso: son dos cosas independientes.
+  evento.waitUntil(Promise.allSettled([mostrar, globo]));
+});
+
+// El navegador puede ROTAR la suscripcion por su cuenta (vence, se renueva la clave, el sistema
+// la recicla). Cuando pasa, la direccion vieja que tiene el servidor queda muerta: el aviso sale,
+// devuelve 410 y la fila se borra sola — el navegador sigue diciendo "activados" y el servidor ya
+// no tiene a quien avisarle. Nadie se entera hasta que se pierde un pedido.
+// Aca se vuelve a dar de alta la direccion nueva. Todo blindado: si algo falla, falla callado,
+// porque igual existe la re-sincronizacion al abrir el panel (ver ActivarAvisos.astro).
+// Ojo: Safari/iOS puede no disparar nunca este evento — por eso hacen falta los dos mecanismos.
+self.addEventListener('pushsubscriptionchange', (evento) => {
+  evento.waitUntil((async () => {
+    try {
+      let sub = evento.newSubscription;
+      if (!sub) {
+        const vieja = evento.oldSubscription;
+        sub = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: vieja && vieja.options && vieja.options.applicationServerKey,
+        });
+      }
+      if (!sub) return;
+      const j = sub.toJSON();
+      await fetch('/api/admin/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, // JSON obligatorio: checkOrigin de Astro
+        credentials: 'include',
+        body: JSON.stringify({ endpoint: sub.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }),
+      });
+    } catch (e) { /* sin ruido: el panel lo vuelve a intentar al abrirse */ }
+  })());
 });
 
 self.addEventListener('notificationclick', (evento) => {

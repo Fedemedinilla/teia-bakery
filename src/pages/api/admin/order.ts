@@ -1,7 +1,7 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
-import { sbSelect, sbSelectStrict, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
+import { sbSelectStrict, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
 import { tryMirror } from '../../../lib/google';
 
 const json = (o: any, s = 200) =>
@@ -43,7 +43,12 @@ export const POST: APIRoute = async ({ request }) => {
   const edits = Array.isArray(b?.items) ? b.items : [];
 
   // Precio unitario actual de cada ítem (no se confía en el cliente para el precio).
-  const current = await sbSelect(`teia_order_items?order_id=eq.${orderId}&select=id,unit_price`);
+  //
+  // ⚠️ ESTRICTA. Con la no estricta, un 5xx pasajero de Supabase devolvía [] y el mapa de precios
+  // quedaba vacío: el `continue` de más abajo salteaba TODAS las ediciones y el panel contestaba
+  // "Guardado" sin haber guardado un solo cambio.
+  const current = await sbSelectStrict(`teia_order_items?order_id=eq.${orderId}&select=id,unit_price`);
+  if (current === null) return json({ error: 'No se pudo leer el pedido. No se guardó nada: probá de nuevo en un momento.' }, 503);
   const priceById: Record<string, number> = Object.fromEntries(
     (current as any[]).map((i) => [String(i.id), Number(i.unit_price) || 0])
   );
@@ -65,15 +70,23 @@ export const POST: APIRoute = async ({ request }) => {
   // plata, así que un valor inventado en el body (105, -20, "abc") no puede llegar a la base.
   // Cualquier cosa fuera de la lista se trata como 0 — el pedido entra a precio de lista, que es
   // el error que no perjudica a Teia.
+  // ⚠️ Las dos lecturas de acá abajo son ESTRICTAS y cortan con 503, porque las dos deciden PLATA
+  // y las dos fallaban hacia el peor lado posible:
+  //   · los ítems: [] → subtotal 0 → total 0 escrito en la base y sumado como $0 en el Sheet;
+  //   · el descuento: [] → pct 0 → el −10% que ella aplicó desaparecía del total, sin ningún aviso.
+  // En los dos casos el panel decía "Guardado ✓". Cortar es peor experiencia y mucho mejor plata:
+  // reintentar es gratis, descubrir dentro de un mes que un pedido quedó en $0 no.
   const DESCUENTOS = [0, 5, 10, 15, 20];
-  const fresh = await sbSelect(`teia_order_items?order_id=eq.${orderId}&select=line_total`);
+  const fresh = await sbSelectStrict(`teia_order_items?order_id=eq.${orderId}&select=line_total`);
+  if (fresh === null) return json({ error: 'No se pudo recalcular el total. Los cambios de cantidad sí se guardaron: volvé a tocar Guardar en un momento.' }, 503);
   const subtotal = (fresh as any[]).reduce((s, i) => s + (Number(i.line_total) || 0), 0);
   let pct: number;
   if ('discount_pct' in b) {
     pct = DESCUENTOS.includes(Number(b.discount_pct)) ? Number(b.discount_pct) : 0;
   } else {
     // No vino el descuento en este request → mantener el que ya tenía el pedido.
-    const cur = await sbSelect(`teia_orders?id=eq.${orderId}&select=discount_pct`);
+    const cur = await sbSelectStrict(`teia_orders?id=eq.${orderId}&select=discount_pct`);
+    if (cur === null) return json({ error: 'No se pudo leer el descuento del pedido. No se tocó el total: probá de nuevo en un momento.' }, 503);
     pct = Number((cur as any[])[0]?.discount_pct) || 0;
   }
   const total = Math.round(subtotal * (1 - pct / 100));
@@ -88,7 +101,13 @@ export const POST: APIRoute = async ({ request }) => {
   if (addr) patch.delivery_address = addr;
   if ('delivery_date' in b) patch.delivery_date = b.delivery_date || null;
   if ('notes' in b) patch.notes = String(b?.notes ?? '').slice(0, 500).trim();
-  await sbPatch(`teia_orders?id=eq.${orderId}`, patch);
+  // Se MIRA el resultado. Antes se ignoraba y siempre se contestaba ok: si el PATCH fallaba (por
+  // ejemplo por una columna que todavía no existe en la base), los ítems quedaban guardados, el
+  // encabezado no, el total quedaba desfasado de sus propios renglones — y el panel decía "✓".
+  const guardado = await sbPatch(`teia_orders?id=eq.${orderId}`, patch);
+  if (!guardado) {
+    return json({ error: 'Las cantidades se guardaron, pero no se pudo guardar el total ni los datos del pedido. Volvé a tocar Guardar; si sigue, avisá.' }, 500);
+  }
   await tryMirror(); // ediciones reflejadas en el Sheet
 
   return json({ ok: true, total });

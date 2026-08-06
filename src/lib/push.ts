@@ -11,7 +11,7 @@
 // La criptografía (firma VAPID + cifrado del contenido) la hace `web-push`: es un estándar con
 // varios pasos donde un error es invisible hasta que el aviso simplemente no llega.
 import webpush from 'web-push';
-import { env, sbSelect, sbSelectStrict, sbDelete } from './supabase';
+import { env, sbSelectStrict, sbDelete } from './supabase';
 
 const TIMEOUT_MS = 6000;
 
@@ -25,7 +25,7 @@ const TIMEOUT_MS = 6000;
  * el globo haciéndole creer que no tiene nada pendiente. Ante la duda, se devuelve null y el
  * globo no se toca.
  */
-async function pedidosPendientes(): Promise<number | null> {
+export async function pedidosPendientes(): Promise<number | null> {
   const filas = await sbSelectStrict('teia_orders?status=eq.pendiente&select=id');
   return filas === null ? null : (filas as any[]).length;
 }
@@ -61,14 +61,21 @@ export type AvisoPush = {
 /**
  * Manda el aviso a todos los teléfonos suscriptos. Nunca lanza.
  *
- * Si la tabla `teia_push_subs` todavía no existe, `sbSelect` devuelve [] (no distingue el error)
- * y esto no hace nada — a propósito: una feature apagada no puede tener requisitos de esquema
- * encendidos, que es justo lo que una vez dejó a todos sin poder entrar.
+ * Si la tabla `teia_push_subs` todavía no existe, la consulta falla y esto no hace nada — a
+ * propósito: una feature apagada no puede tener requisitos de esquema encendidos, que es justo lo
+ * que una vez dejó a todos sin poder entrar.
+ *
+ * ⚠️ sbSelectStrict y no sbSelect, y el `fallo` importa. Con la no estricta, un 5xx pasajero de
+ * Supabase devolvía [] = "no hay ningún teléfono", y el botón Probar contestaba "No se pudo
+ * entregar en ningún dispositivo. Probá desactivar y volver a activar." Seguir ese consejo
+ * DESTRUYE una suscripción que estaba perfecta. Ahora se distingue "no hay nadie anotado" de
+ * "no pude leer la lista", que son dos problemas opuestos.
  */
-async function enviarATodos(cuerpo: string): Promise<{ entregados: number; total: number }> {
+async function enviarATodos(cuerpo: string): Promise<{ entregados: number; total: number; fallo?: 'base' }> {
   if (!pushConfigured()) return { entregados: 0, total: 0 };
 
-  const subs = await sbSelect<any>('teia_push_subs?select=id,endpoint,p256dh,auth');
+  const subs = await sbSelectStrict<any>('teia_push_subs?select=id,endpoint,p256dh,auth');
+  if (subs === null) return { entregados: 0, total: 0, fallo: 'base' };
   if (!subs.length) return { entregados: 0, total: 0 };
 
   configurar();
@@ -124,7 +131,7 @@ export async function avisarPushPedido(d: AvisoPush): Promise<void> {
  * interesa el resultado: quien aprieta el botón quiere saber si llegó o no. Devuelve cuántos
  * teléfonos lo recibieron para poder decirlo en pantalla.
  */
-export async function probarPush(): Promise<{ entregados: number; total: number; pendientes: number | null }> {
+export async function probarPush(): Promise<{ entregados: number; total: number; pendientes: number | null; fallo?: 'base' }> {
   try {
     // ⚠️ El aviso de prueba TAMBIÉN manda el número de pendientes. Sin esto, el service worker
     // no encendía el globo del ícono —su condición es que el número venga— así que probar con

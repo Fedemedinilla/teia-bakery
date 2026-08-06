@@ -9,6 +9,18 @@ import { avisoConfigurado, destinatarios } from '../../../lib/aviso';
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 
+/** De qué aparato es una suscripción, deducido del host. Solo para el diagnóstico: el endpoint
+ *  entero nunca sale de acá porque es la llave para mandarle notificaciones a ese teléfono. */
+function servicioDe(endpoint: string): string {
+  let host = '';
+  try { host = new URL(String(endpoint)).host; } catch { return 'desconocido'; }
+  if (/apple\.com$/.test(host)) return 'iPhone o iPad (Safari)';
+  if (/windows\.com$/.test(host)) return 'Windows (Edge)';
+  if (/(googleapis|google)\.com$/.test(host)) return 'Android o Chrome';
+  if (/mozilla\.com$/.test(host)) return 'Firefox';
+  return host;
+}
+
 // Diagnóstico de la configuración de avisos. Es de solo lectura y NUNCA devuelve la clave
 // privada: solo dice si está y si se corresponde con la pública.
 //
@@ -44,10 +56,16 @@ export const GET: APIRoute = async ({ request }) => {
   // ¿Existe la tabla? sbSelectStrict distingue "falló" (null) de "no hay filas" ([]).
   let tabla: boolean | null = null;
   let suscripciones: number | null = null;
+  // Qué aparatos están dados de alta. NUNCA el endpoint completo: lleva el token que permite
+  // mandarle avisos a ese aparato. Solo el servicio, que se deduce del host, y la fecha de alta.
+  // Sirve para el caso concreto de "llegó una vez y nunca más": se ve de una CUÁL de los dos
+  // aparatos desapareció, sin tener que adivinar.
+  let dispositivos: any[] = [];
   if (supaConfigured()) {
-    const filas = await sbSelectStrict<any>('teia_push_subs?select=id');
+    const filas = await sbSelectStrict<any>('teia_push_subs?select=id,endpoint,created_at&order=created_at.asc');
     tabla = filas !== null;
     suscripciones = filas === null ? null : filas.length;
+    dispositivos = (filas || []).map((f: any) => ({ id: f.id, aparato: servicioDe(f.endpoint), alta: f.created_at }));
   }
 
   // Estado del OTRO canal de aviso (el mail). Va acá porque es el mismo diagnóstico operativo:
@@ -71,7 +89,7 @@ export const GET: APIRoute = async ({ request }) => {
       privada_presente: !!priv,
       par_coincide: parCoincide,
     },
-    base: { tabla_existe: tabla, telefonos_suscriptos: suscripciones },
+    base: { tabla_existe: tabla, telefonos_suscriptos: suscripciones, dispositivos },
     falta: [
       !pub || !priv ? 'cargar las dos env vars TEIA_VAPID_* en Vercel y redeployar' : null,
       pub && !pubFormato ? 'la clave pública no tiene el formato esperado: regenerar con npm run vapid' : null,
@@ -107,7 +125,10 @@ export const POST: APIRoute = async ({ request }) => {
 
   const endpoint = String(b?.endpoint || '').trim();
   // El endpoint lo emite el navegador y siempre es https (Apple o Google según el teléfono).
-  if (!endpoint || !endpoint.startsWith('https://') || endpoint.length > 800) {
+  // El tope es 2000 y no 800: la columna es `text` (no tiene límite) y los canales de Windows son
+  // largos. Con 800 un alta legítima de una PC podía ser rechazada con "suscripción inválida",
+  // un mensaje que manda a buscar el problema donde no está.
+  if (!endpoint || !endpoint.startsWith('https://') || endpoint.length > 2000) {
     return json({ error: 'suscripción inválida' }, 400);
   }
 
@@ -120,8 +141,23 @@ export const POST: APIRoute = async ({ request }) => {
   const auth = String(b?.auth || '').trim();
   if (!p256dh || !auth) return json({ error: 'suscripción incompleta' }, 400);
 
-  // Se borra la anterior con el mismo endpoint antes de insertar: el navegador puede volver a
-  // suscribirse con claves nuevas y quedarían dos filas apuntando al mismo teléfono.
+  // ── Alta IDEMPOTENTE ────────────────────────────────────────────────────────────────────
+  // Si el aparato YA está dado de alta con las mismas claves, no se toca nada y listo.
+  //
+  // No es una optimización: es un requisito. El panel ahora re-registra el aparato en CADA carga
+  // (ver ActivarAvisos.astro), porque el navegador puede decir "activados" mientras el servidor
+  // perdió la fila. Con el borrar-y-volver-a-insertar de antes, cada apertura del panel abría una
+  // ventana de milisegundos SIN suscripción — justo el rato en que podía entrar un pedido y no
+  // avisarle a nadie. Y además rotaba el id y pisaba la fecha de alta, que es el dato con el que
+  // se diagnostica todo esto.
+  const ya = await sbSelectStrict<any>(
+    `teia_push_subs?endpoint=eq.${encodeURIComponent(endpoint)}&select=id,p256dh,auth`
+  );
+  if (ya !== null && ya[0] && ya[0].p256dh === p256dh && ya[0].auth === auth) {
+    return json({ ok: true, sin_cambios: true });
+  }
+
+  // Cambió algo (claves nuevas tras una rotación) o no estaba: se reemplaza.
   await sbDelete(`teia_push_subs?endpoint=eq.${encodeURIComponent(endpoint)}`);
 
   const fila = await sbInsert('teia_push_subs', { endpoint, p256dh, auth });

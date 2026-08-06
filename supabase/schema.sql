@@ -81,6 +81,17 @@ alter table teia_orders add column if not exists archive_error      text;
 alter table teia_orders add column if not exists archived_at        timestamptz;
 alter table teia_orders add column if not exists remito_cliente_url text;
 alter table teia_orders add column if not exists remito_interno_url text;
+-- Montos que la administradora carga al confirmar, y que el remito imprime debajo del total.
+-- NULL a propósito = "no cargado": el PDF dibuja un renglón en blanco para completarlo a mano
+-- (así funciona su planilla de Excel). NO entran en `total`, que sigue siendo la venta de
+-- mercadería: es lo que suma el Sheet espejo y lo que /api/admin/order recalcula desde los ítems
+-- en cada guardado — cualquier cosa que le sumáramos ahí se borraría al siguiente Guardar.
+-- saldo_anterior admite negativos (saldo a favor del comercio).
+alter table teia_orders add column if not exists saldo_anterior numeric(12,2);
+alter table teia_orders add column if not exists costo_envio    numeric(12,2);
+-- Foto ORIGINAL del producto. `image_url` pasa a ser el RECORTE cuadrado que ve el cliente; la
+-- original se guarda acá para poder reencuadrar cuantas veces haga falta sin perder calidad.
+alter table teia_products add column if not exists image_original_url text;
 
 create table if not exists teia_order_items (
   id          bigint generated always as identity primary key,
@@ -132,6 +143,33 @@ create table if not exists teia_push_subs (
   created_at  timestamptz not null default now()
 );
 
+-- Ajustes de la app que edita la ADMINISTRADORA, sin redeploy y sin depender de nadie.
+-- Clave/valor de texto, una fila por ajuste. Se eligió clave/valor y no una tabla por catálogo
+-- porque las listas viven en el CÓDIGO (CATALOGS en src/lib/catalogs.ts): no hay ninguna fila de
+-- catálogo a la que agregarle una columna. Y el próximo ajuste que quiera tocar no necesita SQL.
+--
+-- ⚠️ La app SIEMPRE lee esta tabla con la variante NO estricta: si todavía no existe, cada lector
+-- cae a su valor por defecto y no se cae nada. Acá no se decide plata, solo qué frase se muestra.
+--
+-- Claves en uso:
+--   envio_min_<lista>  umbral de ENVÍO SIN CARGO de esa lista, en pesos (la arma la app desde la
+--                      lista cerrada de catálogos, así que no entra nada arbitrario)
+--   require_code       'true' = los comercios entran con CUIT + contraseña; cualquier otra cosa,
+--                      solo con CUIT. Se enciende desde el panel, NO con una env var.
+create table if not exists teia_settings (
+  key        text primary key,
+  value      text not null default '',
+  updated_at timestamptz not null default now()
+);
+
+-- Valores iniciales. `do nothing` = volver a correr este archivo NO pisa lo que ella haya
+-- cambiado después desde el panel. Y correr el SQL no enciende nada: require_code arranca en false.
+insert into teia_settings (key, value) values
+  ('envio_min_general', '140000'),
+  ('envio_min_chungo',  '250000'),
+  ('require_code',      'false')
+on conflict (key) do nothing;
+
 alter table teia_products    enable row level security;
 alter table teia_orders      enable row level security;
 alter table teia_order_items enable row level security;
@@ -139,6 +177,7 @@ alter table teia_categories  enable row level security;
 alter table teia_clients     enable row level security;
 alter table teia_push_subs   enable row level security;
 alter table teia_info        enable row level security;
+alter table teia_settings    enable row level security;
 
 -- Storage: bucket PÚBLICO para las fotos de producto (subida desde /administradora con la
 -- service_role key; lectura pública vía URL). Correr una vez.

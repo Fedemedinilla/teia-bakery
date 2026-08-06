@@ -531,7 +531,8 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
     (async () => {
       const aviso = document.getElementById('badgeEstado');
       const decir = (t) => { if (aviso) { aviso.textContent = t; aviso.hidden = false; } };
-      const n = Number(document.querySelector('.admin-wrap')?.dataset.pendientes || 0);
+      const wrap = document.querySelector('.admin-wrap');
+      let pintados = Number(wrap?.dataset.pendientes || 0);
 
       const instalada =
         window.matchMedia('(display-mode: standalone)').matches ||
@@ -541,13 +542,50 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
       // así que no se dice nada: un cartel técnico permanente en el panel es ruido para Mica.
       // Solo se avisa si está en la app instalada Y ahí falla, que es lo único accionable.
       if (!instalada || !('setAppBadge' in navigator)) return;
-      try {
-        if (n > 0) await navigator.setAppBadge(n); else await navigator.clearAppBadge();
-        // OJO: que la llamada resuelva NO garantiza que se vea — en una pestaña común resuelve
-        // igual sin dibujar nada. Por eso no se anuncia ningún éxito, solo se reportan fallas.
-      } catch (e) {
-        decir('Globo del ícono: no se pudo. Motivo: ' + ((e && e.name ? e.name + ' — ' : '') + (e && e.message || e)));
-      }
+
+      const pintar = async (n) => {
+        try {
+          if (n > 0) await navigator.setAppBadge(n); else await navigator.clearAppBadge();
+          // OJO: que la llamada resuelva NO garantiza que se vea — en una pestaña común resuelve
+          // igual sin dibujar nada. Por eso no se anuncia ningún éxito, solo se reportan fallas.
+        } catch (e) {
+          decir('Globo del ícono: no se pudo. Motivo: ' + ((e && e.name ? e.name + ' — ' : '') + (e && e.message || e)));
+        }
+      };
+      await pintar(pintados);
+
+      // ── Repintar al volver a la app ────────────────────────────────────────────────────────
+      // El push solo llega cuando entra un pedido. Si Mica confirma uno desde el celular, la app
+      // de la computadora se queda con el número viejo para siempre. Y al revés.
+      // Cada vez que vuelve a mirar la app se recuenta contra el servidor. `pageshow` además cubre
+      // el iPhone, que al volver a una app abierta no recarga la página (la saca del bfcache).
+      let ultima = 0;
+      const resincronizar = async () => {
+        if (document.visibilityState !== 'visible') return;
+        if (Date.now() - ultima < 10000) return; // sin martillar el servidor en cada foco
+        ultima = Date.now();
+        try {
+          const r = await fetch('/api/admin/pendientes', { headers: { 'Accept': 'application/json' } });
+          if (!r.ok) return;
+          const o = await r.json();
+          // null = "no se pudo contar". No saber NO puede borrarle el globo.
+          if (typeof o.pendientes !== 'number') return;
+          if (o.pendientes !== pintados) {
+            pintados = o.pendientes;
+            await pintar(pintados);
+            // El globo dice 3 y la lista de abajo sigue mostrando 2: eso es peor que no tener
+            // globo. Se ofrece recargar en vez de hacerlo solo, que le tiraría una edición a medias.
+            if (aviso) {
+              aviso.textContent = 'Entraron pedidos nuevos. Tocá acá para actualizar la lista.';
+              aviso.hidden = false;
+              aviso.style.cursor = 'pointer';
+              aviso.onclick = () => location.reload();
+            }
+          }
+        } catch { /* sin red: se queda con el número que tenía */ }
+      };
+      document.addEventListener('visibilitychange', resincronizar);
+      window.addEventListener('pageshow', resincronizar);
     })();
 
     // ---- salir del panel ----
