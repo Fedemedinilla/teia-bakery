@@ -440,6 +440,11 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
                   {p.isLow && <span class="badge badge--low">poco stock</span>}
                 </span></td>
                 <td class="prod-actions">
+                  {p.image_url && (
+                    <button class="btn btn--ghost btn--mini recortar" type="button"
+                            data-id={p.id} data-src={attrSafe(p.image_original_url || p.image_url)}
+                            title="Elegir qué parte de la foto se ve">✂️ Encuadrar</button>
+                  )}
                   <button class="btn btn--ghost editp" data-p={JSON.stringify(p)}>Editar</button>
                   <button class="btn btn--ghost copy-prod" type="button" data-p={JSON.stringify(p)} data-target={p.otherCatalog} data-target-label={p.otherLabel}>⧉ Copiar a {p.otherLabel}</button>
                   <button class="btn btn--danger del-prod" type="button" data-id={p.id} data-name={attrSafe(p.name)}>Borrar</button>
@@ -627,6 +632,31 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           justamente lo que hay que medir es cómo se comporta ADENTRO de la app.
           Chiquito y al final: Mica no tiene por qué entender qué es, y no le estorba. */}
       <p class="diag-link"><a href="/administradora?diag=1">diagnóstico técnico</a></p>
+
+      {/* Recortador de fotos. Va como hermano de las secciones, NO adentro de una: showTab()
+          esconde todo [data-panel] que no sea el activo, asi que anidado aca adentro el modal
+          quedaria invisible al abrirlo desde "Nuevo producto". */}
+      <div class="cropper" id="cropper" hidden>
+        <div class="cropper__card" role="dialog" aria-modal="true" aria-label="Encuadrar la foto">
+          <h2 class="cropper__t">Elegí qué parte se ve</h2>
+          <p class="cropper__hint">Arrastrá la foto para moverla y usá la barra para acercarla.</p>
+          <div class="cropper__vista">
+            <canvas id="cropLienzo"></canvas>
+            <div class="cropper__marco" aria-hidden="true"></div>
+          </div>
+          <div class="cropper__zoom">
+            <span aria-hidden="true">−</span>
+            <input type="range" id="cropZoom" min="1" max="4" step="0.01" value="1" aria-label="Acercar" />
+            <span aria-hidden="true">+</span>
+          </div>
+          <div class="cropper__pies">
+            <button class="btn btn--ghost" type="button" id="cropCancel">Cancelar</button>
+            <button class="btn" type="button" id="cropOk">Usar este encuadre</button>
+          </div>
+          <p class="cropper__msg muted" id="cropMsg"></p>
+        </div>
+      </div>
+
   </div>
 
   <script>
@@ -988,9 +1018,16 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
 
       // 1) subir la imagen si eligió un archivo: se comprime y se manda como BASE64 en JSON
       //    (NO multipart — Vercel bloquea el multipart con 403 vía WAF).
+      let image_original_url = '';
       if (file) {
         msg.textContent = 'Procesando imagen…';
-        const toUpload = await resizeImage(file);
+        // Si eligió encuadre, lo que ve el cliente es el RECORTE; la foto entera se guarda
+        // aparte para poder reencuadrar más adelante sin perder calidad.
+        if (recorteNuevo) {
+          const entera = await resizeImage(file);
+          image_original_url = (await subirImagen(entera)) || '';
+        }
+        const toUpload = recorteNuevo || await resizeImage(file);
         const dataUrl = await new Promise((res) => {
           const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = () => res(''); rd.readAsDataURL(toUpload);
         });
@@ -1017,6 +1054,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         category: F('category').value.trim(),
         catalog: F('catalog') ? F('catalog').value : 'general',
         image_url,
+        ...(image_original_url ? { image_original_url } : {}),
         pack_label: F('pack_label').value.trim(),
         price: F('price').value,
         stock: F('stock').value,
@@ -1038,6 +1076,207 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
     });
 
     // ---- editar un pedido (datos + cantidades) ----
+    /** Sube un File/Blob a Storage y devuelve la URL, o null. Se usa para el recorte y para
+     *  la foto original (que se guarda aparte para poder reencuadrar sin perder calidad). */
+    async function subirImagen(file) {
+      const dataUrl = await new Promise((res) => {
+        const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = () => res(''); rd.readAsDataURL(file);
+      });
+      if (!dataUrl) return null;
+      try {
+        const r = await fetch('/api/admin/upload', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contentType: file.type || 'image/jpeg', data: dataUrl }),
+        });
+        const o = await r.json().catch(() => ({}));
+        return r.ok && o.url ? o.url : null;
+      } catch { return null; }
+    }
+
+    // ══ RECORTADOR DE FOTOS ═════════════════════════════════════════════════════════════════
+    // Pedido de Mica: "poder elegir el plano", como cuando recortás una captura en el celular o
+    // ponés una foto de perfil en WhatsApp. Arrastrar para mover, pellizcar o barra para el zoom.
+    //
+    // Escrito a mano con canvas y eventos de puntero: la política de seguridad del sitio
+    // (script-src 'self') no deja cargar ninguna librería de un CDN.
+    //
+    // El recorte es CUADRADO porque la miniatura del catálogo es cuadrada: lo que ella encuadra
+    // es exactamente lo que se ve. Con recorte libre, la grilla volvería a cortar la foto sola —
+    // que es el problema que quiso resolver.
+    //
+    // Y cada recorte se hace SIEMPRE desde la foto ORIGINAL, nunca desde el último recorte: si no,
+    // cada ajuste perdería calidad y nunca podría volver a abrir el encuadre.
+    const cropper = (() => {
+      const caja = document.getElementById('cropper');
+      const lienzo = document.getElementById('cropLienzo');
+      const zoom = document.getElementById('cropZoom');
+      const cmsg = document.getElementById('cropMsg');
+      if (!caja || !lienzo) return null;
+
+      const LADO = 300;          // el cuadrado que se ve en pantalla
+      const SALIDA = 900;        // el lado del archivo que se sube
+      const ctx = lienzo.getContext('2d');
+      let img = null, escala = 1, offx = 0, offy = 0, base = 1;
+      let alGuardar = null;      // qué hacer con el recorte (lo pone quien lo abre)
+
+      const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
+      function medir() {
+        lienzo.width = LADO * dpr(); lienzo.height = LADO * dpr();
+        lienzo.style.width = LADO + 'px'; lienzo.style.height = LADO + 'px';
+      }
+
+      // Límites: la foto SIEMPRE tiene que tapar el cuadrado. Sin esto quedan franjas vacías y
+      // el producto sale con bordes blancos en el catálogo.
+      function acotar() {
+        const dw = img.naturalWidth * base * escala, dh = img.naturalHeight * base * escala;
+        const mx = Math.max(0, (dw - LADO) / 2), my = Math.max(0, (dh - LADO) / 2);
+        offx = Math.min(mx, Math.max(-mx, offx));
+        offy = Math.min(my, Math.max(-my, offy));
+      }
+
+      function pintar() {
+        if (!img) return;
+        const k = dpr();
+        ctx.setTransform(k, 0, 0, k, 0, 0);
+        ctx.clearRect(0, 0, LADO, LADO);
+        const dw = img.naturalWidth * base * escala, dh = img.naturalHeight * base * escala;
+        ctx.drawImage(img, (LADO - dw) / 2 + offx, (LADO - dh) / 2 + offy, dw, dh);
+      }
+
+      // ---- arrastre y pellizco, con eventos de puntero (sirve para dedo y para mouse) ----
+      const punteros = new Map();
+      let dist0 = 0, escala0 = 1;
+      lienzo.addEventListener('pointerdown', (e) => {
+        lienzo.setPointerCapture(e.pointerId);
+        punteros.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (punteros.size === 2) {
+          const [a, b] = [...punteros.values()];
+          dist0 = Math.hypot(a.x - b.x, a.y - b.y); escala0 = escala;
+        }
+      });
+      lienzo.addEventListener('pointermove', (e) => {
+        const prev = punteros.get(e.pointerId);
+        if (!prev) return;
+        e.preventDefault();
+        if (punteros.size === 2) {
+          punteros.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          const [a, b] = [...punteros.values()];
+          const d = Math.hypot(a.x - b.x, a.y - b.y);
+          if (dist0 > 0) {
+            escala = Math.min(4, Math.max(1, escala0 * (d / dist0)));
+            zoom.value = String(escala);
+            acotar(); pintar();
+          }
+          return;
+        }
+        offx += e.clientX - prev.x; offy += e.clientY - prev.y;
+        punteros.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        acotar(); pintar();
+      });
+      const soltar = (e) => { punteros.delete(e.pointerId); dist0 = 0; };
+      lienzo.addEventListener('pointerup', soltar);
+      lienzo.addEventListener('pointercancel', soltar);
+      lienzo.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        escala = Math.min(4, Math.max(1, escala * (e.deltaY < 0 ? 1.08 : 0.93)));
+        zoom.value = String(escala); acotar(); pintar();
+      }, { passive: false });
+      zoom.addEventListener('input', () => { escala = Number(zoom.value) || 1; acotar(); pintar(); });
+
+      function cerrar() { caja.hidden = true; img = null; alGuardar = null; cmsg.textContent = ''; }
+      document.getElementById('cropCancel').addEventListener('click', cerrar);
+      caja.addEventListener('click', (e) => { if (e.target === caja) cerrar(); });
+
+      document.getElementById('cropOk').addEventListener('click', async () => {
+        if (!img || !alGuardar) return;
+        const fuera = document.createElement('canvas');
+        fuera.width = SALIDA; fuera.height = SALIDA;
+        const f = SALIDA / LADO;
+        const c2 = fuera.getContext('2d');
+        c2.fillStyle = '#FFFDF8'; c2.fillRect(0, 0, SALIDA, SALIDA);
+        const dw = img.naturalWidth * base * escala * f, dh = img.naturalHeight * base * escala * f;
+        c2.drawImage(img, (SALIDA - dw) / 2 + offx * f, (SALIDA - dh) / 2 + offy * f, dw, dh);
+        const blob = await new Promise((res) => fuera.toBlob(res, 'image/jpeg', 0.88));
+        if (!blob) { cmsg.textContent = 'No se pudo generar el recorte.'; return; }
+        const fn = alGuardar;
+        cerrar();
+        await fn(new File([blob], 'recorte.jpg', { type: 'image/jpeg' }));
+      });
+
+      /** Abre el recortador sobre `src`. `alGuardarFn` recibe el File del recorte. */
+      async function abrir(src, alGuardarFn) {
+        return new Promise((res, rej) => {
+          const im = new Image();
+          // crossOrigin es OBLIGATORIO para las fotos ya subidas: sin esto el canvas queda
+          // "contaminado" y toDataURL/toBlob tiran SecurityError. Supabase Storage manda
+          // Access-Control-Allow-Origin: * (verificado), así que funciona.
+          if (!/^blob:|^data:/.test(src)) im.crossOrigin = 'anonymous';
+          im.onload = () => {
+            img = im; escala = 1; offx = 0; offy = 0;
+            base = Math.max(LADO / im.naturalWidth, LADO / im.naturalHeight);
+            zoom.value = '1';
+            alGuardar = alGuardarFn;
+            caja.hidden = false;
+            medir(); acotar(); pintar();
+            res(true);
+          };
+          im.onerror = () => rej(new Error('no se pudo cargar la imagen'));
+          im.src = src;
+        });
+      }
+      return { abrir };
+    })();
+
+    // ---- entrada 1: al elegir una foto nueva en "Nuevo producto" ----
+    // El encuadre se elige AL SUBIR, no después: si no, la foto entra recortada por el CSS y ella
+    // recién ve el problema cuando el producto ya está publicado.
+    let recorteNuevo = null;   // File del recorte, si eligió encuadre
+    if (fileInput && cropper) {
+      fileInput.addEventListener('change', async () => {
+        const f = fileInput.files && fileInput.files[0];
+        recorteNuevo = null;
+        if (!f) return;
+        const url = URL.createObjectURL(f);
+        try {
+          await cropper.abrir(url, async (recorte) => {
+            recorteNuevo = recorte;
+            const img = document.getElementById('pv-img');
+            if (img) { img.src = URL.createObjectURL(recorte); img.hidden = false; }
+            if (fileBtn) fileBtn.textContent = '✂️ Encuadrada — tocá para cambiar';
+          });
+        } catch { /* si no se pudo abrir, se sube la foto entera como siempre */ }
+      });
+    }
+
+    // ---- entrada 2: encuadrar una foto YA cargada, desde la lista de productos ----
+    document.querySelectorAll('.recortar').forEach((b) => {
+      b.addEventListener('click', async () => {
+        if (!cropper) return;
+        const id = b.dataset.id, src = b.dataset.src;
+        if (!src) return;
+        const rotulo = b.textContent;
+        try {
+          await cropper.abrir(src, async (recorte) => {
+            b.textContent = 'Subiendo…'; b.disabled = true;
+            // La ORIGINAL se guarda la primera vez: a partir de ahí todo reencuadre parte de
+            // ella y no del recorte anterior, así la foto no se degrada con cada ajuste.
+            const urlRecorte = await subirImagen(recorte);
+            if (!urlRecorte) { alert('No se pudo subir el recorte. Probá de nuevo.'); b.textContent = rotulo; b.disabled = false; return; }
+            const r = await fetch('/api/admin/product', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'encuadre', id, image_url: urlRecorte, image_original_url: src }),
+            });
+            if (r.ok) { location.reload(); return; }
+            const o = await r.json().catch(() => ({}));
+            alert((o && o.error) || 'No se pudo guardar el encuadre.');
+            b.textContent = rotulo; b.disabled = false;
+          });
+        } catch {
+          alert('No se pudo abrir esa foto para encuadrarla. Puede que la imagen ya no exista.');
+        }
+      });
+    });
+
     // ---- interruptor de CUIT + contraseña ----
     // Encenderlo deja afuera a toda cuenta sin contraseña, y NO se nota en el momento: las
     // sesiones abiertas duran 90 días. Por eso el servidor se niega la primera vez y hay que
