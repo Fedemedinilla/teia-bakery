@@ -625,6 +625,52 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         window.matchMedia('(display-mode: standalone)').matches ||
         ('standalone' in navigator && navigator.standalone === true);
 
+      // ── DIAGNOSTICO, detras de ?diag=1 ────────────────────────────────────────────────────
+      // Va ANTES de cualquier guarda, a proposito. La primera version estaba adentro del
+      // `return` de abajo: si setAppBadge no existia --justo el caso que se quiere diagnosticar--
+      // el bloque salia antes y el diagnostico nunca corria. Un diagnostico que solo funciona
+      // cuando no hace falta no sirve para nada.
+      // Detras de ?diag=1 para que Mica no lo vea nunca: son datos para el que programa.
+      if (new URLSearchParams(location.search).get('diag') === '1') {
+        const hechos = {
+          appInstalada: instalada,
+          apiEnLaPagina: 'setAppBadge' in navigator,
+          apiEnElWorker: 'sin respuesta',
+          intentoDePintar: 'no se intento',
+          pendientes: crudo === '' ? 'no se pudo contar' : crudo,
+        };
+        try {
+          const reg = await navigator.serviceWorker?.getRegistration();
+          if (reg && reg.active) {
+            hechos.apiEnElWorker = await new Promise((res) => {
+              const canal = new MessageChannel();
+              const t = setTimeout(() => res('sin respuesta en 2s'), 2000);
+              canal.port1.onmessage = (e) => { clearTimeout(t); res(String(e.data?.apiEnWorker) + ' (' + e.data?.version + ')'); };
+              reg.active.postMessage({ tipo: 'globo?' }, [canal.port2]);
+            });
+          } else { hechos.apiEnElWorker = 'no hay worker activo'; }
+        } catch (e) { hechos.apiEnElWorker = 'error: ' + e; }
+
+        if ('setAppBadge' in navigator) {
+          const n = crudo === '' ? 1 : Number(crudo) || 1;
+          try {
+            await Promise.race([
+              navigator.setAppBadge(n),
+              new Promise((_, rej) => setTimeout(() => rej(new Error('NO RESPONDIO en 2s (queda colgado)')), 2000)),
+            ]);
+            hechos.intentoDePintar = 'la llamada resolvio OK con el numero ' + n;
+          } catch (e) { hechos.intentoDePintar = 'FALLO: ' + (e && e.name ? e.name + ' — ' : '') + (e && e.message || e); }
+        }
+
+        if (aviso) {
+          aviso.hidden = false;
+          aviso.style.whiteSpace = 'pre-line';
+          aviso.style.fontFamily = 'monospace';
+          aviso.textContent = Object.entries(hechos).map(([k, v]) => k + ': ' + v).join(String.fromCharCode(10));
+        }
+        return; // en modo diagnostico no se sigue: no queremos que otro camino pise el resultado
+      }
+
       // El globo es un extra de la app instalada. Abierto en el navegador NO tiene por qué haberlo,
       // así que no se dice nada: un cartel técnico permanente en el panel es ruido para Mica.
       // Solo se avisa si está en la app instalada Y ahí falla, que es lo único accionable.
