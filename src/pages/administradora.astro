@@ -187,6 +187,26 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
               : `No llega a ${money(umbralDelPedido(o))}: se le cobra el envío`}</span>
           </div>
 
+          {/* Los dos montos que salen en el remito. Van acá, pegados al aviso de arriba, porque
+              son las dos puntas de la MISMA decisión: el aviso dice si le cobrás el envío y acá
+              ponés cuánto. Separados por la lista de ítems no se leerían juntos. */}
+          <div class="ordcard__extra">
+            <label>
+              <span>Saldo anterior</span>
+              <input class="of-saldo" inputmode="numeric" placeholder="—"
+                     value={o.saldo_anterior === null || o.saldo_anterior === undefined ? '' : String(o.saldo_anterior)} />
+            </label>
+            <label>
+              <span>Costo de envío</span>
+              <input class="of-envio" inputmode="numeric" placeholder="—"
+                     value={o.costo_envio === null || o.costo_envio === undefined ? '' : String(o.costo_envio)} />
+            </label>
+            <div class="ordcard__final">
+              <span>Total final</span>
+              <b data-final>{money(Number(o.total) + (Number(o.saldo_anterior) || 0) + (Number(o.costo_envio) || 0))}</b>
+            </div>
+          </div>
+
           <div class="ordcard__view">
             <div class="muted ordcard__cli">{o.client_name} · {o.client_contact}</div>
             {o.delivery_address && <div class="muted ordcard__cli">📍 {o.delivery_address}</div>}
@@ -797,7 +817,15 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         b.disabled = true; // doble click acá = stock descontado dos veces
         b.textContent = '…';
         const r = await fetch('/api/admin/confirm', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          // Los montos viajan CON el confirm: es la secuencia que usa Mica (los escribe y toca
+          // Confirmar). El remito se genera adentro de ese endpoint, así que si no fueran acá
+          // saldría con los renglones en blanco.
+          body: JSON.stringify({
+            id: b.dataset.id,
+            saldo_anterior: b.closest('.ordcard')?.querySelector('.of-saldo')?.value ?? '',
+            costo_envio: b.closest('.ordcard')?.querySelector('.of-envio')?.value ?? '',
+          }),
         });
         if (r.ok) {
           // El server avisa si el pedido superaba el stock o si algo quedó bajo el mínimo —
@@ -817,7 +845,15 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
       b.addEventListener('click', async () => {
         b.textContent = 'Archivando…'; b.disabled = true;
         const r = await fetch('/api/admin/archive', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          // Los montos viajan CON el confirm: es la secuencia que usa Mica (los escribe y toca
+          // Confirmar). El remito se genera adentro de ese endpoint, así que si no fueran acá
+          // saldría con los renglones en blanco.
+          body: JSON.stringify({
+            id: b.dataset.id,
+            saldo_anterior: b.closest('.ordcard')?.querySelector('.of-saldo')?.value ?? '',
+            costo_envio: b.closest('.ordcard')?.querySelector('.of-envio')?.value ?? '',
+          }),
         });
         if (r.ok) location.reload();
         else { b.textContent = 'Reintentar'; b.disabled = false; alert('No se pudo archivar. Probá de nuevo.'); }
@@ -1069,6 +1105,12 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         if (totalEl) totalEl.textContent = money(total);
         // El aviso de envío se recalcula en vivo mientras ella edita cantidades: si no, decía
         // "se le cobra el envío" sobre un total que ya había cambiado en la pantalla.
+        // El "Total final" de la tarjeta sigue las cantidades Y los dos montos, en vivo.
+        const finalEl = card.querySelector('[data-final]');
+        if (finalEl) {
+          const num = (sel) => { const e = card.querySelector(sel); const n = Number(String(e?.value ?? '').replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
+          finalEl.textContent = money(total + num('.of-saldo') + num('.of-envio'));
+        }
         const envio = card.querySelector('.ordcard__envio');
         const envioTxt = card.querySelector('[data-envio-txt]');
         if (envio && envioTxt) {
@@ -1100,14 +1142,22 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
       }
       card.querySelector('.edit-ord')?.addEventListener('click', () => card.classList.add('editing'));
       card.querySelector('.cancel-ord')?.addEventListener('click', () => {
-        card.querySelectorAll('input').forEach((i) => (i.value = i.defaultValue));
+        // Solo los campos de la ficha editable. Con `querySelectorAll('input')` a secas, tocar
+        // Cancelar mientras se edita también le borraba el saldo y el envío recién escritos, que
+        // viven fuera de ese bloque. Borrar plata sin avisar no puede ser un efecto colateral.
+        card.querySelectorAll('.ordcard__edit input, .qty-edit').forEach((i) => (i.value = i.defaultValue));
         card.classList.remove('editing');
         recompute();
       });
       rows.forEach((row) => row.querySelector('.qty-edit')?.addEventListener('input', recompute));
+      card.querySelectorAll('.of-saldo, .of-envio').forEach((i) => i.addEventListener('input', recompute));
       card.querySelector('.save-ord')?.addEventListener('click', async () => {
         const btn = card.querySelector('.save-ord');
         const items = rows.map((row) => ({ id: row.dataset.item, qty: Math.max(0, parseInt(row.querySelector('.qty-edit').value) || 0) }));
+        const extra = {
+          saldo_anterior: card.querySelector('.of-saldo')?.value ?? '',
+          costo_envio: card.querySelector('.of-envio')?.value ?? '',
+        };
         btn.textContent = 'Guardando…';
         const r = await fetch('/api/admin/order', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1115,7 +1165,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
             id: card.dataset.id, items,
             client_name: val('.of-name'), client_contact: val('.of-contact'),
             delivery_address: val('.of-addr'), delivery_date: val('.of-date'), notes: val('.of-notes'),
-            discount_pct: discPct(),
+            discount_pct: discPct(), ...extra,
           }),
         });
         if (r.ok) location.reload();

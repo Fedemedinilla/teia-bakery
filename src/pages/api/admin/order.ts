@@ -3,6 +3,7 @@ import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbSelectStrict, sbPatch, sbDelete, supaConfigured } from '../../../lib/supabase';
 import { tryMirror } from '../../../lib/google';
+import { montoEscrito } from '../../../lib/remito';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -101,6 +102,19 @@ export const POST: APIRoute = async ({ request }) => {
   if (addr) patch.delivery_address = addr;
   if ('delivery_date' in b) patch.delivery_date = b.delivery_date || null;
   if ('notes' in b) patch.notes = String(b?.notes ?? '').slice(0, 500).trim();
+
+  // Los dos montos del remito. NO entran en `total`: `total` es la venta de mercadería, que es
+  // lo que suman el Sheet espejo y los reportes, y lo que este mismo endpoint recalcula desde
+  // los ítems en cada guardado — cualquier cosa que le sumáramos ahí se borraría al siguiente
+  // Guardar, y el saldo del mes pasado se contaría como venta nueva.
+  for (const campo of ['saldo_anterior', 'costo_envio'] as const) {
+    if (!(campo in b)) continue;
+    const m = montoEscrito(b[campo]);
+    if (m === undefined) {
+      return json({ error: 'El ' + (campo === 'costo_envio' ? 'costo de envío' : 'saldo anterior') + ' tiene que ser un número. Por ejemplo: 8000 o 8.000.' }, 400);
+    }
+    patch[campo] = m; // null = vacío → el remito imprime el renglón para completar a mano
+  }
   // Se MIRA el resultado. Antes se ignoraba y siempre se contestaba ok: si el PATCH fallaba (por
   // ejemplo por una columna que todavía no existe en la base), los ítems quedaban guardados, el
   // encabezado no, el total quedaba desfasado de sus propios renglones — y el panel decía "✓".

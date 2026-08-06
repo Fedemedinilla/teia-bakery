@@ -650,3 +650,16 @@ html.lenis, html.lenis body { height: auto; }
 .diag-link { text-align: center; margin: 28px 0 4px; }
 .diag-link a { font-size: 11px; color: var(--ink-3); text-decoration: none; }
 .diag-link a:hover { color: var(--ink-2); text-decoration: underline; }
+
+/* ---- saldo anterior y costo de envío por pedido (van al remito) ---- */
+.ordcard__extra { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: 10px 14px; align-items: end; margin: 0 0 12px; }
+.ordcard__extra label { display: block; margin: 0; }
+.ordcard__extra label span { display: block; font-size: 11.5px; color: var(--ink-2); margin-bottom: 3px; }
+.ordcard__extra input { width: 100%; padding: 7px 9px; font-size: 14px; }
+.ordcard__final { text-align: right; white-space: nowrap; }
+.ordcard__final span { display: block; font-size: 11.5px; color: var(--ink-2); }
+.ordcard__final b { font-family: var(--font-display); font-size: 19px; color: var(--accent); font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) {
+  .ordcard__extra { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ordcard__final { grid-column: 1 / -1; text-align: left; }
+}

@@ -4,6 +4,7 @@ import { isTeiaAdmin } from '../../../lib/auth';
 import { sbSelectStrict, sbPatch, sbPatchReturning, supaConfigured } from '../../../lib/supabase';
 import { archiveOrder } from './archive';
 import { tryMirror } from '../../../lib/google';
+import { montoEscrito } from '../../../lib/remito';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -20,11 +21,28 @@ export const POST: APIRoute = async ({ request }) => {
   const id = Number(body?.id);
   if (!id) return json({ error: 'id' }, 400);
 
+  // Los dos montos del remito viajan CON el confirm, no aparte.
+  //
+  // Es la secuencia que describió Mica: "cuando confirmo el pedido, le agrego al remito el costo
+  // del envío y ahí le mando el remito con el total final". O sea que los escribe y toca
+  // Confirmar. Si este endpoint no los recibiera, se guardarían recién al tocar Guardar —un botón
+  // que ella no tiene por qué saber que hay que apretar ANTES— y el remito, que se genera acá
+  // adentro, saldría con los renglones en blanco.
+  const extras: Record<string, any> = {};
+  for (const campo of ['saldo_anterior', 'costo_envio'] as const) {
+    if (!(campo in (body || {}))) continue;
+    const m = montoEscrito(body[campo]);
+    if (m === undefined) {
+      return json({ error: 'El ' + (campo === 'costo_envio' ? 'costo de envío' : 'saldo anterior') + ' tiene que ser un número. No se confirmó nada.' }, 400);
+    }
+    extras[campo] = m;
+  }
+
   // Claim ATÓMICO: pendiente → confirmado en un solo PATCH condicional. Si llegan dos requests
   // en paralelo (doble click), solo una recibe la fila; la otra ve [] y aborta SIN tocar stock.
   // (El chequeo-de-status-y-después-patch anterior dejaba pasar a las dos → stock descontado 2×.)
   const claimed = await sbPatchReturning<any>(`teia_orders?id=eq.${id}&status=eq.pendiente`, {
-    status: 'confirmado', confirmed_at: new Date().toISOString(),
+    status: 'confirmado', confirmed_at: new Date().toISOString(), ...extras,
   });
   if (claimed === null) return json({ error: 'No se pudo confirmar. Probá de nuevo.' }, 500);
   if (!claimed.length) return json({ error: 'ya procesado (o no existe)' }, 409);
