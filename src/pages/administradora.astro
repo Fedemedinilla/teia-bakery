@@ -601,6 +601,12 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           <p id="envMsg" class="muted"></p>
         </div>
       </section>
+
+      {/* Acceso al diagnóstico técnico. Va acá porque la app INSTALADA no tiene barra de
+          direcciones: sin un enlace adentro, no hay forma de llegar a ?diag=1 desde la app, y
+          justamente lo que hay que medir es cómo se comporta ADENTRO de la app.
+          Chiquito y al final: Mica no tiene por qué entender qué es, y no le estorba. */}
+      <p class="diag-link"><a href="/administradora?diag=1">diagnóstico técnico</a></p>
   </div>
 
   <script>
@@ -667,6 +673,12 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           aviso.style.whiteSpace = 'pre-line';
           aviso.style.fontFamily = 'monospace';
           aviso.textContent = Object.entries(hechos).map(([k, v]) => k + ': ' + v).join(String.fromCharCode(10));
+          const volver = document.createElement('a');
+          volver.href = '/administradora';
+          volver.textContent = '← volver al panel';
+          volver.style.cssText = 'display:inline-block;margin-top:8px;font-family:inherit';
+          aviso.appendChild(document.createElement('br'));
+          aviso.appendChild(volver);
         }
         return; // en modo diagnostico no se sigue: no queremos que otro camino pise el resultado
       }

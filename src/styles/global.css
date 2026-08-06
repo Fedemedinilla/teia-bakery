@@ -645,3 +645,8 @@ html.lenis, html.lenis body { height: auto; }
 .cli-modo__estado .btn { flex: 0 0 auto; }
 .cli-modo__warn { margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: #8A4B2A; }
 @media (max-width: 560px) { .cli-modo__estado { flex-direction: column; align-items: stretch; } }
+
+/* Acceso al diagnóstico: deliberadamente discreto — es para quien programa, no para Mica. */
+.diag-link { text-align: center; margin: 28px 0 4px; }
+.diag-link a { font-size: 11px; color: var(--ink-3); text-decoration: none; }
+.diag-link a:hover { color: var(--ink-2); text-decoration: underline; }
