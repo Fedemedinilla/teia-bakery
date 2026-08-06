@@ -14,6 +14,14 @@ const SOFT = rgb(0.941, 0.886, 0.831);   // #F0E2D4
 
 export type RemitoVariant = 'cliente' | 'interno';
 
+// Datos del negocio, tal cual los tiene Mica en su planilla. En un solo lugar: si cambia el
+// local o el teléfono, se toca acá y sale en todos los remitos.
+// ⚠️ Este teléfono NO es el mismo que TEIA_WHATSAPP (el de la puerta, +54 9 11 3101-9238). Son
+// dos números distintos a propósito: uno es el del local en el remito, el otro es por donde
+// escriben los comercios que quieren darse de alta.
+const NEGOCIO_DIR = 'Av. Sir Alexander Fleming 1750 - Martínez';
+const NEGOCIO_CEL = 'Cel: 11-7623-9937';
+
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 
 // WinAnsi (CP1252) es lo ÚNICO que las fuentes estándar de pdf-lib saben dibujar; un solo
@@ -116,7 +124,9 @@ export async function buildRemito(order: any, items: any[], variant: RemitoVaria
     }
     hr(46, 0.5);
     text('Teia Bakery · Mayorista', M, 32, helv, 8, INK2);
-    right(variant === 'cliente' ? 'Remito para el cliente' : 'Copia interna · cocina', W - M, 32, helv, 8, INK2);
+    // "Remito para el cliente" salió a pedido de Mica: el que lo recibe ya sabe que es suyo.
+    // La marca de la copia interna se queda, ahí sí distingue dos papeles parecidos.
+    if (variant === 'interno') right('Copia interna · cocina', W - M, 32, helv, 8, INK2);
   };
 
   // encabezado de la tabla de ítems (se repite al continuar en otra hoja)
@@ -156,14 +166,18 @@ export async function buildRemito(order: any, items: any[], variant: RemitoVaria
   y = H - 56;
   if (logo) drawLogo(M, y + 12, 13);
   else text('Teia Bakery', M, y, timesB, 24, ACCENT);
-  text('Pastelería mayorista', M, y - 16, helv, 9, INK2);
+  // Debajo del logo van los datos del negocio, igual que en la planilla que usaba Mica.
+  // Antes acá decía "Pastelería mayorista", que ella pidió sacar: en un remito no aporta nada y
+  // le sacaba el lugar al dato que sí sirve, que es dónde queda el local y a qué número llamar.
+  text(NEGOCIO_DIR, M, y - 16, helv, 9, INK2);
+  text(NEGOCIO_CEL, M, y - 28, helv, 9, INK2);
 
   const title = variant === 'cliente' ? 'REMITO' : 'PREPARACIÓN · INTERNO';
   right(title, W - M, y, helvB, variant === 'cliente' ? 18 : 13, INK);
   right(num, W - M, y - 18, helv, 11, INK2);
   right('Fecha: ' + fmtDate(order.confirmed_at || order.created_at), W - M, y - 33, helv, 9, INK2);
 
-  y -= 52;
+  y -= 58; // 6pt más que antes: bajo el logo ahora hay dos renglones, no uno
   hr(y, 1);
   y -= 26;
 
