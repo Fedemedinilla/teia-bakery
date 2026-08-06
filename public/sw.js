@@ -16,7 +16,7 @@
 // 🔧 MANTENIMIENTO: no hay que acordarse de nada al cambiar un icono, el logo o una foto — esas
 // cosas no se cachean. Subir VERSION solo si alguna vez se cambia QUE se cachea.
 
-const VERSION = 'teia-v3';
+const VERSION = 'teia-v4'; // v4: el aviso deja de esperar al globo (colgaba el handler en iPhone)
 const CACHE = VERSION;
 
 self.addEventListener('install', (evento) => {
@@ -124,13 +124,26 @@ self.addEventListener('push', (evento) => {
     } catch (e) { globo = Promise.resolve(); }
   }
 
-  // ⚠️ allSettled y NO all. Antes era Promise.all([aviso, globo]).catch(()=>{}): si setAppBadge
-  // rechazaba —y en Windows/Edge rechaza en varios escenarios— el waitUntil se resolvia ANTES de
-  // que el aviso terminara de pintarse. Un push que no muestra nada visible incumple
-  // userVisibleOnly, y el navegador castiga eso: deja de entregar los siguientes o directamente da
-  // de baja la suscripcion. Es la explicacion mas probable del "llego una sola vez y nunca mas".
-  // Con allSettled, el globo no puede voltear al aviso: son dos cosas independientes.
-  evento.waitUntil(Promise.allSettled([mostrar, globo]));
+  // ⚠️ EL ORDEN Y EL TOPE NO SON UN DETALLE. Historia de dos bugs, uno de cada lado:
+  //
+  //  1. Con `Promise.all([aviso, globo]).catch()`, un RECHAZO del globo resolvia el waitUntil
+  //     antes de que el aviso terminara de pintarse. Un push que no muestra nada visible
+  //     incumple userVisibleOnly y el navegador castiga: deja de entregar los siguientes.
+  //
+  //  2. Con `Promise.allSettled([aviso, globo])` se arreglo eso pero se creo el opuesto: el
+  //     handler pasa a esperar tambien al globo. Si setAppBadge NO RESUELVE NUNCA --y en iPhone
+  //     pasa-- el waitUntil queda colgado hasta que el sistema mata al service worker. El banner
+  //     alcanza a dibujarse, pero el aviso nunca se termina de entregar: no queda guardado en el
+  //     centro de notificaciones y no enciende la pantalla. Reportado en el iPhone de Mica.
+  //
+  // La forma correcta es que el aviso NO DEPENDA DEL GLOBO EN NINGUN SENTIDO: primero se espera
+  // el aviso hasta el final, y despues el globo con un tope duro. Un extra cosmetico no puede
+  // demorar --ni un segundo de mas-- lo unico que de verdad importa, que es que ella se entere.
+  const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+  evento.waitUntil((async () => {
+    try { await mostrar; } catch (e) { /* el aviso es lo unico que no se puede saltear */ }
+    try { await Promise.race([globo, dormir(1000)]); } catch (e) { /* el globo es opcional */ }
+  })());
 });
 
 // El navegador puede ROTAR la suscripcion por su cuenta (vence, se renueva la clave, el sistema
