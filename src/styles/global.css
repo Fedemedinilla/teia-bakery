@@ -639,3 +639,9 @@ html.lenis, html.lenis body { height: auto; }
   background: #FBF0E8; color: #8A4B2A; border: 1px solid #EBD2C1; }
 .ordcard__envio.is-sin { background: #EDF6EE; color: #2F6B3A; border-color: #CFE6D3; }
 @media (max-width: 560px) { .envio-row { grid-template-columns: 1fr; gap: 6px; } }
+
+/* ---- interruptor de CUIT + contraseña ---- */
+.cli-modo__estado { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.cli-modo__estado .btn { flex: 0 0 auto; }
+.cli-modo__warn { margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: #8A4B2A; }
+@media (max-width: 560px) { .cli-modo__estado { flex-direction: column; align-items: stretch; } }

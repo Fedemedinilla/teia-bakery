@@ -16,7 +16,7 @@
 // 🔧 MANTENIMIENTO: no hay que acordarse de nada al cambiar un icono, el logo o una foto — esas
 // cosas no se cachean. Subir VERSION solo si alguna vez se cambia QUE se cachea.
 
-const VERSION = 'teia-v4'; // v4: el aviso deja de esperar al globo (colgaba el handler en iPhone)
+const VERSION = 'teia-v5'; // v5: la pagina tambien pinta el globo (en iPhone el worker no puede)
 const CACHE = VERSION;
 
 self.addEventListener('install', (evento) => {
@@ -139,11 +139,41 @@ self.addEventListener('push', (evento) => {
   // La forma correcta es que el aviso NO DEPENDA DEL GLOBO EN NINGUN SENTIDO: primero se espera
   // el aviso hasta el final, y despues el globo con un tope duro. Un extra cosmetico no puede
   // demorar --ni un segundo de mas-- lo unico que de verdad importa, que es que ella se entere.
+  // SEGUNDO CAMINO PARA EL GLOBO: pedirselo a la PAGINA.
+  //
+  // En iPhone el globo del service worker no aparece nunca, y hay una explicacion probable:
+  // Safari expone setAppBadge en el navigator de la PAGINA pero no necesariamente en el del
+  // worker. Si es asi, la condicion de arriba es falsa y aca nunca se intento nada — calza con
+  // que Federico lo haya visto funcionar "en algun momento": lo pintaba la pagina al abrir el
+  // panel, no el aviso al llegar.
+  // Si la app esta abierta (aunque sea en segundo plano, que es el caso normal), su pagina si
+  // puede pintarlo. Se le avisa a todas las ventanas y ellas lo hacen. No reemplaza al camino
+  // del worker: los dos se intentan, gana el que funcione en ese aparato.
+  const avisarALaPagina = (async () => {
+    if (typeof d.pendientes !== 'number') return;
+    const ventanas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const v of ventanas) v.postMessage({ tipo: 'globo', pendientes: d.pendientes });
+  })();
+
   const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
   evento.waitUntil((async () => {
     try { await mostrar; } catch (e) { /* el aviso es lo unico que no se puede saltear */ }
-    try { await Promise.race([globo, dormir(1000)]); } catch (e) { /* el globo es opcional */ }
+    try { await Promise.race([Promise.allSettled([globo, avisarALaPagina]), dormir(1000)]); } catch (e) {}
   })());
+});
+
+// Diagnostico: la pagina pregunta que ve el worker. Sirve para saber, desde el aparato de la
+// persona y sin adivinar, si la API del globo existe aca adentro o no.
+self.addEventListener('message', (evento) => {
+  if (!evento.data || evento.data.tipo !== 'globo?') return;
+  const nav = self.navigator || {};
+  const respuesta = {
+    tipo: 'globo!',
+    version: VERSION,
+    apiEnWorker: 'setAppBadge' in nav,
+  };
+  if (evento.ports && evento.ports[0]) evento.ports[0].postMessage(respuesta);
+  else if (evento.source) evento.source.postMessage(respuesta);
 });
 
 // El navegador puede ROTAR la suscripcion por su cuenta (vence, se renueva la clave, el sistema

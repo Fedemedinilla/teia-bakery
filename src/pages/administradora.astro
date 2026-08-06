@@ -7,7 +7,7 @@ import { isTeiaAdmin, redirigirAlIngreso } from '../lib/auth';
 import { sbSelect, supaConfigured, env } from '../lib/supabase';
 import { fmtCuit } from '../lib/cuit';
 import { CATALOGS, catalogOf, catalogLabel, DEFAULT_CATALOG, attrSafe } from '../lib/catalogs';
-import { codeRequired } from '../lib/accesscode';
+import { codeRequiredFrom, normCode } from '../lib/accesscode';
 import { readSettings } from '../lib/settings';
 import { pedidosPendientes } from '../lib/push';
 import { umbralDe, umbralesTodos, claveUmbral } from '../lib/envio';
@@ -76,18 +76,25 @@ const catNames = (categories as any[]).map((c) => c.name);
 
 // Segundo factor: solo se PIDE al entrar si TEIA_REQUIRE_CODE=true. El panel lo administra
 // igual aunque esté apagado, para tener los códigos listos antes de encenderlo.
-const requireCode = codeRequired();
-
 // Ajustes que edita Mica (por ahora, los umbrales de envío sin cargo de cada lista).
 const ajustes = await readSettings();
 const umbrales = umbralesTodos(ajustes);
+
+const requireCode = codeRequiredFrom(ajustes);
+
 // Umbral que le toca a cada cuenta segun su lista. Se arma una vez y se consulta por pedido:
 // un pedido sin cuenta (la borraron despues) cae al de la lista general.
 const umbralPorCliente: Record<string, number> = Object.fromEntries(
   (clients as any[]).map((c: any) => [String(c.id), umbralDe(ajustes, c.catalog)])
 );
 const umbralDelPedido = (o: any) => umbralPorCliente[String(o.client_id)] ?? umbralDe(ajustes, 'general');
-const sinCodigo = (clients as any[]).filter((c) => !c.access_code).length;
+// Cuentas HABILITADAS sin contraseña: son las que quedarían afuera si se enciende el modo.
+// Se listan por nombre, no solo se cuentan: "2 cuentas" no le dice a Mica a quién llamar.
+// normCode y no .trim(): es EXACTAMENTE la función que usa el login para comparar. Una
+// contraseña de solo espacios o solo símbolos ("---") pasa un trim pero al entrar queda en nada
+// y el comercio no puede entrar. El panel tiene que contar lo mismo que la puerta.
+const sinPassword = (clients as any[]).filter((c) => c.active !== false && !normCode(c.access_code));
+const sinCodigo = sinPassword.length;
 
 // URL pública de la app para el mensaje de bienvenida al cliente. Sale de la env, así que
 // tras el handoff a un dominio propio el link del mensaje apunta solo al dominio nuevo.
@@ -245,12 +252,26 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         <p class="card muted">Sin cuentas todavía. Dá de alta la primera abajo — sin alta, nadie entra.</p>
       )}
 
-      <p class="card cli-modo">
-        {requireCode
-          ? <span><b>🔒 Entrada con CUIT + contraseña.</b> Cada comercio necesita su contraseña para entrar la primera vez en cada teléfono.</span>
-          : <span><b>🔓 Entrada solo con CUIT.</b> Hoy alcanza el CUIT para entrar: la contraseña se guarda pero todavía no se pide. Podés ir cargándolas igual.</span>}
-        {sinCodigo > 0 && <span class="cli-modo__warn"> · {sinCodigo} cuenta{sinCodigo === 1 ? '' : 's'} sin contraseña todavía</span>}
-      </p>
+      <div class="card cli-modo">
+        <div class="cli-modo__estado">
+          {requireCode
+            ? <span><b>🔒 Entrada con CUIT + contraseña.</b> Cada comercio necesita su contraseña para entrar la primera vez en cada teléfono.</span>
+            : <span><b>🔓 Entrada solo con CUIT.</b> Hoy alcanza el CUIT para entrar: la contraseña se guarda pero todavía no se pide.</span>}
+          <button class="btn btn--ghost" type="button" id="codeSwitch" data-on={requireCode ? '1' : '0'}>
+            {requireCode ? 'Volver a solo CUIT' : 'Pedir contraseña'}
+          </button>
+        </div>
+
+        {sinCodigo > 0 && (
+          <p class="cli-modo__warn">
+            {requireCode
+              ? <b>⚠️ Estas cuentas NO pueden entrar</b>
+              : <b>Antes de encender, cargales la contraseña a estas cuentas</b>}
+            {' — '}{sinPassword.map((c: any) => c.business_name).join(', ')}
+          </p>
+        )}
+        <p class="muted" id="codeMsg"></p>
+      </div>
       {(clients as any[]).map((c: any) => (
         <div class="card clicard" data-id={c.id}>
           <div class="clicard__head">
@@ -652,6 +673,34 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
       };
       document.addEventListener('visibilitychange', resincronizar);
       window.addEventListener('pageshow', resincronizar);
+
+      // ── El globo, pintado desde la PAGINA cuando llega un aviso ──────────────────────────
+      // En iPhone el service worker no puede pintarlo (Safari no expone setAppBadge ahi dentro).
+      // Cuando llega un push, el worker le avisa a esta pagina y lo pinta ella. Funciona con la
+      // app en segundo plano, que es el caso normal: ella la abre y la deja atras.
+      navigator.serviceWorker?.addEventListener('message', async (e) => {
+        if (!e.data || e.data.tipo !== 'globo') return;
+        if (typeof e.data.pendientes !== 'number') return;
+        pintados = e.data.pendientes;
+        await pintar(pintados);
+      });
+
+      // Diagnostico: se le pregunta al worker si el globo existe alla adentro. Solo se dice algo
+      // si NO existe, porque en ese caso el numero aparece recien al abrir la app y conviene que
+      // se sepa en vez de esperarlo para siempre.
+      try {
+        const reg = await navigator.serviceWorker?.getRegistration();
+        const activo = reg && reg.active;
+        if (activo) {
+          const canal = new MessageChannel();
+          canal.port1.onmessage = (e) => {
+            if (e.data && e.data.apiEnWorker === false) {
+              decir('En este teléfono el número sobre el ícono se actualiza al abrir la app, no al llegar el aviso. Es un límite del sistema, no una falla.');
+            }
+          };
+          activo.postMessage({ tipo: 'globo?' }, [canal.port2]);
+        }
+      } catch (e) { /* diagnostico opcional */ }
     })();
 
     // ---- salir del panel ----
@@ -890,6 +939,37 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
     });
 
     // ---- editar un pedido (datos + cantidades) ----
+    // ---- interruptor de CUIT + contraseña ----
+    // Encenderlo deja afuera a toda cuenta sin contraseña, y NO se nota en el momento: las
+    // sesiones abiertas duran 90 días. Por eso el servidor se niega la primera vez y hay que
+    // confirmar sabiendo a quiénes afecta.
+    document.getElementById('codeSwitch')?.addEventListener('click', async () => {
+      const btn = document.getElementById('codeSwitch');
+      const msg = document.getElementById('codeMsg');
+      const encender = btn.dataset.on !== '1';
+      const pedir = async (confirmado) => {
+        const r = await fetch('/api/admin/settings', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ require_code: encender, ...(confirmado ? { confirmo_lockout: true } : {}) }),
+        });
+        return { r, o: await r.json().catch(() => ({})) };
+      };
+      btn.disabled = true; msg.textContent = '';
+      try {
+        let { r, o } = await pedir(false);
+        if (!r.ok && o.necesita_confirmacion) {
+          const quienes = (o.cuentas_sin_contrasenia || []).join(', ');
+          if (!confirm(o.error + [' ', quienes, ' ', '¿Encender igual?'].join(String.fromCharCode(10)))) {
+            btn.disabled = false; return;
+          }
+          ({ r, o } = await pedir(true));
+        }
+        if (r.ok) { location.reload(); return; }
+        msg.textContent = o.error || 'No se pudo cambiar.';
+      } catch { msg.textContent = 'No se pudo conectar.'; }
+      btn.disabled = false;
+    });
+
     // ---- envíos: umbral de envío sin cargo por lista ----
     document.getElementById('envSave')?.addEventListener('click', async () => {
       const btn = document.getElementById('envSave');

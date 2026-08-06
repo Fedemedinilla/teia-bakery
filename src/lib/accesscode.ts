@@ -11,7 +11,26 @@
 import crypto from 'node:crypto';
 import { env } from './supabase';
 
-export function codeRequired(): boolean {
+/**
+ * ¿Se pide la contraseña además del CUIT?
+ *
+ * ⚠️ Se llama `codeRequiredFrom` y no `codeRequired` A PROPÓSITO. Al mover el interruptor de la
+ * env var a la base, cualquier lugar que quedara llamando al nombre viejo habría seguido
+ * compilando y devolviendo el valor equivocado, sin ningún error. Con el nombre cambiado, un
+ * llamador olvidado es un `ts(2304): nombre no encontrado` que `npm run check` frena antes del
+ * deploy. Un modo que decide QUIÉN ENTRA no puede fallar en silencio.
+ *
+ * Recibe el mapa de ajustes ya leído (readSettings) en vez de leerlo adentro: así el panel y la
+ * puerta hacen UNA sola consulta y no una por llamada.
+ *
+ * La env var TEIA_REQUIRE_CODE sigue funcionando como respaldo: si la tabla de ajustes todavía
+ * no existe o la consulta falló, manda la env var. Ninguno de los dos enciende nada por su
+ * cuenta — los dos tienen que decir explícitamente "true".
+ */
+export function codeRequiredFrom(ajustes: Record<string, string>): boolean {
+  const enBase = (ajustes.require_code ?? '').trim().toLowerCase();
+  if (enBase === 'true') return true;
+  if (enBase === 'false') return false;
   return String(env('TEIA_REQUIRE_CODE') || '').toLowerCase() === 'true';
 }
 

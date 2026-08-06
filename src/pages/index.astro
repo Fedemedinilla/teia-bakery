@@ -4,7 +4,8 @@ import Base from '../layouts/Base.astro';
 import InstalarApp from '../components/InstalarApp.astro';
 import { env } from '../lib/supabase';
 import { readSession } from '../lib/session';
-import { codeRequired } from '../lib/accesscode';
+import { codeRequiredFrom } from '../lib/accesscode';
+import { readSettings } from '../lib/settings';
 
 // Si ya tiene sesión válida, derecho al catálogo (no volver a pedir nada cada vez).
 if (readSession(Astro.cookies.get('teia_sess')?.value)) return Astro.redirect('/catalogo');
@@ -15,7 +16,7 @@ if (readSession(Astro.cookies.get('teia_sess')?.value)) return Astro.redirect('/
 Astro.response.headers.set('Cache-Control', 'private, no-store');
 
 // El 2º factor se muestra solo si está encendido (env TEIA_REQUIRE_CODE=true).
-const pideCodigo = codeRequired();
+const pideCodigo = codeRequiredFrom(await readSettings());
 
 // WhatsApp de Teia para el que no está habilitado: el "no" se convierte en una consulta.
 // El default es el WhatsApp REAL de Teia (+54 9 11 3101-9238): si algún día falta la env var,
@@ -31,7 +32,7 @@ const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(waTexto)}`;
       <h1 class="gate__t">Pedidos mayoristas</h1>
       <p class="gate__s">
         {pideCodigo
-          ? 'Ingresá con el CUIT de tu comercio y el código que te dimos.'
+          ? 'Ingresá con el CUIT de tu comercio y la contraseña que te pasamos.'
           : 'Ingresá el CUIT de tu comercio para ver tu catálogo y hacer el pedido.'}
       </p>
 
@@ -44,13 +45,13 @@ const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(waTexto)}`;
 
         {pideCodigo && (
           <>
-            <label for="gateCode">Código de acceso</label>
+            <label for="gateCode">Contraseña</label>
             <div class="gate__pw">
               <input id="gateCode" name="code" type="password" autocomplete="current-password"
-                     placeholder="Ej: 4K7M-9X2P" required />
-              <button type="button" class="gate__eye" id="gateEye" aria-label="Mostrar el código">👁</button>
+                     placeholder="La que te pasó Teia" required />
+              <button type="button" class="gate__eye" id="gateEye" aria-label="Mostrar la contraseña">👁</button>
             </div>
-            <p class="gate__hint">Te lo pasamos por WhatsApp cuando te dimos de alta. Lo pedís una sola vez por dispositivo.</p>
+            <p class="gate__hint">Te la pasamos por WhatsApp cuando te dimos de alta. Se pide una sola vez por dispositivo. No importan las mayúsculas ni los acentos.</p>
           </>
         )}
 
@@ -59,7 +60,7 @@ const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(waTexto)}`;
       </form>
 
       <p class="gate__foot">
-        {pideCodigo ? '¿Perdiste el código o todavía no pedís por mayor? ' : '¿Todavía no pedís por mayor? '}
+        {pideCodigo ? '¿Perdiste la contraseña o todavía no pedís por mayor? ' : '¿Todavía no pedís por mayor? '}
         <a href={waLink} target="_blank" rel="noopener">Escribinos por WhatsApp</a>
       </p>
 

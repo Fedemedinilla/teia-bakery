@@ -3,7 +3,8 @@ import type { APIRoute } from 'astro';
 import { sbSelectStrict, supaConfigured } from '../../lib/supabase';
 import { hasCuitShape, normCuit } from '../../lib/cuit';
 import { setSessionCookie } from '../../lib/session';
-import { codeRequired, codeMatches } from '../../lib/accesscode';
+import { codeRequiredFrom, codeMatches } from '../../lib/accesscode';
+import { readSettings } from '../../lib/settings';
 import { DEMO_CLIENTS } from '../../lib/demo';
 
 const json = (o: any, s = 200) =>
@@ -34,17 +35,22 @@ export const POST: APIRoute = async ({ request }) => {
     error: 'No pudimos verificar tus datos. Si ya sos cliente, revisá el CUIT y el código; si todavía no pedís por mayor, escribinos y te damos de alta.',
   };
 
+  // El interruptor se lee UNA vez por intento de entrada. readSettings usa la lectura no
+  // estricta: si la tabla de ajustes fallara, cae a la env var de respaldo — nunca deja a todo
+  // el mundo afuera ni a todo el mundo adentro por un hipo de la base.
+  const pideCodigo = codeRequiredFrom(await readSettings());
+
   if (!supaConfigured()) {
     const c: any = DEMO_CLIENTS.find((x) => x.cuit === cuit);
     if (!c) return json(denied, 403);
-    if (codeRequired() && !codeMatches(b?.code, c.access_code)) return json(denied, 403);
+    if (pideCodigo && !codeMatches(b?.code, c.access_code)) return json(denied, 403);
     return enter(request, c.id);
   }
 
   // `access_code` se pide SOLO si el 2º factor está encendido: así la app no depende de que
   // esa columna exista mientras el modo esté apagado (si se pide y no está, PostgREST corta
   // la consulta entera y nadie puede entrar). El SQL hay que correrlo ANTES de encenderlo.
-  const cols = codeRequired() ? 'id,active,access_code' : 'id,active';
+  const cols = pideCodigo ? 'id,active,access_code' : 'id,active';
   const rows = await sbSelectStrict(`teia_clients?cuit=eq.${cuit}&select=${cols}`);
   if (rows === null) return json({ error: 'No pudimos verificar tu CUIT ahora. Probá de nuevo en un momento.' }, 503);
   const c = (rows as any[])[0];
@@ -52,7 +58,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   // Segundo factor, solo si está encendido (TEIA_REQUIRE_CODE). Una cuenta sin código cargado
   // NO puede entrar cuando el modo está activo: fallar cerrado, no dejar pasar sin verificar.
-  if (codeRequired() && !codeMatches(b?.code, c.access_code)) return json(denied, 403);
+  if (pideCodigo && !codeMatches(b?.code, c.access_code)) return json(denied, 403);
 
   return enter(request, c.id);
 };
