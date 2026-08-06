@@ -34,15 +34,21 @@ export const POST: APIRoute = async ({ request }) => {
   if (!pregunta) return json({ error: 'Falta el título.' }, 400);
   if (!respuesta) return json({ error: 'Falta el texto.' }, 400);
 
-  const fila = { pregunta, respuesta, sort_order: parseInt(b?.sort_order) || 0 };
+  const fila: Record<string, any> = { pregunta, respuesta };
+  // El ORDEN solo se toca si viene en el pedido. Antes iba siempre, y el panel no lo manda al
+  // editar: `parseInt(undefined) || 0` daba 0, así que guardar el texto de una entrada la
+  // mandaba al principio de la lista en el catálogo del cliente. Cambiar una palabra no puede
+  // reordenarle la pantalla a nadie.
+  if ('sort_order' in (b || {})) fila.sort_order = parseInt(b.sort_order) || 0;
 
   if (b?.id) {
     const id = Number(b.id);
     if (!Number.isInteger(id) || id <= 0) return json({ error: 'id inválido.' }, 400);
     const ok = await sbPatch(`teia_info?id=eq.${id}`, fila);
-    return ok ? json({ ok: true }) : json({ error: 'No se pudo guardar.' }, 500);
+    return ok ? json({ ok: true }) : json({ error: 'No se pudo guardar. Si es la primera vez, puede faltar la tabla teia_info: corré supabase/schema.sql.' }, 500);
   }
 
+  if (!('sort_order' in fila)) fila.sort_order = 0;
   const creada = await sbInsert('teia_info', fila);
-  return creada ? json({ ok: true }) : json({ error: 'No se pudo guardar.' }, 500);
+  return creada ? json({ ok: true }) : json({ error: 'No se pudo guardar. Si es la primera vez, puede faltar la tabla teia_info: corré supabase/schema.sql.' }, 500);
 };

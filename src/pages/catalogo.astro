@@ -331,6 +331,10 @@ const sections = [...groups.keys()]
       barTotal.textContent = fmt(t);
       barSub.textContent = c === 1 ? '1 producto' : c + ' productos';
 
+      // ⚠️ La condición de la barra NO puede tocar el botón. Cuando eran la misma condición, un
+      // umbral en 0 (válido: "envío sin cargo siempre") caía al else y BLOQUEABA el botón de
+      // confirmar para toda esa lista — justo lo que este cambio vino a eliminar.
+      confirmBtn.setAttribute('aria-disabled', c > 0 ? 'false' : 'true');
       if (c > 0 && UMBRAL_ENVIO > 0) {
         meter.hidden = false;
         const llega = t >= UMBRAL_ENVIO;
@@ -342,14 +346,10 @@ const sections = [...groups.keys()]
         // clientes más fieles. Palabras de ella: "si con el desc no llegan al mínimo se les
         // cobra el envío".
         meterT.innerHTML = llega
-          ? `✓ Tu pedido supera los <b>${fmt(UMBRAL_ENVIO)}</b>`
+          ? `✓ Tu pedido llega a los <b>${fmt(UMBRAL_ENVIO)}</b>`
           : `Recordá: por debajo de <b>${fmt(UMBRAL_ENVIO)}</b> el envío tiene costo aparte. Te faltan <b>${fmt(UMBRAL_ENVIO - t)}</b>.`;
-        // El botón NO se bloquea nunca más: el umbral decide quién paga el flete, no si se puede
-        // comprar. Antes esto le frenaba pedidos que ella igual habría aceptado.
-        confirmBtn.setAttribute('aria-disabled', 'false');
       } else {
-        meter.hidden = true;
-        confirmBtn.setAttribute('aria-disabled', 'true'); // carrito vacío: eso sí sigue bloqueado
+        meter.hidden = true; // carrito vacío, o umbral en 0: no hay nada que medir
       }
     }
 
