@@ -57,6 +57,12 @@ const tituloApp = esAdmin ? 'Teia Panel' : 'Teia';
       const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       if (!reduce) {
         const lenis = new Lenis({ duration: 1.05, smoothWheel: true, wheelMultiplier: 1 });
+        // Se expone a proposito. Lenis maneja el scroll de la pagina: cualquier scrollIntoView o
+        // window.scrollTo de otra parte del sitio compite con su bucle y pierde de forma
+        // INTERMITENTE — anda una vez de cada dos. Quien necesite mover la pagina tiene que
+        // pedirselo a el. (El panel lo usa para volver a la fila del producto que se acaba de
+        // editar.) Si no existe --por prefers-reduced-motion-- el que llama cae a lo nativo.
+        window.__lenis = lenis;
         const raf = (t) => { lenis.raf(t); requestAnimationFrame(raf); };
         requestAnimationFrame(raf);
         // anchors internos (chips de rubro) → scroll suave con offset para el nav sticky

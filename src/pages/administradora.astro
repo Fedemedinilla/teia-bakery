@@ -92,6 +92,37 @@ const categories = configured
   : [{ id: 1, name: 'Tortas' }, { id: 2, name: 'Postres' }, { id: 3, name: 'Salados' }, { id: 4, name: 'Panadería' }];
 const catNames = (categories as any[]).map((c) => c.name);
 
+// ── Orden de la lista de Productos ────────────────────────────────────────────────────────
+// Pedido de Mica: "hay forma de que en la parte de productos queden ordenados o por categorías
+// y abajo todos los duplicados de chungo? ... está todo medio mezclado".
+//
+// Antes salían por sort_order y nombre, con las dos listas entremezcladas: para encontrar la
+// versión de Chungo de un producto había que barrer toda la tabla.
+// Ahora: PRIMERO el mayorista general agrupado por rubro, y al final TODO Chungo junto.
+// El orden de los rubros es el MISMO que ve el cliente en el catálogo (teia_categories), así
+// que la pantalla de ella y la del comercio se leen igual.
+const ordenCatalogo = (slug: string) => CATALOGS.findIndex((c) => c.slug === catalogOf(slug));
+const ordenRubro = (r: any) => {
+  const i = catNames.indexOf(String(r || '').trim());
+  return i < 0 ? 9999 : i; // un rubro que no está en la lista va al final, no al principio
+};
+const productRowsOrdenadas = [...productRows].sort((a, b) =>
+  ordenCatalogo(a.catalog) - ordenCatalogo(b.catalog) ||
+  ordenRubro(a.category) - ordenRubro(b.category) ||
+  String(a.category || '').localeCompare(String(b.category || ''), 'es') ||
+  String(a.name || '').localeCompare(String(b.name || ''), 'es')
+);
+
+// Cada fila sabe si abre un grupo nuevo, para dibujar el separador una sola vez.
+let grupoAnterior = '';
+const filasConGrupo = productRowsOrdenadas.map((p) => {
+  const grupo = catalogLabel(catalogOf(p.catalog)) + ' · ' + (String(p.category || '').trim() || 'Sin rubro');
+  const abre = grupo !== grupoAnterior;
+  grupoAnterior = grupo;
+  return { ...p, grupo, abreGrupo: abre };
+});
+
+
 // Segundo factor: solo se PIDE al entrar si TEIA_REQUIRE_CODE=true. El panel lo administra
 // igual aunque esté apagado, para tener los códigos listos antes de encenderlo.
 // Ajustes que edita Mica (por ahora, los umbrales de envío sin cargo de cada lista).
@@ -456,8 +487,16 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         <table>
           <thead><tr><th>Producto</th><th>Catálogo</th><th>Rubro</th><th>Pack</th><th>Precio</th><th>Stock</th><th></th></tr></thead>
           <tbody>
-            {productRows.map((p: any) => (
-              <tr>
+            {filasConGrupo.map((p: any) => (
+              <>
+              {/* Separador de grupo: se dibuja una sola vez por lista+rubro. En el celular la
+                  tabla se vuelve tarjetas, así que este <tr> se estiliza aparte para que se lea
+                  como un título de sección y no como una tarjeta más. */}
+              {p.abreGrupo && (
+                <tr class="prodgrupo"><td colspan="7">{p.grupo}</td></tr>
+              )}
+              {/* El id es el ancla para volver a ESTA fila después de guardar (ver `volverA`). */}
+              <tr id={`prod-${p.id}`}>
                 <td data-label="Producto"><span class="td-v">{p.name}{!p.active && <span class="muted"> (oculto)</span>}
                   {p.esDuplicado && <span class="badge badge--dup" title="Hay otro producto con el mismo nombre en esta misma lista. Tus clientes lo ven dos veces.">repetido</span>}
                 </span></td>
@@ -485,8 +524,9 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
                   <button class="btn btn--danger del-prod" type="button" data-id={p.id} data-name={attrSafe(p.name)}>Borrar</button>
                 </td>
               </tr>
+              </>
             ))}
-            {productRows.length === 0 && <tr><td colspan="7" class="muted">Sin productos. Cargá el primero en “＋ Nuevo producto”.</td></tr>}
+            {filasConGrupo.length === 0 && <tr><td colspan="7" class="muted">Sin productos. Cargá el primero en “＋ Nuevo producto”.</td></tr>}
           </tbody>
         </table>
         </div>
@@ -1111,6 +1151,8 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         const editing = !!F('id').value;
         msg.className = 'ok-msg';
         msg.textContent = editing ? '✓ Producto actualizado' : '✓ ¡Producto agregado!';
+        // Volver a la fila que acaba de tocar, no al principio de la lista.
+        recordarProducto(F('id').value || '');
         setTimeout(() => { location.hash = 'productos'; location.reload(); }, 950);
       } else {
         const o = await r.json().catch(() => ({}));
@@ -1309,7 +1351,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ action: 'encuadre', id, image_url: urlRecorte, image_original_url: src }),
             });
-            if (r.ok) { location.reload(); return; }
+            if (r.ok) { recordarProducto(id); location.reload(); return; }
             const o = await r.json().catch(() => ({}));
             alert((o && o.error) || 'No se pudo guardar el encuadre.');
             b.textContent = rotulo; b.disabled = false;
@@ -1787,6 +1829,46 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
 
     const initTab = (location.hash || '').slice(1);
     if (['pedidos', 'clientes', 'productos', 'nuevo', 'rubros', 'info'].includes(initTab)) { if (initTab === 'nuevo') resetForm(); showTab(initTab); }
+
+    // ── Volver a la fila donde estaba ────────────────────────────────────────────────────
+    // Pedido de Mica: "cada vez que quiero editar algo me vuelve al inicio de pantalla y tengo
+    // q volver a buscar el ítem de abajo".
+    //
+    // Todo lo que toca un producto (guardar, encuadrar, borrar, copiar) termina en
+    // location.reload(), y la pestaña reabre ARRIBA DE TODO. Con el catálogo cargado eso es
+    // scrollear la lista entera para seguir editando el mismo producto.
+    //
+    // Se guarda el id ANTES de recargar y se vuelve a él al arrancar. Va en sessionStorage y no
+    // en el hash: el hash ya se usa para la pestaña, y si quedara en la URL, recargar a mano
+    // saltaría a una fila sin motivo. Se borra apenas se usa, así pasa una sola vez.
+    const CLAVE_VOLVER = 'teia:volverAProducto';
+    const recordarProducto = (id) => { try { sessionStorage.setItem(CLAVE_VOLVER, String(id)); } catch (e) {} };
+
+    (function volverAlProducto() {
+      let id = null;
+      try { id = sessionStorage.getItem(CLAVE_VOLVER); sessionStorage.removeItem(CLAVE_VOLVER); } catch (e) {}
+      if (!id) return;
+      const fila = document.getElementById('prod-' + id);
+      if (!fila) return; // lo borró, o cambió de lista: no hay a dónde volver
+      showTab('productos');
+      // El resaltado dura un rato y se apaga solo: sin él, aterrizar en el medio de una lista
+      // larga no dice cuál era la fila.
+      fila.classList.add('is-recien');
+      setTimeout(() => fila.classList.remove('is-recien'), 2600);
+      // ⚠️ ACA HAY DOS TRAMPAS, las dos medidas en el navegador y no deducidas:
+      //  1. `behavior:'smooth'` no mueve NADA: Lenis se come el scroll suave nativo.
+      //  2. Con scroll nativo instantaneo funciona... una vez de cada dos. Lenis arranca su
+      //     bucle despues y devuelve la pagina a cero: es una carrera que se pierde a veces.
+      // Por eso se le PIDE A LENIS, que es quien manda sobre el scroll. Si no existe (alguien con
+      // "reducir movimiento" activado) se cae a lo nativo instantaneo, que ahi si es confiable.
+      // El retraso deja que la pestaña termine de mostrarse: sobre un elemento oculto no hay
+      // posicion que calcular.
+      setTimeout(() => {
+        const lenis = window.__lenis;
+        if (lenis && typeof lenis.scrollTo === 'function') lenis.scrollTo(fila, { offset: -140, immediate: true });
+        else fila.scrollIntoView({ block: 'center', behavior: 'auto' });
+      }, 120);
+    })();
 
     updatePreview();
 
