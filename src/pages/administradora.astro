@@ -1581,7 +1581,9 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         const texto =
           '¡Hola! 👋 Te damos la bienvenida a Teia Bakery\n\n' +
           'Estas son tus credenciales para acceder:\n\n' +
-          '🔑 CUIT: ' + v('.cf-cuit') + '\n' +
+          // Sin guiones, igual que como lo pide la puerta. Si el mensaje los trae y la
+          // pantalla dice "sin guiones", el comercio duda justo donde no tiene que dudar.
+          '🔑 CUIT: ' + v('.cf-cuit').replace(/[^0-9]/g, '') + '\n' +
           '🔒 Contraseña: ' + codigo + '\n\n' +
           'Estos son los datos de tu comercio:\n\n' +
           '🏪 Nombre: ' + v('.cf-name') + '\n' +

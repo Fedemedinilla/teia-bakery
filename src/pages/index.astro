@@ -39,9 +39,13 @@ const waLink = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(waTexto)}`;
       {/* Form real con autocomplete estándar: así el navegador (y el llavero del celular)
           ofrece GUARDAR el CUIT y el código, y los completa solo la próxima vez. */}
       <form id="gateForm" method="POST" action="/api/entrar" novalidate>
-        <label for="gateCuit">CUIT del comercio</label>
+        {/* "(sin guiones)" a pedido de Mica: la duda mas frecuente es el formato, y preguntarselo
+            a ella cuesta un WhatsApp. El sistema ACEPTA los guiones igual --normCuit borra todo
+            lo que no sea numero-- asi que nadie queda afuera por ponerlos: la aclaracion saca la
+            duda, no agrega un requisito. */}
+        <label for="gateCuit">CUIT del comercio <span class="gate__aclara">(sin guiones)</span></label>
         <input id="gateCuit" name="cuit" inputmode="numeric" autocomplete="username"
-               placeholder="Ej: 30-12345678-1" required autofocus />
+               placeholder="Ej: 30123456781" required autofocus />
 
         {pideCodigo && (
           <>

@@ -9,7 +9,8 @@
     "preview": "astro preview",
     "astro": "astro",
     "vapid": "node scripts/vapid-keys.mjs",
-    "check": "astro check"
+    "check": "node scripts/check-scripts.mjs && astro check",
+    "check:js": "node scripts/check-scripts.mjs"
   },
   "dependencies": {
     "@astrojs/vercel": "^8.2.11",

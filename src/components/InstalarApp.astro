@@ -24,14 +24,16 @@ const nombre = esAdmin ? 'Teia Panel' : 'Teia';
 // declara la página en la que estás: si el panel linkeara a la página del cliente, seguir los
 // pasos ahí instalaría la app equivocada.
 const comoInstalar = esAdmin ? '/instalar?app=admin' : '/instalar';
-const pregunta = esAdmin
-  ? '¿Querés tener el panel en tu pantalla de inicio y abrirlo con un toque?'
-  : '¿Querés tener la app de Teia Bakery para hacer tus pedidos más rápido?';
+// Texto pedido por Mica, con sus palabras: "descarga la app en tu celular" / "queda en tu
+// pantalla de inicio y entras con un click". Antes era una pregunta larga; ahora es una
+// instrucción corta con el beneficio abajo, que es lo que hace que alguien la instale.
+const pregunta = esAdmin ? 'Descargá el panel en tu celular' : 'Descargá la app en tu celular';
+const beneficio = 'Queda en tu pantalla de inicio y entrás con un click.';
 ---
-<aside class="instalar" data-instalar data-nombre={nombre} data-pregunta={pregunta} hidden>
+<aside class="instalar" data-instalar data-nombre={nombre} data-pregunta={pregunta} data-beneficio={beneficio} hidden>
   <img class="instalar__icono" src={icono} alt="" width="44" height="44" />
   <div class="instalar__txt">
-    <p class="instalar__t" data-instalar-titulo>Tenela como app en tu celular</p>
+    <p class="instalar__t" data-instalar-titulo>{pregunta}</p>
     <p class="instalar__d" data-instalar-desc hidden></p>
     <a class="instalar__link" href={comoInstalar} data-instalar-link hidden>
       {esAdmin ? 'Ver cómo instalarlo →' : 'Ver cómo instalarla →'}
@@ -71,8 +73,8 @@ const pregunta = esAdmin
       // para ofrecerlo cuando la persona lo entienda, con un botón nuestro.
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
-        titulo.textContent = 'Tenela como app en tu celular';
-        desc.textContent = 'Queda en tu pantalla de inicio como “' + nombre + '” y entrás con un toque.';
+        titulo.textContent = caja.dataset.pregunta || 'Descargá la app en tu celular';
+        desc.textContent = caja.dataset.beneficio || '';
         desc.hidden = false;
         link.hidden = true;
         btn.hidden = false;
