@@ -171,7 +171,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
     <section class="panel" data-panel="pedidos">
       {orders.length === 0 && <p class="card muted">Sin pedidos todavía.</p>}
       {orderRows.map((o: any) => (
-        <div class="card ordcard" data-id={o.id}>
+        <div class="card ordcard" data-id={o.id} data-pct={String(Number(o.discount_pct) || 0)}>
           <div class="ordcard__head">
             <div>
               <span class="ordcard__num">{o.order_number || `#${o.id}`}</span>
@@ -182,7 +182,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
 
           {o.status === 'pendiente' && (
             <label class="ordcard__disc">
-              Descuento fiel
+              Descuento
               <select class="disc-sel">
                 {[0, 5, 10, 15, 20].map((p) => (
                   <option value={p} selected={Number(o.discount_pct) === p}>{p === 0 ? 'Sin descuento' : `−${p}%`}</option>
@@ -192,7 +192,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
             </label>
           )}
           {o.status !== 'pendiente' && Number(o.discount_pct) > 0 && (
-            <div class="ordcard__disc ordcard__disc--applied">✓ Descuento fiel −{o.discount_pct}% aplicado</div>
+            <div class="ordcard__disc ordcard__disc--applied">✓ Descuento −{o.discount_pct}% aplicado</div>
           )}
 
           {/* ¿Este pedido paga envío? Se compara el total YA CON el descuento aplicado, que es el
@@ -211,19 +211,27 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           <div class="ordcard__extra">
             <label>
               <span>Saldo anterior</span>
-              <input class="of-saldo" inputmode="numeric" placeholder="—"
+              <input class="of-saldo" inputmode="numeric" placeholder="—" readonly={o.status !== 'pendiente'}
                      value={o.saldo_anterior === null || o.saldo_anterior === undefined ? '' : String(o.saldo_anterior)} />
             </label>
             <label>
               <span>Costo de envío</span>
-              <input class="of-envio" inputmode="numeric" placeholder="—"
+              <input class="of-envio" inputmode="numeric" placeholder="—" readonly={o.status !== 'pendiente'}
                      value={o.costo_envio === null || o.costo_envio === undefined ? '' : String(o.costo_envio)} />
             </label>
-            <div class="ordcard__final">
+            {/* ⚠️ El saldo NO entra acá. El total final es pedido + envío y nada más — el saldo
+                anterior es un recordatorio, no parte de esta venta. Tiene que dar EXACTAMENTE lo
+                mismo que remito.ts, o la pantalla y el papel se contradicen sobre plata.
+                Y solo se muestra si hay envío cargado: sin envío sería el mismo número que el
+                total del pedido, repetido al lado. */}
+            <div class="ordcard__final" data-final-caja hidden={!(Number(o.costo_envio) || 0)}>
               <span>Total final</span>
-              <b data-final>{money(Number(o.total) + (Number(o.saldo_anterior) || 0) + (Number(o.costo_envio) || 0))}</b>
+              <b data-final>{money(Number(o.total) + (Number(o.costo_envio) || 0))}</b>
             </div>
           </div>
+          {o.status !== 'pendiente' && (Number(o.saldo_anterior) || Number(o.costo_envio)) ? (
+            <p class="ordcard__extra-nota">Ya confirmado: estos montos son los que salieron en el remito.</p>
+          ) : null}
 
           <div class="ordcard__view">
             <div class="muted ordcard__cli">{o.client_name} · {o.client_contact}</div>
@@ -1365,7 +1373,11 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
       const totalEl = card.querySelector('[data-total]');
       const rows = [...card.querySelectorAll('.oi-row')];
       const val = (sel) => { const e = card.querySelector(sel); return e ? e.value : undefined; };
-      const discPct = () => Number(card.querySelector('.disc-sel')?.value) || 0;
+      // ⚠️ El <select> del descuento SOLO se renderiza en pedidos pendientes. En uno confirmado
+      // no existe, y `Number(undefined) || 0` daba 0: recompute() recalculaba el total SIN el
+      // descuento y lo pintaba en pantalla. Un pedido con −20% se veía por su precio de lista.
+      // El `??` es a propósito y no `||`: un descuento de 0 es válido y con `||` caería al dataset.
+      const discPct = () => Number(card.querySelector('.disc-sel')?.value ?? card.dataset.pct) || 0;
       const recompute = () => {
         let subtotal = 0;
         rows.forEach((row) => {
@@ -1381,9 +1393,23 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         // "se le cobra el envío" sobre un total que ya había cambiado en la pantalla.
         // El "Total final" de la tarjeta sigue las cantidades Y los dos montos, en vivo.
         const finalEl = card.querySelector('[data-final]');
-        if (finalEl) {
-          const num = (sel) => { const e = card.querySelector(sel); const n = Number(String(e?.value ?? '').replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
-          finalEl.textContent = money(total + num('.of-saldo') + num('.of-envio'));
+        const finalCaja = card.querySelector('[data-final-caja]');
+        if (finalEl && finalCaja) {
+          // ⚠️ Este parser tiene que hacer LO MISMO que montoEscrito() del servidor. Antes solo
+          // sacaba lo no numérico y NO borraba el punto de miles: "8.000" daba 8 en la pantalla
+          // y 8.000 en el remito. Un error de mil veces sobre plata, y encima el mensaje de
+          // error de la propia API sugiere ese formato ("Por ejemplo: 8000 o 8.000").
+          const num = (sel) => {
+            const crudo = String(card.querySelector(sel)?.value ?? '');
+            const limpio = crudo.replace(/[^0-9,.-]/g, '').replace(/\./g, '').replace(',', '.');
+            if (!/[0-9]/.test(limpio)) return 0;
+            const n = Number(limpio);
+            return Number.isFinite(n) ? n : 0;
+          };
+          // El saldo NO suma (ver el comentario del markup). Solo el envío.
+          const env = num('.of-envio');
+          finalCaja.hidden = !env;
+          finalEl.textContent = money(total + env);
         }
         const envio = card.querySelector('.ordcard__envio');
         const envioTxt = card.querySelector('[data-envio-txt]');
@@ -1396,7 +1422,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
             : 'No llega a ' + money(umbral) + ': se le cobra el envío';
         }
       };
-      // Descuento fiel: guarda al instante y recarga (recalcula el total y el remito). Si falla,
+      // Descuento: guarda al instante y recarga (recalcula el total y el remito). Si falla,
       // el selector vuelve al valor que tenía — que no quede mostrando un descuento que no se
       // guardó, porque es plata.
       const selDisc = card.querySelector('.disc-sel');
@@ -1658,7 +1684,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
       const sub = (d.items || []).reduce((s, it) => s + (Number(it.t) || 0), 0);
       document.getElementById('om-totals').innerHTML = pct > 0
         ? `<p class="om-line muted"><span>Subtotal</span><b>${money(sub)}</b></p>` +
-          `<p class="om-line om-line--disc"><span>Descuento fiel −${pct}%</span><b>−${money(sub - (Number(d.total) || 0))}</b></p>` +
+          `<p class="om-line om-line--disc"><span>Descuento −${pct}%</span><b>−${money(sub - (Number(d.total) || 0))}</b></p>` +
           `<p class="om-line om-line--total"><span>Total</span><b>${money(d.total)}</b></p>`
         : `<p class="om-line om-line--total"><span>Total</span><b>${money(d.total)}</b></p>`;
       const notes = document.getElementById('om-notes');

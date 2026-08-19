@@ -8,3 +8,6 @@ dist/
 .DS_Store
 npm-debug.log*
 .test-out/
+
+.vercel
+.env*

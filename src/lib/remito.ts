@@ -26,7 +26,7 @@ const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 
 /**
  * Normaliza un monto que escribió la administradora para guardarlo.
- * Devuelve `null` si dejó el campo vacío (= no cargado → renglón en blanco en el PDF), o
+ * Devuelve `null` si dejó el campo vacío (= no cargado → el remito no dibuja nada), o
  * `undefined` si lo que escribió no es un número, para que el que llama lo rechace.
  * Acepta "12.500", "$12.500" y "-3000" (el saldo puede ser a favor del comercio).
  */
@@ -46,9 +46,14 @@ export function montoEscrito(v: any): number | null | undefined {
   return Math.round(n * 100) / 100;
 }
 
-/** Monto opcional. null = NO CARGADO (el PDF dibuja un renglón para completar a mano).
+/** Monto opcional. null = NO CARGADO (ese renglón no se dibuja).
  *  Hace falta explícito porque `Number(null) || 0` da 0 y borraría la diferencia entre
- *  "cargó cero" y "no cargó nada" — que en un remito son dos cosas distintas. */
+ *  "cargó cero" y "no cargó nada" — que en un remito son dos cosas distintas: un envío de $0
+ *  se imprime ("no te cobro envío"), uno vacío no se imprime.
+ *  ⚠️ También devuelve null si el valor guardado NO es un número. Antes eso era inofensivo
+ *  porque igual salía el renglón en blanco y se veía que faltaba algo; ahora un dato ilegible
+ *  desaparece del papel sin dejar rastro. La validación fuerte está en montoEscrito(), que es
+ *  por donde entra todo lo que escribe la administradora. */
 const monto = (v: any): number | null => {
   if (v === null || v === undefined || String(v).trim() === '') return null;
   const n = Number(v);
@@ -239,54 +244,75 @@ export async function buildRemito(order: any, items: any[], variant: RemitoVaria
     y -= 24;
   }
 
-  // ---- total (con desglose si hay descuento fiel, y los extras que carga Teia) ----
+  // ---- total (con desglose si hay descuento, y los extras que carga Teia) ----
+  //
+  // ⚠️ REGLA DEL BLOQUE, escrita porque se rompió una vez. Pedido textual de Mica:
+  //   "me gustaría que el saldo anterior no se sume al monto del pedido nuevo... hay locales que
+  //    pagan siempre a contra pedido, entonces siempre tienen un saldo anterior y si se les va
+  //    sumando al pedido nuevo va a ser un quilombo"
+  //
+  //   · TOTAL FINAL = total del pedido + costo de envío. EL SALDO NO ENTRA, NUNCA.
+  //   · El saldo va ABAJO de todo, como recordatorio, y dice que no está incluido. Va abajo a
+  //     propósito: arriba del total, cualquiera asume que está sumado.
+  //   · Si no se cargó nada, no se dibuja NADA de esto y el remito queda como antes de que la
+  //     función existiera. Los renglones en blanco que había —para completar a mano— los pidió
+  //     ella y después los pidió sacar: "si no se pone nada... no tendría q aparecer en el
+  //     remito, porque sino queda abajo de todo de nuevo un total final vacío".
+  //   · Un envío de $0 SÍ se imprime (dice "no te cobro envío", es información) pero NO dispara
+  //     el TOTAL FINAL: sería el mismo número que el total del pedido, dos veces seguidas.
   const pct = Number(order.discount_pct) || 0;
   const saldo = monto(order.saldo_anterior);
   const envio = monto(order.costo_envio);
-  const hayExtras = saldo !== null || envio !== null;
-  // Un renglón para completar a mano, alineado con la columna de importes.
-  const renglon = (yy: number) =>
-    page.drawLine({ start: { x: cUnit + 10, y: yy - 3 }, end: { x: cSub, y: yy - 3 }, thickness: 0.6, color: LINE });
+  const haySaldo = saldo !== null && saldo !== 0;   // un saldo en cero no es un saldo
+  const hayEnvio = envio !== null;
+  const hayFinal = envio !== null && envio !== 0;   // solo si el envío mueve el número
 
-  ensure((pct > 0 ? 92 : 58) + 76); // el bloque de extras siempre suma alto: se reserva
+  // El alto se reserva según lo que se va a dibujar de verdad. Antes reservaba 76pt siempre, y
+  // eso empujaba a una hoja nueva un pedido largo SIN extras, para imprimir un bloque vacío.
+  const altoExtras = (hayEnvio ? 18 : 0) + (hayFinal ? 22 : 0) + (haySaldo ? 30 : 0);
+  ensure((pct > 0 ? 92 : 58) + altoExtras);
   y -= 12;
   if (pct > 0) {
     const subtotal = items.reduce((s, it) => s + (Number(it.line_total) || 0), 0);
     right('Subtotal', cUnit, y, helv, 10, INK2);
     right(money(subtotal), cSub, y, helv, 10, INK2);
     y -= 16;
-    right(`Descuento fiel (-${pct}%)`, cUnit, y, helv, 10, ACCENT);
+    right(`Descuento (-${pct}%)`, cUnit, y, helv, 10, ACCENT);
     right('-' + money(subtotal - Number(order.total)), cSub, y, helv, 10, ACCENT);
     y -= 18;
   }
 
-  // El total de la MERCADERÍA. Cuando no hay extras cargados, éste es el total y va destacado,
-  // igual que siempre: no se le cambia el remito a nadie por una función que no se usó.
-  right(hayExtras ? 'Total del pedido' : 'Total', cUnit, y, helvB, 12, INK);
-  right(money(order.total), cSub, y, helvB, hayExtras ? 12 : 15, hayExtras ? INK : ACCENT);
+  // El total de la MERCADERÍA. Se lleva el destaque (15pt terracota) salvo que abajo venga un
+  // TOTAL FINAL distinto: dos números grandes seguidos no dicen cuál hay que pagar.
+  right(hayFinal ? 'Total del pedido' : 'Total', cUnit, y, helvB, 12, INK);
+  right(money(order.total), cSub, y, helvB, hayFinal ? 12 : 15, hayFinal ? INK : ACCENT);
   y -= 20;
 
-  // Los dos renglones que pidió Mica. Salen SIEMPRE, con la línea en blanco si no cargó nada:
-  // es el formato de su planilla, donde ella los completa a mano antes de mandar el remito.
-  right('Saldo pedido anterior', cUnit, y, helv, 10, INK2);
-  if (saldo === null) renglon(y); else right(money(saldo), cSub, y, helv, 10, INK2);
-  y -= 18;
-  right('Costo de envío', cUnit, y, helv, 10, INK2);
-  if (envio === null) renglon(y); else right(money(envio), cSub, y, helv, 10, INK2);
-  y -= 22;
-
-  // TOTAL FINAL: solo se imprime como NÚMERO si ella cargó al menos uno de los dos.
-  // Si no cargó nada, va el renglón en blanco. El motivo es de plata: si escribe $8.000 de envío
-  // a mano sobre el papel y el PDF ya trae un total impreso que no lo incluye, el remito se
-  // contradice solo y el comercio paga mal. Un número impreso o es correcto o no está.
-  page.drawLine({ start: { x: cUnit - 70, y: y + 12 }, end: { x: cSub, y: y + 12 }, thickness: 0.75, color: LINE });
-  right('TOTAL FINAL', cUnit, y, helvB, 12, INK);
-  if (hayExtras) {
-    right(money(Number(order.total) + (saldo ?? 0) + (envio ?? 0)), cSub, y, helvB, 15, ACCENT);
-  } else {
-    renglon(y);
+  if (hayEnvio) {
+    right('Costo de envío', cUnit, y, helv, 10, INK2);
+    right(money(envio), cSub, y, helv, 10, INK2);
+    y -= 18;
   }
-  y -= 34;
+
+  if (hayFinal) {
+    page.drawLine({ start: { x: cUnit - 70, y: y + 14 }, end: { x: cSub, y: y + 14 }, thickness: 0.75, color: LINE });
+    right('TOTAL FINAL', cUnit, y, helvB, 12, INK);
+    right(money(Number(order.total) + (envio as number)), cSub, y, helvB, 15, ACCENT);
+    y -= 22;
+  }
+
+  if (haySaldo) {
+    // Un saldo NEGATIVO es plata a favor del comercio. money(-3000) imprimía "$-3.000", que se
+    // lee mal y encima ambiguo; se rotula al derecho y el signo desaparece.
+    const aFavor = (saldo as number) < 0;
+    right(aFavor ? 'Saldo a favor tuyo' : 'Saldo pedido anterior', cUnit, y, helv, 10, INK2);
+    right(money(Math.abs(saldo as number)), cSub, y, helv, 10, INK2);
+    y -= 12;
+    right('(no está incluido en el total de arriba)', cSub, y, helv, 8, INK2);
+    y -= 18;
+  }
+
+  y -= 12;
 
   // ---- aclaraciones (multilínea; destacadas en el interno) ----
   if (order.notes) {
