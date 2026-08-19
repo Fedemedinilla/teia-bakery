@@ -4,7 +4,7 @@ import { sbSelectStrict, supaConfigured } from '../../lib/supabase';
 import { hasCuitShape, normCuit } from '../../lib/cuit';
 import { setSessionCookie } from '../../lib/session';
 import { codeRequiredFrom, codeMatches } from '../../lib/accesscode';
-import { readSettings } from '../../lib/settings';
+import { readSettingsStrict } from '../../lib/settings';
 import { DEMO_CLIENTS } from '../../lib/demo';
 
 const json = (o: any, s = 200) =>
@@ -38,7 +38,11 @@ export const POST: APIRoute = async ({ request }) => {
   // El interruptor se lee UNA vez por intento de entrada. readSettings usa la lectura no
   // estricta: si la tabla de ajustes fallara, cae a la env var de respaldo — nunca deja a todo
   // el mundo afuera ni a todo el mundo adentro por un hipo de la base.
-  const pideCodigo = codeRequiredFrom(await readSettings());
+  // ESTRICTA: si no se puede leer el ajuste, NO se asume que el 2º factor está apagado. Se corta
+  // igual que cuando no se puede leer la cuenta — un hipo de la base no puede bajar la puerta.
+  const ajustes = await readSettingsStrict();
+  if (ajustes === null) return json({ error: 'No pudimos verificar tus datos ahora. Probá de nuevo en un momento.' }, 503);
+  const pideCodigo = codeRequiredFrom(ajustes);
 
   if (!supaConfigured()) {
     const c: any = DEMO_CLIENTS.find((x) => x.cuit === cuit);

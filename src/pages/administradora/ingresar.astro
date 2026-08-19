@@ -13,8 +13,10 @@ import { env } from '../../lib/supabase';
 // Ya entró: no tiene sentido pedirle la clave de nuevo.
 if (isTeiaAdmin(Astro.request)) return Astro.redirect('/administradora');
 
-// Sin clave configurada el panel queda abierto (modo demo/local): no hay nada que pedir.
-if (!env('TEIA_ADMIN_PASSWORD')) return Astro.redirect('/administradora');
+// Sin clave configurada NO se abre nada. Antes esto redirigía al panel, que a su vez no exigía
+// nada, y el panel entero quedaba público. Ahora se avisa y se corta: el que ve esta pantalla es
+// quien administra el sitio, y lo único que puede hacer es cargar la variable en Vercel.
+const faltaClave = !env('TEIA_ADMIN_PASSWORD');
 
 Astro.response.headers.set('Cache-Control', 'private, no-store');
 
@@ -34,10 +36,15 @@ const volver = interno ? pedido : '/administradora';
     <div class="gate__card">
       <img class="gate__logo" src="/logo-teia.png" alt="Teia Bakery" width="2432" height="273" />
       <h1 class="gate__t">Panel de Teia</h1>
-      <p class="gate__s">Ingresá tu clave para administrar los pedidos.</p>
+      {faltaClave
+        ? <p class="gate__s"><b>Este panel no está configurado.</b> Falta cargar la variable
+            <code>TEIA_ADMIN_PASSWORD</code> en Vercel. Hasta que esté, no entra nadie — incluida
+            vos. Es a propósito: sin clave, la única opción segura es no abrir.</p>
+        : <p class="gate__s">Ingresá tu clave para administrar los pedidos.</p>}
 
       {/* Form real con autocomplete estándar: así el llavero del celular ofrece guardar la clave
           y la completa sola la próxima vez. */}
+      {!faltaClave && (
       <form id="panelForm" method="POST" action="/api/admin/entrar" novalidate>
         <input type="hidden" id="panelVolver" value={volver} />
         <label for="panelClave">Clave del panel</label>
@@ -49,6 +56,7 @@ const volver = interno ? pedido : '/administradora';
         <button class="btn btn--block" type="submit" id="panelBtn">Entrar</button>
         <p class="gate__msg" id="panelMsg" role="status" aria-live="polite" hidden></p>
       </form>
+      )}
     </div>
   </main>
 

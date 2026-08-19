@@ -64,7 +64,11 @@ const beneficio = 'Queda en tu pantalla de inicio y entrás con un click.';
     if (!yaInstalada) {
       if (esIOS) {
         // iPhone: no hay botón posible. Invitación corta y el paso a paso en su propia página.
-        titulo.textContent = caja.dataset.pregunta || '¿Querés tenerla en tu pantalla de inicio?';
+        titulo.textContent = caja.dataset.pregunta || 'Descargá la app en tu celular';
+        // El beneficio TAMBIÉN en iPhone. Antes acá salía solo el título y el link: "Descargá la
+        // app" sin decir para qué no le habla a nadie, y era la mitad de la frase que dictó Mica.
+        desc.textContent = caja.dataset.beneficio || '';
+        desc.hidden = !desc.textContent;
         link.hidden = false;
         caja.hidden = false;
       }

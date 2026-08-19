@@ -13,10 +13,17 @@ import { pedidosPendientes } from '../lib/push';
 import { umbralDe, umbralesTodos, claveUmbral } from '../lib/envio';
 import { DEMO_PRODUCTS, DEMO_ORDERS, DEMO_ORDER_ITEMS, DEMO_CLIENTS } from '../lib/demo';
 
-// Gate: la clave del panel se exige SIEMPRE que esté configurada. Antes se pedía solo si
-// Supabase estaba conectado — un deploy sin esas env vars abría el panel entero.
+// Gate del panel. FALLA CERRADO, y eso es lo importante.
+//
+// Antes decía `if (!isTeiaAdmin(...) && env('TEIA_ADMIN_PASSWORD'))`: sin la clave configurada la
+// condición daba false y esta página se renderizaba ENTERA, sin puerta — con los CUITs, teléfonos,
+// direcciones y precios de todos los comercios adentro del HTML. Los endpoints seguían devolviendo
+// 401, pero los datos ya habían viajado.
+// El riesgo no era teórico: la clienta va a configurar su propio proyecto de Vercel en el traspaso,
+// y una env var que se olvida o se escribe mal es la forma más común de que esto pase.
+// Ahora, sin clave, no entra nadie: es la falla correcta para una pantalla con datos de terceros.
 const configured = supaConfigured();
-if (!isTeiaAdmin(Astro.request) && env('TEIA_ADMIN_PASSWORD')) {
+if (!isTeiaAdmin(Astro.request)) {
   return redirigirAlIngreso();
 }
 
@@ -219,7 +226,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
                   <option value={p} selected={Number(o.discount_pct) === p}>{p === 0 ? 'Sin descuento' : `−${p}%`}</option>
                 ))}
               </select>
-              <span class="ordcard__disc-hint">(clientes fieles)</span>
+              
             </label>
           )}
           {o.status !== 'pendiente' && Number(o.discount_pct) > 0 && (
@@ -439,7 +446,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         </p>
         <form id="cliform">
           <div class="grid2">
-            <div><label for="cli-cuit">CUIT</label><input id="cli-cuit" name="cuit" required placeholder="30-12345678-1" autocomplete="off" /></div>
+            <div><label for="cli-cuit">CUIT</label><input id="cli-cuit" name="cuit" required placeholder="30123456781" autocomplete="off" /></div>
             <div><label for="cli-name">Comercio</label><input id="cli-name" name="business_name" required autocomplete="off" /></div>
           </div>
           <div class="grid2">
@@ -949,7 +956,14 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           if (o.low_stock && o.low_stock.length) avisos.push('Queda poco stock: ' + o.low_stock.join(', '));
           if (avisos.length) alert('Pedido confirmado.\n\n' + avisos.join('\n\n'));
           location.reload();
-        } else { b.textContent = 'Error — reintentá'; b.disabled = false; }
+        } else {
+          // El servidor manda mensajes escritos para ella ("el costo de envío tiene que ser un
+          // número", "las cantidades se guardaron pero el total no"). Tirarlos y pintar "Error"
+          // la deja reintentando a ciegas sobre algo que solo el mensaje explica.
+          const o = await r.json().catch(() => ({}));
+          alert((o && o.error) || 'No se pudo confirmar el pedido.');
+          b.textContent = 'Confirmar ✓'; b.disabled = false;
+        }
       })
     );
 
@@ -1089,7 +1103,13 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: b.dataset.id }),
         });
         if (r.ok) location.reload();
-        else b.textContent = 'Error';
+        else {
+          // El servidor manda mensajes escritos para ella. Pintar solo 'Error' la deja
+          // reintentando a ciegas sobre algo que solo el mensaje explica.
+          const o = await r.json().catch(() => ({}));
+          alert((o && o.error) || 'No se pudo completar la acción.');
+          b.textContent = 'Reintentar';
+        }
       })
     );
 
@@ -1482,7 +1502,15 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           selDisc.disabled = true;
           const r = await fetch('/api/admin/order', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: card.dataset.id, discount_pct: Number(selDisc.value) || 0 }),
+            // ⚠️ Van TAMBIÉN los dos montos. Este POST recarga la página, y el endpoint solo
+            // guarda lo que viene en el cuerpo: si no los mandara, el costo de envío que ella
+            // acaba de escribir se pierde al recargar, sin aviso, y el remito sale sin cobrarlo.
+            // Es el mismo modo de falla que ya se había arreglado para el botón Cancelar.
+            body: JSON.stringify({
+              id: card.dataset.id, discount_pct: Number(selDisc.value) || 0,
+              saldo_anterior: card.querySelector('.of-saldo')?.value ?? '',
+              costo_envio: card.querySelector('.of-envio')?.value ?? '',
+            }),
           });
           if (r.ok) { location.reload(); return; }
           selDisc.value = anterior;
@@ -1519,7 +1547,13 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           }),
         });
         if (r.ok) location.reload();
-        else btn.textContent = 'Error';
+        else {
+          // El servidor manda mensajes escritos para ella. Pintar solo 'Error' la deja
+          // reintentando a ciegas sobre algo que solo el mensaje explica.
+          const o = await r.json().catch(() => ({}));
+          alert((o && o.error) || 'No se pudo completar la acción.');
+          btn.textContent = 'Reintentar';
+        }
       });
 
       card.querySelector('.del-ord')?.addEventListener('click', async () => {
@@ -1531,7 +1565,13 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: card.dataset.id }),
         });
         if (r.ok) location.reload();
-        else b.textContent = 'Error';
+        else {
+          // El servidor manda mensajes escritos para ella. Pintar solo 'Error' la deja
+          // reintentando a ciegas sobre algo que solo el mensaje explica.
+          const o = await r.json().catch(() => ({}));
+          alert((o && o.error) || 'No se pudo completar la acción.');
+          b.textContent = 'Reintentar';
+        }
       });
     });
 
@@ -1696,7 +1736,13 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: card.dataset.id }),
         });
         if (r.ok) location.reload();
-        else { b.textContent = 'Error'; b.disabled = false; }
+        else {
+          // El servidor manda mensajes escritos para ella. Pintar solo 'Error' la deja
+          // reintentando a ciegas sobre algo que solo el mensaje explica.
+          const o = await r.json().catch(() => ({}));
+          alert((o && o.error) || 'No se pudo completar la acción.');
+          b.textContent = 'Reintentar'; b.disabled = false;
+        }
       });
     });
     const cliform = document.getElementById('cliform');
@@ -1780,7 +1826,13 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: b.dataset.id }),
         });
         if (r.ok) location.reload();
-        else b.textContent = 'Error';
+        else {
+          // El servidor manda mensajes escritos para ella. Pintar solo 'Error' la deja
+          // reintentando a ciegas sobre algo que solo el mensaje explica.
+          const o = await r.json().catch(() => ({}));
+          alert((o && o.error) || 'No se pudo completar la acción.');
+          b.textContent = 'Reintentar';
+        }
       })
     );
 

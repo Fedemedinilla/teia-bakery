@@ -54,6 +54,15 @@ export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: s
       return path;
     });
 
+    // ⚠️ El remito se marca disponible ACA, apenas está en Storage y ANTES de intentar Drive.
+    // Antes este patch estaba al final: si Google fallaba, el catch marcaba archive_status =
+    // "error" y remito_cliente_url NUNCA se escribía. O sea que el PDF existía, estaba bien y
+    // estaba subido, pero el panel no lo podía servir: Mica no le podía mandar el remito al
+    // comercio por un problema de Drive, que es un espejo y no el original.
+    // Ahora Drive puede fallar sin llevarse puesto el remito: el pedido queda en "error" para
+    // que el botón Reintentar y el barrido nocturno lo completen, pero la URL ya está.
+    await sbPatch(`teia_orders?id=eq.${id}`, { remito_cliente_url: remitoPath, remito_interno_url: null });
+
     // Espejo a DRIVE (cuenta de la clienta, OAuth drive.file): carpeta año/mes/comercio con
     // nombres legibles. Mismos bytes, mismo retry; idempotente (reintentar actualiza, no
     // duplica). Si Google no está conectado, se saltea; si falla, el pedido queda en 'error'
@@ -75,7 +84,7 @@ export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: s
       archive_error: null,
       archived_at: new Date().toISOString(),
       remito_cliente_url: remitoPath, // el PATH del objeto, no una URL pública
-      remito_interno_url: null, // ya no se genera hoja interna
+      remito_interno_url: null, // ya no se genera hoja interna (ya escrito arriba)
     });
     return { ok: true, cliente: remitoPath };
   } catch (e: any) {
