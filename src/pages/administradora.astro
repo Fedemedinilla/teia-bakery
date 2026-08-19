@@ -649,6 +649,14 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
               <li class="info-item" data-id={f.id}>
                 <input class="if-q" value={attrSafe(f.pregunta)} placeholder="Título" />
                 <textarea class="if-a" rows="3" placeholder="Texto">{f.respuesta}</textarea>
+                {/* Dónde se muestra cada entrada. En el catálogo salen todas; acá ella decide
+                    cuáles vuelven a aparecer en la pantalla de confirmar el pedido. Nació de un
+                    pedido concreto: sacar la duración de los productos de esa última pantalla,
+                    donde ya no aporta, sin perderla del catálogo. */}
+                <label class="if-check">
+                  <input type="checkbox" class="if-checkout" checked={f.en_checkout !== false} />
+                  <span>Mostrarla también al confirmar el pedido</span>
+                </label>
                 <div class="form-actions">
                   <button class="btn save-info" type="button">Guardar</button>
                   <button class="btn btn--danger del-info" type="button" data-name={attrSafe(f.pregunta)}>Eliminar</button>
@@ -1789,7 +1797,8 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         b.disabled = true; b.textContent = 'Guardando…';
         const r = await fetch('/api/admin/info', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: li.dataset.id, pregunta: q, respuesta: a }),
+          body: JSON.stringify({ id: li.dataset.id, pregunta: q, respuesta: a,
+              en_checkout: !!li.querySelector('.if-checkout')?.checked }),
         });
         if (r.ok) { b.textContent = '✓ Guardado'; setTimeout(() => { b.textContent = 'Guardar'; b.disabled = false; }, 1500); }
         else { const o = await r.json().catch(() => ({})); alert((o && o.error) || 'No se pudo guardar.'); b.textContent = 'Guardar'; b.disabled = false; }

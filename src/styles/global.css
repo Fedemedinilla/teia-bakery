@@ -712,3 +712,6 @@ tr.is-recien { background: var(--accent-soft); outline: 2px solid var(--accent);
   .table-scroll tr.prodgrupo td::before { display: none; }
   .table-scroll tr.is-recien { background: var(--accent-soft); outline: 2px solid var(--accent); outline-offset: 0; }
 }
+/* Interruptor de dónde se muestra cada entrada de Información. */
+.if-check { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.if-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); flex: 0 0 auto; }

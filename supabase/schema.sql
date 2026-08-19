@@ -127,8 +127,12 @@ create table if not exists teia_info (
   pregunta    text not null,
   respuesta   text not null,
   sort_order  int default 0,
+  -- true = además de salir en el catálogo, se repite en la pantalla de confirmar el pedido.
+  -- La administradora lo destilda desde el panel para lo que ahí ya no aporta.
+  en_checkout boolean not null default true,
   created_at  timestamptz not null default now()
 );
+alter table teia_info add column if not exists en_checkout boolean not null default true;
 
 -- Teléfonos suscriptos a los avisos de pedidos nuevos (notificaciones push del panel).
 -- Una fila por dispositivo que activó los avisos desde /administradora. El `endpoint` es la

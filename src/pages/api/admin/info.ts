@@ -40,6 +40,10 @@ export const POST: APIRoute = async ({ request }) => {
   // mandaba al principio de la lista en el catálogo del cliente. Cambiar una palabra no puede
   // reordenarle la pantalla a nadie.
   if ('sort_order' in (b || {})) fila.sort_order = parseInt(b.sort_order) || 0;
+  // Dónde se muestra: el catálogo siempre, la pantalla de confirmar solo si está tildada.
+  // Igual que sort_order, solo se toca si viene en el pedido: así un guardado que no la manda
+  // no le apaga una entrada sin querer.
+  if ('en_checkout' in (b || {})) fila.en_checkout = b.en_checkout !== false;
 
   if (b?.id) {
     const id = Number(b.id);

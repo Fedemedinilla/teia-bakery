@@ -35,7 +35,13 @@ if (!client || client.active === false) {
 
 // Info que Teia carga desde el panel. sbSelect y no la estricta: si la tabla todavía no existe
 // devuelve [] y el checkout funciona igual, sin el bloque. Nada puede frenar un pedido por esto.
-const infoCliente = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&select=pregunta,respuesta') : [];
+// select=* y NO una lista de columnas: así esto funciona ANTES y DESPUÉS de correr el SQL que
+// agrega `en_checkout`. Pidiendo la columna por nombre, en una base que todavía no la tiene,
+// PostgREST corta la consulta entera y el comercio se queda sin ver los medios de pago.
+// Si la columna no existe, `en_checkout` viene undefined y se muestra igual: el comportamiento
+// de hoy se mantiene tal cual hasta que ella decida esconder algo.
+const infoTodo = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&select=*') : [];
+const infoCliente = (infoTodo as any[]).filter((f) => f.en_checkout !== false);
 
 // Sesión deslizante + esta página lleva datos del comercio: nunca cacheada.
 Astro.response.headers.append('Set-Cookie', setSessionCookie(Astro.request, sessionId));
