@@ -2,8 +2,9 @@ export const prerender = false;
 import type { APIRoute } from 'astro';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbUpsert, sbSelectStrict, supaConfigured } from '../../../lib/supabase';
-import { claveUmbralValida } from '../../../lib/envio';
+import { claveUmbralValida, parseEnvioMin } from '../../../lib/envio';
 import { normCode } from '../../../lib/accesscode';
+import { PANEL_VIEJO, esPanelNuevo } from '../../../lib/panel';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -24,6 +25,12 @@ export const POST: APIRoute = async ({ request }) => {
 
   const filas: { key: string; value: string }[] = [];
 
+  // Los montos de las listas solo del panel nuevo (lib/panel.ts): el viejo manda TODAS las listas
+  // con lo que su pantalla mostraba, y desde una pantalla vieja devolvía Chungo a $250.000.
+  if (Object.keys(b || {}).some(claveUmbralValida) && !esPanelNuevo(b)) {
+    return json({ error: PANEL_VIEJO }, 409);
+  }
+
   // ── El interruptor de CUIT + contraseña ────────────────────────────────────────────────────
   // Es el ajuste más delicado de la app: decide QUIÉN PUEDE ENTRAR. Dos guardas.
   if ('require_code' in (b || {})) {
@@ -35,7 +42,8 @@ export const POST: APIRoute = async ({ request }) => {
       // sí tienen contraseña. Es el modo de falla más caro posible, así que se sondea primero.
       const sonda = await sbSelectStrict('teia_clients?select=access_code&limit=1');
       if (sonda === null) {
-        return json({ error: 'No se puede encender: la base todavía no tiene la columna de contraseñas. Corré supabase/2026-08-05-envios-remito-fotos.sql y probá de nuevo.' }, 409);
+        console.warn('[teia] falta teia_clients.access_code: correr supabase/2026-08-05-envios-remito-fotos.sql');
+        return json({ error: 'No se puede encender: a la base le falta una actualización. Avisá a soporte y probá de nuevo cuando esté.' }, 409);
       }
 
       // GUARDA 2 — cuántos comercios habilitados quedarían sin poder entrar. El sistema falla
@@ -67,19 +75,16 @@ export const POST: APIRoute = async ({ request }) => {
   for (const [k, v] of Object.entries(b || {})) {
     if (k === 'require_code' || k === 'confirmo_lockout') continue; // ya resueltos arriba
     if (!claveUmbralValida(k)) continue; // silencioso: una clave desconocida simplemente no entra
-    // Se sacan los puntos de miles y los espacios, porque ella escribe "140.000". Pero si después
-    // de eso NO QUEDA NINGÚN DÍGITO, hay que rechazar: Number('') es 0, así que escribir "abc" o
-    // dejarlo vacío guardaba el umbral en CERO — o sea "envío sin cargo siempre", en silencio y
-    // para todos los comercios de esa lista.
-    const digitos = String(v ?? '').replace(/[^\d]/g, '');
-    if (!digitos) {
-      return json({ error: 'Escribí el monto con números. Por ejemplo: 140000 o 140.000.' }, 400);
+    // El mismo lector estricto que el monto propio de cada comercio (lib/envio.ts). Antes acá se
+    // borraba TODO lo que no fuera dígito, y eso guardaba montos que ella no escribió, sin error:
+    // "1e5" → 15 (envío gratis desde $15 para toda la lista), "140000.00" → 14.000.000, "1,5" → 15.
+    // Y además: vacío NO vale acá. Una lista siempre tiene su monto; Number('') es 0, y un 0 es
+    // "envío sin cargo siempre" para todos los comercios de esa lista.
+    const p = parseEnvioMin(v);
+    if (!p.ok || p.valor === null) {
+      return json({ error: 'Escribí el monto en pesos, sin decimales. Por ejemplo: 140000 o 140.000.' }, 400);
     }
-    const n = Number(digitos);
-    if (!Number.isFinite(n) || n > 99_999_999) {
-      return json({ error: 'Ese monto es demasiado grande. Revisalo.' }, 400);
-    }
-    filas.push({ key: k, value: String(Math.round(n)) });
+    filas.push({ key: k, value: String(p.valor) });
   }
 
   if (!filas.length) return json({ error: 'No llegó ningún monto para guardar.' }, 400);
@@ -88,7 +93,8 @@ export const POST: APIRoute = async ({ request }) => {
   if (!ok) {
     // El motivo casi siempre es que la tabla todavía no existe. Se dice, porque el mensaje
     // genérico manda a buscar el problema a cualquier lado menos al que es.
-    return json({ error: 'No se pudo guardar. Puede que a la base le falte la tabla de ajustes: hay que correr supabase/2026-08-05-envios-remito-fotos.sql.' }, 500);
+    console.warn('[teia] no se pudo guardar teia_settings (¿falta la tabla? supabase/2026-08-05-envios-remito-fotos.sql)');
+    return json({ error: 'No se pudo guardar. Probá de nuevo en un momento; si sigue, avisá a soporte (puede faltar una actualización de la base).' }, 500);
   }
   return json({ ok: true });
 };

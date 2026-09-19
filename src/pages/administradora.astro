@@ -4,13 +4,15 @@ import Base from '../layouts/Base.astro';
 import InstalarApp from '../components/InstalarApp.astro';
 import ActivarAvisos from '../components/ActivarAvisos.astro';
 import { isTeiaAdmin, redirigirAlIngreso } from '../lib/auth';
-import { sbSelect, supaConfigured, env } from '../lib/supabase';
+import { sbSelect, sbSelectStrict, supaConfigured, env } from '../lib/supabase';
 import { fmtCuit } from '../lib/cuit';
 import { CATALOGS, catalogOf, catalogLabel, DEFAULT_CATALOG, attrSafe } from '../lib/catalogs';
 import { codeRequiredFrom, normCode } from '../lib/accesscode';
-import { readSettings } from '../lib/settings';
+import { readSettingsStrict } from '../lib/settings';
 import { pedidosPendientes } from '../lib/push';
-import { umbralDe, umbralesTodos, claveUmbral } from '../lib/envio';
+import { umbralDe, umbralesTodos, claveUmbral, umbralDelCliente, excepcionesDe } from '../lib/envio';
+import { printFileName } from '../lib/google';
+import { montoParaCampo } from '../lib/montos';
 import { DEMO_PRODUCTS, DEMO_ORDERS, DEMO_ORDER_ITEMS, DEMO_CLIENTS } from '../lib/demo';
 
 // Gate del panel. FALLA CERRADO, y eso es lo importante.
@@ -44,15 +46,79 @@ const pendientesReales = configured ? await pedidosPendientes() : 0;
 const clients = configured ? await sbSelect('teia_clients?order=business_name.asc&select=*') : DEMO_CLIENTS;
 
 // Ítems de cada pedido (para mostrar QUÉ se pidió + editar cantidades).
+//
+// ⚠️ De a TANDAS de pedidos y no todo junto. Supabase corta cada respuesta en 1000 filas (Max rows)
+// y lo hace EN SILENCIO: con 200 pedidos de más de 5 líneas en promedio, una sola consulta ordenada
+// por id perdía las líneas de los pedidos más NUEVOS, que son justo los pendientes que ella edita.
+// 40 pedidos por tanda dejan margen hasta 25 líneas por pedido.
+// Y ESTRICTA: con la no estricta una tanda que fallaba daba [], y sus pedidos se veían "sin
+// ítems" — con el menú de agregar ofreciendo lo que ya tenían. Ahora se sabe cuáles no se leyeron.
 const orderIds = (orders as any[]).map((o) => o.id);
+const TANDA_PEDIDOS = 40;
+const tandas: any[][] = [];
+for (let i = 0; i < orderIds.length; i += TANDA_PEDIDOS) tandas.push(orderIds.slice(i, i + TANDA_PEDIDOS));
+const itemsNoLeidos = new Set<string>();
 const orderItems = configured
-  ? (orderIds.length ? await sbSelect(`teia_order_items?order_id=in.(${orderIds.join(',')})&select=*&order=id.asc`) : [])
+  ? (await Promise.all(tandas.map(async (ids) => {
+      const filas = await sbSelectStrict(`teia_order_items?order_id=in.(${ids.join(',')})&select=*&order=id.asc`);
+      if (filas === null) { ids.forEach((id) => itemsNoLeidos.add(String(id))); return []; }
+      // En el tope, la respuesta vino CORTADA: esos pedidos se muestran como no leídos, no como
+      // completos (un pedido a medias ofrecería en el menú lo que ya tiene y daría totales falsos).
+      if ((filas as any[]).length >= 1000) {
+        console.warn('[teia] una tanda de ítems llegó al tope de 1000 filas: achicar TANDA_PEDIDOS');
+        ids.forEach((id) => itemsNoLeidos.add(String(id)));
+        return [];
+      }
+      return filas as any[];
+    }))).flat()
   : DEMO_ORDER_ITEMS;
 const itemsByOrder: Record<string, any[]> = {};
 for (const it of orderItems as any[]) { (itemsByOrder[it.order_id] ||= []).push(it); }
 
+// El total de un pedido tiene que ser la suma de sus líneas con su descuento. Si no cuadra, un
+// guardado quedó a medias (una respuesta que se perdió, dos dispositivos a la vez, un Confirmar
+// desde el celular en medio de una edición) y el remito sale o salió con ese total. Se avisa en la
+// tarjeta: en un pendiente, Guardar lo recalcula desde la base; en un confirmado, hay que revisar
+// el remito.
+// Con tolerancia de $1 y SIN redondear: el alta guarda la suma tal cual (con centavos si los
+// precios los tienen) y la edición redondea. Comparar exacto contra la versión redondeada daba
+// falsas alarmas en pedidos que nadie tocó.
+const totalDeLineas = (o: any) =>
+  (itemsByOrder[o.id] || []).reduce((s: number, it: any) => s + (Number(it.line_total) || 0), 0) * (1 - (Number(o.discount_pct) || 0) / 100);
+const totalNoCuadra = (o: any) =>
+  configured && !itemsNoLeidos.has(String(o.id)) && Math.abs(Number(o.total) - totalDeLineas(o)) >= 1;
+// El mismo producto en dos líneas: el alta lo junta en una y la edición lo rechaza, así que solo
+// sale de dos guardados cruzados (el límite documentado en api/admin/order.ts). El total cuadra
+// igual —las dos líneas suman—, por eso necesita su propio aviso.
+const repetidosEn = (o: any) => {
+  const vistos = new Map<string, { name: string; veces: number }>();
+  for (const it of itemsByOrder[o.id] || []) {
+    if (it.product_id == null) continue;
+    const k = String(it.product_id);
+    const v = vistos.get(k);
+    if (v) v.veces++; else vistos.set(k, { name: it.name, veces: 1 });
+  }
+  return [...vistos.values()].filter((v) => v.veces > 1);
+};
+// "Torta aparece 2 veces" / "Torta y Lemon pie aparecen repetidos": con concordancia y el número real.
+const textoRepetidos = (rs: { name: string; veces: number }[]) =>
+  rs.length === 1
+    ? `${rs[0].name} aparece ${rs[0].veces} veces`
+    : `${rs.slice(0, -1).map((r) => r.name).join(', ')} y ${rs[rs.length - 1].name} aparecen repetidos`;
+
 // Marca si el pedido ya tiene sus remitos archivados (links vs botón "Reintentar").
-const orderRows = (orders as any[]).map((o) => ({ ...o, archived: o.archive_status === 'archivado' && !!o.remito_cliente_url }));
+//
+// `hasRemito` es a propósito MÁS ancho que `archived`: si Drive falló, el pedido queda en 'error'
+// pero el PDF ya está en Storage. El botón "Mandar a imprimir" se gatea con este, no con
+// `archived`, porque justo ahí es cuando más hace falta.
+// `printName` es el nombre que ese remito tiene (o tendría) dentro de la carpeta de impresión;
+// el script lo compara contra lo que Drive dice que hay para poner el ✓.
+const orderRows = (orders as any[]).map((o) => ({
+  ...o,
+  archived: o.archive_status === 'archivado' && !!o.remito_cliente_url,
+  hasRemito: !!o.remito_cliente_url,
+  printName: o.remito_cliente_url ? printFileName(o) : null,
+}));
 
 // Historial por cuenta (de los 200 pedidos más recientes ya traídos).
 const ordersByClient: Record<string, any[]> = {};
@@ -129,21 +195,105 @@ const filasConGrupo = productRowsOrdenadas.map((p) => {
   return { ...p, grupo, abreGrupo: abre };
 });
 
+// ── "＋ Agregar producto" en un pedido pendiente ──────────────────────────────────────────
+// Pedido de Mica (audio del 11/9): cambiar un producto por otro antes de confirmar ("no me queda
+// esa torta, le mando esta otra") sin que el comercio tenga que rehacer el pedido.
+// El selector ofrece lo MISMO que ese comercio ve en su catálogo: los activos de SU lista,
+// agrupados por rubro y en el mismo orden que catalogo.astro, menos lo que ya está en el pedido
+// (eso se cambia en su propia línea). Esto es solo el menú: el precio, la lista y si el producto
+// sigue activo los vuelve a sacar el servidor de la base al guardar.
+// null = no se puede agregar: el pedido no tiene cuenta o la cuenta ya no está, y sin cuenta no
+// hay lista de la que sacar el precio. [] = su lista no tiene nada más para ofrecer.
+const clientePorId = new Map((clients as any[]).map((c: any) => [String(c.id), c]));
+// Armar un pedido (tarea 3): solo para cuentas que existen y están habilitadas. Las que pidieron
+// hace poco, primero: el atajo de Pedidos es para el comercio de siempre.
+const clientesParaArmar = (clients as any[]).filter((c: any) => c.active !== false)
+  .sort((a: any, b: any) => String(b.last_order_at || '').localeCompare(String(a.last_order_at || '')) || String(a.business_name).localeCompare(String(b.business_name), 'es'));
+const sePuedeRepetir = (o: any) => o.status !== 'anulado' && o.client_id != null && clientePorId.get(String(o.client_id))?.active !== false && clientePorId.has(String(o.client_id));
+const rubroDelCatalogo = (p: any) => String(p.category || 'Otros').trim() || 'Otros';
+const ordenRubroCatalogo = (a: string, b: string) => {
+  const ia = catNames.indexOf(a), ib = catNames.indexOf(b);
+  return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+};
+const agregablesDe = (o: any) => {
+  // Sin sus líneas no se sabe qué ya tiene: el menú ofrecería productos que ya están.
+  if (itemsNoLeidos.has(String(o.id))) return null;
+  const cuenta = o.client_id == null ? undefined : clientePorId.get(String(o.client_id));
+  if (!cuenta) return null;
+  const lista = catalogOf(cuenta.catalog);
+  const yaEstan = new Set((itemsByOrder[o.id] || []).map((it: any) => String(it.product_id)));
+  const grupos = new Map<string, any[]>();
+  // `products` ya viene por sort_order y nombre: dentro de cada rubro queda como en el catálogo.
+  for (const p of products as any[]) {
+    if (p.active !== true || catalogOf(p.catalog) !== lista || yaEstan.has(String(p.id))) continue;
+    const rubro = rubroDelCatalogo(p);
+    if (!grupos.has(rubro)) grupos.set(rubro, []);
+    const stock = Number(p.stock);
+    grupos.get(rubro)!.push({
+      id: p.id,
+      name: p.name,
+      pack: p.pack_label || '',
+      price: Number(p.price),
+      // Un producto sin precio el servidor no lo deja agregar: se muestra igual, apagado y con el
+      // motivo, para que no parezca que desapareció de la lista.
+      conPrecio: Number(p.price) > 0,
+      // El stock es información, no un freno: confirmar tampoco frena, avisa (confirm.ts).
+      stockTxt: !Number.isFinite(stock) || stock <= 0 ? 'sin stock' : `stock ${stock}`,
+    });
+  }
+  return [...grupos.keys()].sort(ordenRubroCatalogo).map((rubro) => ({ rubro, items: grupos.get(rubro)! }));
+};
+const agregablesPorPedido: Record<string, any[] | null> = Object.fromEntries(
+  orderRows.filter((o) => o.status === 'pendiente').map((o) => [String(o.id), agregablesDe(o)])
+);
+// Por qué no hay menú, dicho con la causa real. `clients` viene de la lectura NO estricta: si falló,
+// es [] y TODOS los pendientes parecerían "de una cuenta borrada". Con pedidos a la vista, cero
+// cuentas es una lectura que falló, no un negocio sin clientes.
+const cuentasNoLeidas = configured && !(clients as any[]).length && (orders as any[]).some((o) => o.client_id != null);
+// Lo mismo con los productos (lectura no estricta): cero productos con pedidos a la vista es una
+// lectura que falló, y el menú diría "no quedan productos de su lista", que es falso.
+const productosNoLeidos = configured && !(products as any[]).length && (orders as any[]).length > 0;
+const porQueNoSeAgrega = (o: any) =>
+  itemsNoLeidos.has(String(o.id))
+    ? 'No se pudieron leer los productos de este pedido. Recargá la página para poder agregar.'
+    : cuentasNoLeidas
+      ? 'No se pudieron leer las cuentas de los comercios. Recargá la página para poder agregar productos.'
+      : 'Para agregar productos, el pedido tiene que tener la cuenta de su comercio, y no la encuentro (¿se borró?). Se pueden cambiar las cantidades igual.';
+
 
 // Segundo factor: solo se PIDE al entrar si TEIA_REQUIRE_CODE=true. El panel lo administra
 // igual aunque esté apagado, para tener los códigos listos antes de encenderlo.
 // Ajustes que edita Mica (por ahora, los umbrales de envío sin cargo de cada lista).
-const ajustes = await readSettings();
+// ESTRICTA: con la no estricta, una lectura que fallaba daba {} y la pestaña Envíos mostraba los
+// montos de fábrica como si fueran los guardados (y el aviso de envío de cada pedido los usaba).
+// Ahora se sabe que falló y se dice. El resto del panel sigue con {} como antes.
+const ajustesLeidos = await readSettingsStrict();
+const ajustesNoLeidos = configured && ajustesLeidos === null;
+const ajustes = ajustesLeidos ?? {};
+// Sin cuentas o sin ajustes no se sabe el umbral real de cada pedido: la tarjeta no afirma nada.
+// (Va DESPUÉS de ajustesNoLeidos: antes, un const usado antes de declararse tira al renderizar.)
+const envioNoCalculable = cuentasNoLeidas || ajustesNoLeidos;
 const umbrales = umbralesTodos(ajustes);
 
 const requireCode = codeRequiredFrom(ajustes);
 
-// Umbral que le toca a cada cuenta segun su lista. Se arma una vez y se consulta por pedido:
-// un pedido sin cuenta (la borraron despues) cae al de la lista general.
+// Umbral que le toca a cada cuenta: el PROPIO si lo tiene (hoy, Chungo Pilar) y si no el de su
+// lista. Se arma una vez y se consulta por pedido: un pedido sin cuenta (la borraron después) cae
+// al de la lista general. `clients` viene de select=*, así que `envio_min` aparece solo cuando la
+// columna existe (antes del SQL viene undefined, que umbralDelCliente trata como "sin excepción").
 const umbralPorCliente: Record<string, number> = Object.fromEntries(
-  (clients as any[]).map((c: any) => [String(c.id), umbralDe(ajustes, c.catalog)])
+  (clients as any[]).map((c: any) => [String(c.id), umbralDelCliente(ajustes, c)])
 );
 const umbralDelPedido = (o: any) => umbralPorCliente[String(o.client_id)] ?? umbralDe(ajustes, 'general');
+
+// Los comercios que NO siguen el monto de su lista, para la pestaña Envíos.
+const excepciones = excepcionesDe(ajustes, clients as any[]);
+// ¿Ya se corrió el SQL de la columna? Con select=*, si existe la trae TODA fila (null o un número).
+// Si falta, el campo de la ficha se muestra deshabilitado con el motivo, en vez de dejarla escribir
+// un monto que no se va a poder guardar. En modo demo no aplica.
+const hayColumnaEnvio = !configured || !(clients as any[]).length || 'envio_min' in (clients as any[])[0];
+// El monto que se muestra en la pestaña Envíos: el 0 no es "$0" sino una regla.
+const montoEnvio = (n: number) => (n === 0 ? 'envío sin cargo siempre' : money(n));
 // Cuentas HABILITADAS sin contraseña: son las que quedarían afuera si se enciende el modo.
 // Se listan por nombre, no solo se cuentan: "2 cuentas" no le dice a Mica a quién llamar.
 // normCode y no .trim(): es EXACTAMENTE la función que usa el login para comparar. Una
@@ -182,6 +332,10 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
     {/* Estado del globo del ícono. Se llena desde el script; oculto si no hay nada que decir. */}
     <p class="muted" id="badgeEstado" style="margin:-8px 0 14px;font-size:12.5px" hidden></p>
 
+    {/* Problemas con la carpeta de impresión. Es lo único que la administradora puede arreglar
+        sola, y si no se lo decimos el local deja de recibir remitos sin que nadie se entere. */}
+    <p class="card" id="printAviso" style="margin-bottom:12px;color:var(--bad);font-weight:600" hidden></p>
+
     {!configured && <p class="card" style="margin-bottom:12px">🧪 <b>Modo demo</b> — datos de ejemplo. Conectá Supabase + la clave para el panel real.</p>}
 
     <p class="links-row">
@@ -189,7 +343,8 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         <a class="btn" href={`/catalogo?ver=${c.slug}`} target="_blank" rel="noopener">🛍️ Ver {c.label}</a>
       ))}
       <a class="btn btn--ghost" id="gDrive" href="#" target="_blank" rel="noopener" hidden>📁 Remitos en Drive</a>
-      <a class="btn btn--ghost" id="gSheet" href="#" target="_blank" rel="noopener" hidden>📊 Planilla</a>
+      <a class="btn btn--ghost" id="gSheet" href="#" target="_blank" rel="noopener" hidden>📊 Ventas y productos</a>
+      <a class="btn btn--ghost" id="gPrint" href="#" target="_blank" rel="noopener" hidden>🖨️ Para imprimir</a>
       <a class="btn btn--ghost" id="gConnect" href="/api/admin/google/start" hidden>🔗 Conectar Google</a>
       <a class="btn btn--ghost" href="mailto:hello@kyndredai.com">🛟 Soporte</a>
       {env('TEIA_ADMIN_PASSWORD') && <button class="btn btn--ghost" type="button" id="salirPanel">🔒 Salir</button>}
@@ -207,17 +362,38 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
 
     <!-- PEDIDOS -->
     <section class="panel" data-panel="pedidos">
+      {/* El pedido que se acaba de armar (lo destapa el script al volver de /administradora/armar). */}
+      <p class="armado-ok" role="status" hidden></p>
+      {/* Un GET común: abre la página de armar para ese comercio. Sin JS, y dentro del alcance de la app. */}
+      {!cuentasNoLeidas && clientesParaArmar.length > 0 && (
+        <form class="armar-atajo" action="/administradora/armar" method="get">
+          <label>Armar un pedido para
+            <select name="c">
+              {clientesParaArmar.map((c: any) => <option value={String(c.id)}>{c.business_name}</option>)}
+            </select>
+          </label>
+          <button class="btn" type="submit">🛒 Armar pedido</button>
+        </form>
+      )}
       {orders.length === 0 && <p class="card muted">Sin pedidos todavía.</p>}
       {orderRows.map((o: any) => (
         <div class="card ordcard" data-id={o.id} data-pct={String(Number(o.discount_pct) || 0)}>
           <div class="ordcard__head">
             <div>
               <span class="ordcard__num">{o.order_number || `#${o.id}`}</span>
-              <span class={`badge badge--${o.status === 'confirmado' ? 'ok' : 'wait'}`}>{o.status}</span>
+              <span class={`badge badge--${o.status === 'confirmado' ? 'ok' : o.status === 'anulado' ? 'anulado' : 'wait'}`}>{o.status}</span>
+              {o.placed_by === 'teia' && <span class="badge badge--teia">🛒 cargado por Teia</span>}
             </div>
-            <div class="ordcard__total" data-total>{money(o.total)}</div>
+            <div class="ordcard__total" data-total data-servidor={String(Number(o.total) || 0)}>{money(o.total)}</div>
           </div>
 
+          {/* Un borrado que quedó a mitad de camino. Antes se veía con el ámbar de "pendiente", sin
+              explicación; después decía "el stock ya se repuso", y no siempre era cierto: si la
+              conexión se cortó justo al anular, no se repuso nada (verificación del 19/9). La
+              pantalla no sabe cuál de los casos fue, así que no lo afirma: dice qué revisar. */}
+          {o.status === 'anulado' && (
+            <p class="ordcard__descuadre">Anulado: se empezó a borrar y no terminó. El stock de sus productos puede haberse repuesto del todo, en parte o nada: revisalo en Productos antes de tocar Borrar (Borrar ya no repone nada).</p>
+          )}
           {o.status === 'pendiente' && (
             <label class="ordcard__disc">
               Descuento
@@ -236,12 +412,21 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           {/* ¿Este pedido paga envío? Se compara el total YA CON el descuento aplicado, que es el
               criterio de ella: "si con el desc no llegan al mínimo se les cobra el envío".
               El comercio NO ve esto: en su pantalla es imposible saberlo, porque el descuento se
-              aplica acá, después de que él manda el pedido. */}
-          <div class={`ordcard__envio ${Number(o.total) >= umbralDelPedido(o) ? 'is-sin' : ''}`} data-umbral={String(umbralDelPedido(o))}>
-            <span data-envio-txt>{Number(o.total) >= umbralDelPedido(o)
-              ? `Llega a ${money(umbralDelPedido(o))}: envío sin cargo`
-              : `No llega a ${money(umbralDelPedido(o))}: se le cobra el envío`}</span>
-          </div>
+              aplica acá, después de que él manda el pedido.
+              SOLO en pendientes: es la ayuda para decidir al confirmar. En un pedido ya confirmado
+              la decisión ya se tomó y está en el remito; recalcularla con el monto de HOY la
+              contradiría cada vez que ella cambie un monto (pasó al corregir Chungo el 18/9). */}
+          {o.status === 'pendiente' && (
+            <div class={`ordcard__envio ${!envioNoCalculable && Number(o.total) >= umbralDelPedido(o) ? 'is-sin' : ''}`} data-umbral={envioNoCalculable ? '' : String(umbralDelPedido(o))}>
+              {/* Sin las cuentas no se sabe el monto propio de cada comercio (Pilar caería al de la
+                  lista general): se dice que no se pudo, en vez de afirmar "llega" en verde. */}
+              <span data-envio-txt>{envioNoCalculable ? 'No se pudieron leer los datos del envío: recargá la página para ver si le corresponde envío sin cargo.' : umbralDelPedido(o) === 0
+                ? 'Este comercio nunca paga envío: envío sin cargo'
+                : Number(o.total) >= umbralDelPedido(o)
+                  ? `Llega a ${money(umbralDelPedido(o))}: envío sin cargo`
+                  : `No llega a ${money(umbralDelPedido(o))}: se le cobra el envío`}</span>
+            </div>
+          )}
 
           {/* Los dos montos que salen en el remito. Van acá, pegados al aviso de arriba, porque
               son las dos puntas de la MISMA decisión: el aviso dice si le cobrás el envío y acá
@@ -249,13 +434,19 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           <div class="ordcard__extra">
             <label>
               <span>Saldo anterior</span>
-              <input class="of-saldo" inputmode="numeric" placeholder="—" readonly={o.status !== 'pendiente'}
-                     value={o.saldo_anterior === null || o.saldo_anterior === undefined ? '' : String(o.saldo_anterior)} />
+              {/* montoParaCampo y no String(): un 8000,50 guardado se mostraba "8000.5" y, al volver a
+                  leerlo, el punto contaba como miles (80005). */}
+              {/* Sin inputmode: el saldo puede ser a favor del comercio ("-3.000") y el teclado
+                  decimal del iPhone no tiene signo menos. */}
+              <input class="of-saldo" placeholder="—" readonly={o.status !== 'pendiente'}
+                     aria-describedby={`me-saldo-${o.id}`} value={montoParaCampo(o.saldo_anterior)} />
+              <small class="monto-error" id={`me-saldo-${o.id}`} hidden></small>
             </label>
             <label>
               <span>Costo de envío</span>
-              <input class="of-envio" inputmode="numeric" placeholder="—" readonly={o.status !== 'pendiente'}
-                     value={o.costo_envio === null || o.costo_envio === undefined ? '' : String(o.costo_envio)} />
+              <input class="of-envio" inputmode="decimal" placeholder="—" readonly={o.status !== 'pendiente'}
+                     aria-describedby={`me-envio-${o.id}`} value={montoParaCampo(o.costo_envio)} />
+              <small class="monto-error" id={`me-envio-${o.id}`} hidden></small>
             </label>
             {/* ⚠️ El saldo NO entra acá. El total final es pedido + envío y nada más — el saldo
                 anterior es un recordatorio, no parte de esta venta. Tiene que dar EXACTAMENTE lo
@@ -287,7 +478,10 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
             <input class="of-addr" value={attrSafe(o.delivery_address)} />
             <div class="grid2">
               <div><label>Día de entrega</label><input class="of-date" type="date" value={o.delivery_date || ''} /></div>
-              <div><label>Notas</label><input class="of-notes" value={attrSafe(o.notes)} /></div>
+              {/* <textarea> y no <input>: el comercio escribe las notas en un textarea (con saltos
+                  de línea) y un input los borra de su .value pero no de su .defaultValue. Así el
+                  panel las daba por "cambiadas" en cada Guardar y las reescribía pegadas. */}
+              <div><label>Notas</label><textarea class="of-notes" rows="2">{o.notes || ''}</textarea></div>
             </div>
           </div>
 
@@ -303,8 +497,68 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
                 <span class="oi-line" data-line>{money(it.line_total)}</span>
               </li>
             ))}
-            {(itemsByOrder[o.id] || []).length === 0 && <li class="muted">Sin detalle de ítems.</li>}
+            {itemsNoLeidos.has(String(o.id))
+              ? <li class="oi-error">⚠️ No se pudieron leer los productos de este pedido. Recargá la página antes de editarlo o confirmarlo.</li>
+              : (itemsByOrder[o.id] || []).length === 0 && <li class="muted oi-vacio">Sin detalle de ítems.</li>}
           </ul>
+          {totalNoCuadra(o) && (o.status === 'pendiente' ? (
+            <p class="ordcard__descuadre">⚠️ El total ({money(o.total)}) no coincide con sus productos ({money(Math.round(totalDeLineas(o)))}): un guardado quedó a medias. Tocá «Editar pedido» y «Guardar» para recalcularlo antes de confirmar.</p>
+          ) : (
+            <p class="ordcard__descuadre">⚠️ El total ({money(o.total)}) no coincide con sus productos ({money(Math.round(totalDeLineas(o)))}): revisá el remito antes de mandarlo, puede tener mal el total.</p>
+          ))}
+          {repetidosEn(o).length > 0 && (
+            <p class="ordcard__descuadre">⚠️ {textoRepetidos(repetidosEn(o))} en el pedido (se guardó desde dos lugares a la vez).{o.status === 'pendiente' ? ' Editalo y dejá una sola línea.' : ' Revisá el remito.'}</p>
+          )}
+
+          {/* Agregar un producto: solo en pendientes y solo se ve en modo edición, porque lo
+              agregado viaja con el Guardar del pedido (todo o nada) y Cancelar lo deshace.
+              La fila nueva sale del <template>, servido en el HTML: con la CSP estricta el
+              panel no puede inyectar estilos, y así la fila clonada lleva las mismas clases. */}
+          {o.status === 'pendiente' && (
+            <div class="ordcard__add">
+              {agregablesPorPedido[String(o.id)] === null ? (
+                <p class="muted ordcard__add-nota">{porQueNoSeAgrega(o)}</p>
+              ) : agregablesPorPedido[String(o.id)]!.length === 0 ? (
+                <p class="muted ordcard__add-nota">{productosNoLeidos
+                  ? 'No se pudieron leer los productos. Recargá la página para poder agregar.'
+                  : 'No quedan productos activos de su lista para agregar.'}</p>
+              ) : (
+                <div class="ordcard__add-fila">
+                  {/* data-name / data-pack van con encodeURIComponent y no con attrSafe: attrSafe
+                      cambia comillas por espacios y la fila "nuevo" mostraba «Torta  Oreo ».
+                      Codificado no queda ni `&` ni `:` ni `/`, así que tampoco cae en la excepción
+                      de Astro que attrSafe evita (una URL con & que emite cruda). */}
+                  <select class="add-prod" aria-label="Producto para agregar">
+                    <option value="">＋ Agregar un producto…</option>
+                    {agregablesPorPedido[String(o.id)]!.map((g: any) => (
+                      <optgroup label={attrSafe(g.rubro)}>
+                        {g.items.map((p: any) => (
+                          <option value={String(p.id)} data-price={String(p.price)} data-name={encodeURIComponent(p.name ?? '')}
+                                  data-pack={encodeURIComponent(p.pack ?? '')} disabled={!p.conPrecio}>
+                            {p.name}{p.pack ? ` ${p.pack}` : ''} — {p.conPrecio ? money(p.price) : 'sin precio cargado'} · {p.stockTxt}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <input class="add-qty" inputmode="numeric" value="1" aria-label="Cantidad a agregar" />
+                  <button class="btn btn--ghost add-btn" type="button">＋ Agregar</button>
+                </div>
+              )}
+              <template class="add-tpl">
+                <li class="oi-row oi-row--nueva">
+                  {/* El ✕ va en la columna del nombre, que es la única que se achica: en la de la
+                      cantidad ensanchaba la fila y en un celular el importe se salía de la tarjeta. */}
+                  <span class="oi-name"><button class="oi-quitar" type="button" aria-label="Sacar este producto agregado" title="Sacar">✕</button> <span class="oi-nueva">nuevo</span> <span data-nombre></span> <small class="muted" data-pack></small></span>
+                  <span class="oi-qty">
+                    <input class="qty-add" inputmode="numeric" aria-label="Cantidad del producto agregado" />
+                    <span class="muted" data-precio></span>
+                  </span>
+                  <span class="oi-line" data-line></span>
+                </li>
+              </template>
+            </div>
+          )}
 
           {o.status === 'confirmado' && (
             <div class="ordcard__arch">
@@ -314,6 +568,13 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
                 <button class="btn btn--ghost share-rem" type="button"
                   data-url={`/api/admin/remito?id=${o.id}`} data-num={o.order_number || `#${o.id}`}>📤 Compartir</button>
               )}
+              {o.hasRemito && (
+                <button class="btn btn--ghost print-rem" type="button" data-id={o.id} data-name={attrSafe(o.printName)}
+                  title="Lo deja en la carpeta de Drive que imprime el local">🖨️ Mandar a imprimir</button>
+              )}
+              {/* El ✓ va servido en el HTML con `hidden` y el script solo lo destapa: con la CSP
+                  estricta, un nodo creado por JS no recibe el CSS con scope del componente. */}
+              {o.hasRemito && <span class="arch arch--ok print-ok" data-name={attrSafe(o.printName)} hidden>✓ en la carpeta</span>}
               {!o.archived && <span class="arch arch--err">⚠️ Sin archivar{o.archive_error ? `: ${o.archive_error}` : ''}</span>}
               {!o.archived && <button class="btn btn--ghost retry-arch" type="button" data-id={o.id}>Reintentar</button>}
             </div>
@@ -324,7 +585,14 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
             {o.status === 'pendiente' && <button class="btn save-ord" type="button">Guardar</button>}
             {o.status === 'pendiente' && <button class="btn btn--ghost cancel-ord" type="button">Cancelar</button>}
             {o.status === 'pendiente' && <button class="btn confirm" data-id={o.id}>Confirmar ✓</button>}
-            <button class="btn btn--danger del-ord" type="button" data-num={o.order_number || `#${o.id}`} data-st={o.status}>Borrar</button>
+            {/* Repetir: abre el armado precargado con este pedido (productos y cantidades; precios de HOY).
+                Un link en la misma ventana: en la app instalada no sale de la app. */}
+            {sePuedeRepetir(o) && <a class="btn btn--ghost rep-ord" href={`/administradora/armar?c=${o.client_id}&repetir=${o.id}`}>↻ Repetir</a>}
+            {/* data-reponer: lo que Borrar le va a SUMAR al stock, para que el diálogo lo diga con
+                números. Un pedido confirmado antes del 19/9 con faltante (el stock frenaba en 0)
+                repone de más, y así ella lo ve antes de aceptar. */}
+            <button class="btn btn--danger del-ord" type="button" data-num={o.order_number || `#${o.id}`} data-st={o.status}
+                    data-reponer={(itemsByOrder[o.id] || []).filter((it: any) => it.product_id).map((it: any) => `${it.name} +${it.qty}`).join(', ')}>Borrar</button>
           </div>
         </div>
       ))}
@@ -367,6 +635,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
               {catalogOf(c.catalog) !== DEFAULT_CATALOG && <span class="vip-chip">{catalogLabel(c.catalog)}</span>}
               {c.active === false && <span class="badge badge--out">de baja</span>}
               <span class="badge badge--wait">{(ordersByClient[c.id] || []).length} pedidos</span>
+              {c.active !== false && <a class="btn btn--ghost cli-armar" href={`/administradora/armar?c=${c.id}`}>🛒 Armar pedido</a>}
               <button class="btn btn--ghost cli-toggle" type="button">Ver cuenta ▾</button>
             </div>
           </div>
@@ -407,6 +676,28 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
                 </select>
               </div>
             </div>
+            {/* Envío sin cargo PROPIO de este comercio. Existe por Chungo Pilar ($250.000 en una
+                lista de $140.000). `attrSafe` conserva el 0 ("0") y deja '' para null/undefined:
+                NUNCA `c.envio_min || ''`, que borraría un 0 y al guardar lo volvería "su lista".
+                `data-orig` es para que el panel lo mande SOLO si ella lo tocó. */}
+            <div>
+              {/* for/id y aria-describedby: sin ellos el lector de pantalla nombraba el campo con el
+                  placeholder ("el de su lista") aunque tuviera un monto propio cargado. */}
+              <label for={`cf-envio-${c.id}`}>Envío sin cargo desde</label>
+              <div class="envio-input">
+                <span aria-hidden="true">$</span>
+                <input class="cf-envio" id={`cf-envio-${c.id}`} aria-describedby={`cf-envio-ayuda-${c.id}`}
+                       inputmode="numeric" autocomplete="off"
+                       value={attrSafe(c.envio_min)} data-orig={attrSafe(c.envio_min)}
+                       placeholder={`el de su lista (${money(umbralDe(ajustes, c.catalog))})`}
+                       disabled={!hayColumnaEnvio} />
+              </div>
+              <p class="hint" id={`cf-envio-ayuda-${c.id}`} style="margin:4px 0 0">
+                {hayColumnaEnvio
+                  ? <>Vacío = el de su lista. Poné un monto solo si este comercio es distinto al resto. <b>0 = nunca paga envío.</b></>
+                  : <>Todavía no está disponible: falta una actualización de la base de datos. Avisá a soporte (🛟 Soporte, arriba).</>}
+              </p>
+            </div>
             <div class="ordcard__actions">
               <button class="btn save-cli" type="button">Guardar cuenta</button>
               <button class="btn btn--danger del-cli" type="button" data-name={attrSafe(c.business_name)}>Borrar cuenta</button>
@@ -424,7 +715,8 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
                     rc: o.archived ? `/api/admin/remito?id=${o.id}` : '',
                     items: (itemsByOrder[o.id] || []).map((it: any) => ({ n: it.name, p: it.pack_label, q: it.qty, t: it.line_total })),
                   })}>{o.order_number || `#${o.id}`}</button>
-                  <span class={`badge badge--${o.status === 'confirmado' ? 'ok' : 'wait'}`}>{o.status}</span>
+                  <span class={`badge badge--${o.status === 'confirmado' ? 'ok' : o.status === 'anulado' ? 'anulado' : 'wait'}`}>{o.status}</span>
+              {o.placed_by === 'teia' && <span class="badge badge--teia">🛒 cargado por Teia</span>}
                   <span class="muted">{String(o.created_at || '').slice(0, 10)}</span>
                   {Number(o.discount_pct) > 0 && <span class="muted">−{o.discount_pct}%</span>}
                   <b>{money(o.total)}</b>
@@ -582,7 +874,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
             <div class="grid2">
               <div><label for="pf-pack">Pack</label><input id="pf-pack" name="pack_label" placeholder="x6, x12, por kg" /></div>
               <div><label for="pf-price">Precio mayorista</label><input id="pf-price" name="price" type="number" step="0.01" min="0" required /></div>
-              <div><label for="pf-stock">Stock (packs)</label><input id="pf-stock" name="stock" type="number" min="0" required /></div>
+              <div><label for="pf-stock">Stock (packs)</label><input id="pf-stock" name="stock" type="number" required /></div>
               <div><label for="pf-low">Avisar si baja de</label><input id="pf-low" name="low_stock_threshold" type="number" min="0" value="5" /></div>
             </div>
 
@@ -647,8 +939,10 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           <h2 style="margin-top:0">Información para tus clientes</h2>
           <p class="hint">
             Medios de pago, envíos, cuánto duran los productos. Aparece al final del catálogo y
-            resumida justo antes de que confirmen el pedido. <b>La editás vos</b>: si cambia el
-            mínimo para envío sin cargo, lo cambiás acá y listo.
+            resumida justo antes de que confirmen el pedido. <b>La editás vos.</b>
+            Los <b>montos</b> del envío sin cargo no los escribas acá: se cargan en la pestaña
+            <b>Envíos</b> y el comercio ve siempre el que le corresponde. Si acá dijera un número,
+            el día que lo cambies en Envíos los dos no coincidirían.
           </p>
 
           <ul class="info-list">
@@ -712,8 +1006,38 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
               </div>
             ))}
           </div>
-          <div class="form-actions"><button class="btn" type="button" id="envSave">Guardar</button></div>
+          {ajustesNoLeidos && (
+            <p class="ordcard__descuadre">⚠️ No se pudieron leer los montos guardados: los de arriba son los de fábrica, no los tuyos. Recargá la página antes de cambiarlos.</p>
+          )}
+          <div class="form-actions"><button class="btn" type="button" id="envSave" disabled={ajustesNoLeidos}>Guardar</button></div>
           <p id="envMsg" class="muted"></p>
+
+          {/* Los comercios con monto PROPIO. Solo lectura y FUERA de .env-monto: el botón Guardar
+              de arriba manda todo .env-monto a los ajustes de las listas, y esto no es de ninguna
+              lista. Existe para que se entienda por qué Chungo Pilar ve otro número que el resto
+              de Chungo, y para que cambiar una lista no se lea como "cambié a todos". */}
+          <h3 style="margin:22px 0 6px;font-size:15px">Comercios con monto propio</h3>
+          {excepciones.length === 0 ? (
+            <p class="hint" style="margin:0">
+              Ninguno: todos usan el de su lista. Si un comercio necesita otro monto (como Chungo
+              Pilar), se lo ponés en su ficha, en la pestaña Clientes.
+            </p>
+          ) : (
+            <>
+              <ul class="hint" style="margin:0 0 6px;padding-left:18px">
+                {excepciones.map((e) => (
+                  <li>
+                    <b>{e.nombre}</b>{!e.activo && ' (de baja)'}: {montoEnvio(e.monto)}
+                    <span class="muted"> · su lista, {e.lista}: {money(e.montoLista)}</span>
+                  </li>
+                ))}
+              </ul>
+              <p class="hint" style="margin:0">
+                Estos comercios <b>no siguen</b> el monto de su lista: si cambiás la lista de arriba,
+                ellos siguen igual. El suyo se cambia desde su ficha, en la pestaña Clientes.
+              </p>
+            </>
+          )}
         </div>
       </section>
 
@@ -750,6 +1074,10 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
   </div>
 
   <script>
+    // El MISMO lector de montos que el servidor (lib/montos.ts): el "Total final" de la pantalla y el
+    // del remito no pueden leer distinto lo que ella escribió.
+    import { montoEscrito, porQueNoSeEntiende } from '../lib/montos';
+
     // ---- globo del ícono con los pedidos pendientes ----
     // Abrir el panel pone el globo en el número REAL de pedidos que esperan acción (no lo borra
     // por el solo hecho de abrirlo): si entra, mira y no confirma nada, el recordatorio sigue.
@@ -934,26 +1262,54 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
     // ---- confirmar pedido ----
     document.querySelectorAll('.confirm').forEach((b) =>
       b.addEventListener('click', async () => {
+        if (b.dataset.recargar) { location.reload(); return; }
+        const tarjeta = b.closest('.ordcard');
+        // Si la tarjeta avisa que algo no cuadra (total, producto repetido), el remito saldría así:
+        // se le pregunta antes de confirmar, no se la deja pasar sin ver el aviso.
+        if (tarjeta?.querySelector('.ordcard__descuadre, .oi-error') &&
+            !confirm(tarjeta.querySelector('.oi-error')
+              ? 'No se pudieron leer los productos de este pedido: no los estás viendo. Lo mejor es recargar la página antes. ¿Confirmar igual?'
+              : 'Este pedido tiene un aviso en rojo (mirá la tarjeta). Si lo confirmás así, el remito sale como está. ¿Confirmar igual?')) return;
         b.disabled = true; // doble click acá = stock descontado dos veces
         b.textContent = '…';
-        const r = await fetch('/api/admin/confirm', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          // Los montos viajan CON el confirm: es la secuencia que usa Mica (los escribe y toca
-          // Confirmar). El remito se genera adentro de ese endpoint, así que si no fueran acá
-          // saldría con los renglones en blanco.
-          body: JSON.stringify({
-            id: b.dataset.id,
-            saldo_anterior: b.closest('.ordcard')?.querySelector('.of-saldo')?.value ?? '',
-            costo_envio: b.closest('.ordcard')?.querySelector('.of-envio')?.value ?? '',
-          }),
-        });
+        // Los montos viajan CON el confirm: es la secuencia que usa Mica (los escribe y toca
+        // Confirmar). El remito se genera adentro de ese endpoint, así que si no fueran acá
+        // saldría con los renglones en blanco.
+        // ⚠️ Pero SOLO si ella los cambió en esta pantalla. Mandarlos siempre hacía que Confirmar
+        // desde una pantalla vieja (la compu del local, abierta desde la mañana) le BORRARA el envío
+        // cargado desde el celular: el remito salía sin cobrarlo, y un confirmado ya no se edita.
+        // Lo que no viaja, confirm.ts lo deja como está en la base.
+        const montos = {};
+        for (const [sel, campo] of [['.of-saldo', 'saldo_anterior'], ['.of-envio', 'costo_envio']]) {
+          const e = tarjeta?.querySelector(sel);
+          if (e && e.value !== e.defaultValue) montos[campo] = e.value;
+        }
+        let r = null;
+        try {
+          r = await fetch('/api/admin/confirm', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            // `panel: 2`: este panel manda solo lo cambiado (ver confirm.ts).
+            body: JSON.stringify({ id: b.dataset.id, panel: 2, ...montos }),
+          });
+        } catch { r = null; }
+        if (!r) {
+          // Sin respuesta no se sabe si se confirmó, y reintentar a ciegas es peligroso acá (el
+          // servidor frena el doble descuento de stock, pero ella no sabría qué pasó).
+          alert('No sé si se confirmó (se cortó la conexión). Recargá la página para ver cómo quedó el pedido antes de volver a tocar Confirmar.');
+          b.textContent = 'Recargar';
+          b.dataset.recargar = '1';
+          b.disabled = false;
+          return;
+        }
         if (r.ok) {
           // El server avisa si el pedido superaba el stock o si algo quedó bajo el mínimo —
           // antes esta respuesta se descartaba y la sobreventa era invisible.
           const o = await r.json().catch(() => ({}));
           const avisos = [];
-          if (o.shortages && o.shortages.length) avisos.push('⚠️ STOCK INSUFICIENTE (quedó en 0):\n· ' + o.shortages.join('\n· '));
+          if (o.shortages && o.shortages.length) avisos.push('⚠️ STOCK INSUFICIENTE: se vendió más de lo que había y el stock quedó en negativo:\n· ' + o.shortages.join('\n· '));
           if (o.low_stock && o.low_stock.length) avisos.push('Queda poco stock: ' + o.low_stock.join(', '));
+          // Lo que el servidor no pudo descontar (antes se perdía en silencio): hay que restarlo a mano.
+          if (o.stock_sin_descontar && o.stock_sin_descontar.length) avisos.push('⚠️ NO SE PUDO DESCONTAR EL STOCK de:\n· ' + o.stock_sin_descontar.join('\n· ') + '\nRestáselo a mano en Productos.');
           if (avisos.length) alert('Pedido confirmado.\n\n' + avisos.join('\n\n'));
           location.reload();
         } else {
@@ -961,7 +1317,19 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           // número", "las cantidades se guardaron pero el total no"). Tirarlos y pintar "Error"
           // la deja reintentando a ciegas sobre algo que solo el mensaje explica.
           const o = await r.json().catch(() => ({}));
-          alert((o && o.error) || 'No se pudo confirmar el pedido.');
+          if (!(o && o.error) && r.status !== 401) {
+            // Sin mensaje del servidor (un 504: la función se cortó a los 30 s, por ejemplo con Google
+            // colgado) el pedido pudo haber quedado CONFIRMADO. Decir "no se pudo" era mentir para
+            // un lado, y el reintento contestaba "ya procesado".
+            alert('No sé si se confirmó (el servidor tardó demasiado). Recargá la página para ver cómo quedó el pedido antes de volver a tocar Confirmar.');
+            b.textContent = 'Recargar'; b.dataset.recargar = '1'; b.disabled = false;
+            return;
+          }
+          alert((o && o.error) || 'Se cerró la sesión del panel. No se confirmó nada: recargá la página y volvé a entrar.');
+          // 409 = el pedido ya no está como lo muestra esta pantalla (se confirmó o se borró desde otro
+          // lado): reintentar repetía el mismo 409 para siempre, y en la app instalada no hay cómo
+          // recargar. El botón pasa a Recargar.
+          if (r.status === 409) { b.textContent = 'Recargar'; b.dataset.recargar = '1'; b.disabled = false; return; }
           b.textContent = 'Confirmar ✓'; b.disabled = false;
         }
       })
@@ -1401,7 +1769,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
       const pedir = async (confirmado) => {
         const r = await fetch('/api/admin/settings', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ require_code: encender, ...(confirmado ? { confirmo_lockout: true } : {}) }),
+          body: JSON.stringify({ require_code: encender, panel: 2, ...(confirmado ? { confirmo_lockout: true } : {}) }),
         });
         return { r, o: await r.json().catch(() => ({})) };
       };
@@ -1425,12 +1793,17 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
     document.getElementById('envSave')?.addEventListener('click', async () => {
       const btn = document.getElementById('envSave');
       const msg = document.getElementById('envMsg');
+      // Solo los montos que ella CAMBIÓ en esta pantalla. Mandarlos todos hacía que guardar desde
+      // una pantalla vieja (la compu abierta desde antes) volviera a poner Chungo en $250.000 después
+      // de haberlo corregido desde el celular o por SQL: el error de agosto, de vuelta.
       const cuerpo = {};
-      document.querySelectorAll('.env-monto').forEach((i) => { cuerpo[i.dataset.clave] = i.value; });
+      document.querySelectorAll('.env-monto').forEach((i) => { if (i.value !== i.defaultValue) cuerpo[i.dataset.clave] = i.value; });
+      if (!Object.keys(cuerpo).length) { msg.textContent = 'No cambiaste ningún monto.'; return; }
       btn.disabled = true; btn.textContent = 'Guardando…';
       try {
         const r = await fetch('/api/admin/settings', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo),
+          // `panel: 2`: sin la marca, el servidor rechaza los montos (lib/panel.ts).
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...cuerpo, panel: 2 }),
         });
         const o = await r.json().catch(() => ({}));
         if (r.ok) { location.reload(); return; }
@@ -1441,23 +1814,35 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
 
     document.querySelectorAll('.ordcard').forEach((card) => {
       const totalEl = card.querySelector('[data-total]');
-      const rows = [...card.querySelectorAll('.oi-row')];
-      const val = (sel) => { const e = card.querySelector(sel); return e ? e.value : undefined; };
+      // Se consultan en cada uso y no una vez al cargar: "＋ Agregar" suma filas mientras ella edita.
+      const nuevas = () => [...card.querySelectorAll('.oi-row--nueva')];
+      const existentes = () => [...card.querySelectorAll('.oi-row[data-item]')];
       // ⚠️ El <select> del descuento SOLO se renderiza en pedidos pendientes. En uno confirmado
       // no existe, y `Number(undefined) || 0` daba 0: recompute() recalculaba el total SIN el
       // descuento y lo pintaba en pantalla. Un pedido con −20% se veía por su precio de lista.
       // El `??` es a propósito y no `||`: un descuento de 0 es válido y con `||` caería al dataset.
       const discPct = () => Number(card.querySelector('.disc-sel')?.value ?? card.dataset.pct) || 0;
       const recompute = () => {
+        // Sin sus líneas leídas no hay nada que sumar: recalcular pintaría total $0 y "se le cobra
+        // el envío". Quedan los números que mandó el servidor, junto al aviso de recargar.
+        if (card.querySelector('.oi-error')) return;
         let subtotal = 0;
-        rows.forEach((row) => {
+        [...existentes(), ...nuevas()].forEach((row) => {
           const price = Number(row.dataset.price) || 0;
-          const qty = Math.max(0, parseInt(row.querySelector('.qty-edit').value) || 0);
+          // Solo para la vista previa: lo que se GUARDA viaja crudo y lo valida el servidor.
+          const qty = Math.max(0, parseInt(row.querySelector('.qty-edit, .qty-add').value) || 0);
           const line = price * qty;
           subtotal += line;
           row.querySelector('[data-line]').textContent = money(line);
         });
-        const total = Math.round(subtotal * (1 - discPct() / 100));
+        const pct = discPct();
+        // Misma fórmula que el servidor (api/admin/order.ts): con descuento, a pesos; sin descuento,
+        // la suma tal cual.
+        const calculado = pct ? Math.round(subtotal * (1 - pct / 100)) : Math.round(subtotal * 100) / 100;
+        // Fuera del modo edición las líneas no cambian: vale el total GUARDADO, que es el que sale en
+        // el remito. Con un total descuadrado, escribir el envío repintaba arriba la suma de las
+        // líneas y la pantalla contradecía al papel.
+        const total = card.classList.contains('editing') || !totalEl ? calculado : Number(totalEl.dataset.servidor) || 0;
         if (totalEl) totalEl.textContent = money(total);
         // El aviso de envío se recalcula en vivo mientras ella edita cantidades: si no, decía
         // "se le cobra el envío" sobre un total que ya había cambiado en la pantalla.
@@ -1465,16 +1850,14 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         const finalEl = card.querySelector('[data-final]');
         const finalCaja = card.querySelector('[data-final-caja]');
         if (finalEl && finalCaja) {
-          // ⚠️ Este parser tiene que hacer LO MISMO que montoEscrito() del servidor. Antes solo
-          // sacaba lo no numérico y NO borraba el punto de miles: "8.000" daba 8 en la pantalla
-          // y 8.000 en el remito. Un error de mil veces sobre plata, y encima el mensaje de
-          // error de la propia API sugiere ese formato ("Por ejemplo: 8000 o 8.000").
+          // El MISMO lector que el servidor (importado de lib/montos.ts, no copiado: la copia que
+          // había acá ya se había desfasado una vez). Lo que no se entiende ("8 mil", "8000.50")
+          // se marca en el campo AHORA, antes de que toque Confirmar, y no suma al total.
+          // El envío no puede ser negativo (el lector lo rechaza igual que el servidor).
           const num = (sel) => {
-            const crudo = String(card.querySelector(sel)?.value ?? '');
-            const limpio = crudo.replace(/[^0-9,.-]/g, '').replace(/\./g, '').replace(',', '.');
-            if (!/[0-9]/.test(limpio)) return 0;
-            const n = Number(limpio);
-            return Number.isFinite(n) ? n : 0;
+            const campo = card.querySelector(sel);
+            const m = campo ? montoEscrito(campo.value, { negativo: false }) : null;
+            return typeof m === 'number' ? m : 0;
           };
           // El saldo NO suma (ver el comentario del markup). Solo el envío.
           const env = num('.of-envio');
@@ -1483,95 +1866,296 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         }
         const envio = card.querySelector('.ordcard__envio');
         const envioTxt = card.querySelector('[data-envio-txt]');
-        if (envio && envioTxt) {
+        // data-umbral vacío = no se pudo leer la cuenta: no se afirma "llega" ni "no llega".
+        if (envio && envioTxt && envio.dataset.umbral !== '') {
           const umbral = Number(envio.dataset.umbral) || 0;
           const llega = total >= umbral;
           envio.classList.toggle('is-sin', llega);
-          envioTxt.textContent = llega
-            ? 'Llega a ' + money(umbral) + ': envío sin cargo'
-            : 'No llega a ' + money(umbral) + ': se le cobra el envío';
+          // Mismo texto que el servidor (markup de la tarjeta). Con 0 no se dice "llega a $0": es
+          // un comercio que nunca paga envío (su monto propio, o una lista en 0).
+          envioTxt.textContent = umbral === 0
+            ? 'Este comercio nunca paga envío: envío sin cargo'
+            : llega
+              ? 'Llega a ' + money(umbral) + ': envío sin cargo'
+              : 'No llega a ' + money(umbral) + ': se le cobra el envío';
         }
       };
+      // ── Qué viaja al servidor: SOLO lo que ella cambió en esta pantalla ──
+      // Antes viajaba todo y todo se escribía. Con la compu del local y el celular abiertos a la
+      // vez, guardar desde una pantalla vieja pisaba lo que se había guardado desde la otra: un
+      // envío cargado en el celular volvía a vacío, una cantidad volvía a la de antes. Lo que no
+      // se tocó no se manda, y el servidor deja lo que hay en la base.
+      const cambiado = (sel) => { const e = card.querySelector(sel); return e && e.value !== e.defaultValue ? e.value : undefined; };
+      const soloCambiados = (pares) => {
+        const out = {};
+        for (const [sel, campo] of pares) { const v = cambiado(sel); if (v !== undefined) out[campo] = v; }
+        return out;
+      };
+      const montosCambiados = () => soloCambiados([['.of-saldo', 'saldo_anterior'], ['.of-envio', 'costo_envio']]);
+      const datosCambiados = () => soloCambiados([
+        ['.of-name', 'client_name'], ['.of-contact', 'client_contact'], ['.of-addr', 'delivery_address'],
+        ['.of-date', 'delivery_date'], ['.of-notes', 'notes'],
+      ]);
+      // Un POST al endpoint del pedido, con lo que hace falta para decirle a ella la verdad.
+      // Sin respuesta legible NO se sabe si se guardó: pasa con la red cortada o cuando la función
+      // tarda demasiado (un 504 que no es JSON). Decir "no se pudo" ahí es mentir para un lado;
+      // reintentar a ciegas contestaría "pantalla vieja" sobre algo que quizás sí se guardó.
+      const enviar = async (cuerpo, porDefecto) => {
+        let r = null, o = null;
+        try {
+          // `panel: 2`: este panel manda solo lo cambiado; el servidor protege de los paneles viejos.
+          r = await fetch('/api/admin/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...cuerpo, panel: 2 }) });
+          o = await r.json().catch(() => null);
+        } catch { r = null; }
+        o = o || {};
+        const sinSaber = !o.error && (!r || (!r.ok && r.status !== 401));
+        const mensaje = o.error
+          || (r && r.status === 401 ? 'Se cerró la sesión del panel. No se guardó nada: recargá la página y volvé a entrar.'
+          : sinSaber ? 'No sé si se guardó (se cortó la conexión o el servidor tardó demasiado). Recargá la página para ver cómo quedó el pedido antes de volver a intentar.'
+          : porDefecto);
+        return { ok: !!(r && r.ok), partial: !!o.partial, sinSaber, status: r ? r.status : 0, mensaje };
+      };
+      // Mientras viaja un guardado, la tarjeta no se puede tocar. Lo que ella cambiara en ese rato no
+      // viajaba y se perdía al recargar, y Cancelar dejaba la tarjeta fuera de edición sobre un
+      // pedido que sí se estaba cambiando. Al destrabar, cada control vuelve a como estaba.
+      const bloquear = (si) => card.querySelectorAll('input, select, textarea, button').forEach((el) => {
+        if (si) { el.dataset.bloq = el.disabled ? '1' : '0'; el.disabled = true; }
+        else if (el.dataset.bloq !== undefined) { el.disabled = el.dataset.bloq === '1'; delete el.dataset.bloq; }
+      });
+      // Un botón que ya no puede reintentar: el próximo toque recarga la página. En la app instalada
+      // no hay botón de recargar del navegador, así que tiene que estar acá.
+      const aRecargar = (boton) => { if (!boton) return; boton.dataset.recargar = '1'; boton.textContent = 'Recargar'; boton.disabled = false; };
+
       // Descuento: guarda al instante y recarga (recalcula el total y el remito). Si falla,
       // el selector vuelve al valor que tenía — que no quede mostrando un descuento que no se
-      // guardó, porque es plata.
+      // guardó, porque es plata. (Antes, si la red se cortaba, el fetch lanzaba y el selector
+      // quedaba trabado mostrando el descuento nuevo, que el próximo Guardar mandaba.)
       const selDisc = card.querySelector('.disc-sel');
+      // Mientras viaja el descuento, Guardar espera: si salía en ese rato, `bloquear` se guardaba el
+      // selector y Confirmar como apagados y los dejaba así hasta recargar.
+      let descuentoEnVuelo = false;
       if (selDisc) {
-        let anterior = selDisc.value;
+        const anterior = selDisc.value;
         selDisc.addEventListener('change', async () => {
+          descuentoEnVuelo = true;
           selDisc.disabled = true;
-          const r = await fetch('/api/admin/order', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            // ⚠️ Van TAMBIÉN los dos montos. Este POST recarga la página, y el endpoint solo
-            // guarda lo que viene en el cuerpo: si no los mandara, el costo de envío que ella
-            // acaba de escribir se pierde al recargar, sin aviso, y el remito sale sin cobrarlo.
-            // Es el mismo modo de falla que ya se había arreglado para el botón Cancelar.
-            body: JSON.stringify({
-              id: card.dataset.id, discount_pct: Number(selDisc.value) || 0,
-              saldo_anterior: card.querySelector('.of-saldo')?.value ?? '',
-              costo_envio: card.querySelector('.of-envio')?.value ?? '',
-            }),
-          });
-          if (r.ok) { location.reload(); return; }
+          // Confirmar queda apagado mientras viaja el descuento: confirmar en ese rato sacaba el
+          // remito SIN el descuento, sin ningún aviso.
+          const conf = card.querySelector('.confirm');
+          if (conf) conf.disabled = true;
+          // ⚠️ Van TAMBIÉN los montos que ella escribió y no guardó: este POST recarga la página,
+          // y si no viajaran, el costo de envío recién escrito se perdía al recargar, sin aviso, y
+          // el remito salía sin cobrarlo. Solo los cambiados (ver arriba).
+          const res = await enviar({ id: card.dataset.id, discount_pct: Number(selDisc.value) || 0, ...montosCambiados() }, 'No se pudo aplicar el descuento.');
+          descuentoEnVuelo = false;
+          if (res.ok) { location.reload(); return; }
+          // El servidor explica el motivo (antes se tapaba con un genérico).
+          alert(res.mensaje);
+          // partial o 409 (la pantalla está vieja o el pedido cambió): lo que se ve ya no es lo que
+          // hay en la base, así que se recarga.
+          if (res.partial || res.status === 409) { location.reload(); return; }
+          // Si no se sabe si entró, volver a "anterior" podría mostrar "Sin descuento" con el −20 %
+          // ya aplicado en la base. Queda trabado en lo que ella eligió, y Confirmar pasa a Recargar.
+          if (res.sinSaber) { aRecargar(conf); return; }
           selDisc.value = anterior;
           selDisc.disabled = false;
-          alert('No se pudo aplicar el descuento.');
+          if (conf) conf.disabled = false;
         });
       }
+      // ── ＋ Agregar producto ──
+      // Lo agregado NO se guarda solo: queda como fila "nuevo" hasta el Guardar del pedido, que
+      // lo manda junto con las cantidades en un único pedido al servidor (todo o nada). Así
+      // "cambiar una torta por otra" es una sola operación: la vieja a 0, la nueva agregada.
+      const selProd = card.querySelector('.add-prod');
+      const qtyNueva = card.querySelector('.add-qty');
+      const tplNueva = card.querySelector('.add-tpl');
+      const listaItems = card.querySelector('.ordcard__items');
+      // Los nombres vienen con encodeURIComponent (ver el markup de las opciones).
+      const decod = (s) => { try { return decodeURIComponent(s || ''); } catch { return s || ''; } };
+      // Los values son ids enteros de la base: seguros dentro del selector.
+      const opcionDe = (id) => selProd?.querySelector('option[value="' + id + '"]');
+      const vacio = () => { const v = card.querySelector('.oi-vacio'); if (v) v.hidden = nuevas().length > 0; };
+      const sacarNueva = (fila, enfocar = false) => {
+        const opt = opcionDe(fila.dataset.product);
+        if (opt) opt.disabled = false;
+        fila.remove();
+        vacio();
+        recompute();
+        // El botón con foco acaba de desaparecer: el foco vuelve al menú, no al principio de la página.
+        if (enfocar) selProd?.focus();
+      };
+      // Pasa lo elegido en el menú a una fila "nuevo". Devuelve false si no pudo (y ya avisó).
+      const agregarElegido = () => {
+        const opt = selProd.selectedOptions[0];
+        if (!opt || !opt.value || opt.disabled) { selProd.focus(); return false; }
+        // Mismo criterio que el servidor (cantidadEntera): solo dígitos. parseInt dejaba pasar
+        // "2x" como 2 y "1.5" como 1; mejor que ella lo vea ahora que un 400 al guardar.
+        const q = qtyNueva.value.trim();
+        if (!/^\d{1,4}$/.test(q) || Number(q) < 1) {
+          alert('La cantidad tiene que ser un número entero entre 1 y 9999.');
+          qtyNueva.focus();
+          return false;
+        }
+        const fila = tplNueva.content.firstElementChild.cloneNode(true);
+        fila.dataset.product = opt.value;
+        fila.dataset.price = opt.dataset.price;
+        const nombre = decod(opt.dataset.name);
+        fila.querySelector('[data-nombre]').textContent = nombre;
+        fila.querySelector('[data-pack]').textContent = decod(opt.dataset.pack);
+        fila.querySelector('[data-precio]').textContent = ' × ' + money(opt.dataset.price);
+        const q2 = fila.querySelector('.qty-add');
+        q2.value = String(Number(q));
+        q2.addEventListener('input', recompute);
+        // Etiquetas con el nombre: con dos filas nuevas, un lector de pantalla decía lo mismo en las dos.
+        q2.setAttribute('aria-label', 'Cantidad de ' + nombre + ' (agregado)');
+        const quitar = fila.querySelector('.oi-quitar');
+        quitar.setAttribute('aria-label', 'Sacar ' + nombre + ' (agregado)');
+        quitar.addEventListener('click', () => sacarNueva(fila, true));
+        listaItems.appendChild(fila);
+        // Se apaga en el menú: el mismo producto dos veces es un 409 del servidor.
+        opt.disabled = true;
+        selProd.value = '';
+        qtyNueva.value = '1';
+        vacio();
+        recompute();
+        return true;
+      };
+      card.querySelector('.add-btn')?.addEventListener('click', () => { agregarElegido(); });
+
       card.querySelector('.edit-ord')?.addEventListener('click', () => card.classList.add('editing'));
       card.querySelector('.cancel-ord')?.addEventListener('click', () => {
         // Solo los campos de la ficha editable. Con `querySelectorAll('input')` a secas, tocar
         // Cancelar mientras se edita también le borraba el saldo y el envío recién escritos, que
         // viven fuera de ese bloque. Borrar plata sin avisar no puede ser un efecto colateral.
-        card.querySelectorAll('.ordcard__edit input, .qty-edit').forEach((i) => (i.value = i.defaultValue));
+        card.querySelectorAll('.ordcard__edit input, .ordcard__edit textarea, .qty-edit').forEach((i) => (i.value = i.defaultValue));
+        // Cancelar también deshace lo agregado: si no, quedaba en pantalla y se mandaba en el
+        // próximo Guardar, aunque ella lo hubiera "cancelado".
+        nuevas().forEach((f) => sacarNueva(f));
+        if (selProd) selProd.value = '';
+        if (qtyNueva) qtyNueva.value = '1';
+        // Tras un guardado rechazado el botón quedaba en "Reintentar" para la próxima edición.
+        const guardar = card.querySelector('.save-ord');
+        // (Salvo que haya quedado en "Recargar": eso no lo deshace Cancelar.)
+        if (guardar) guardar.textContent = guardar.dataset.recargar ? 'Recargar' : 'Guardar';
         card.classList.remove('editing');
         recompute();
       });
-      rows.forEach((row) => row.querySelector('.qty-edit')?.addEventListener('input', recompute));
-      card.querySelectorAll('.of-saldo, .of-envio').forEach((i) => i.addEventListener('input', recompute));
+      existentes().forEach((row) => row.querySelector('.qty-edit')?.addEventListener('input', recompute));
+      // Un monto que no se entiende se marca AHORA, con el motivo a la vista (un title no se ve en el
+      // celular) y para el lector de pantalla (aria-invalid="true": el valor vacío cuenta como false).
+      // Va aparte de recompute para que funcione también en una tarjeta sin sus líneas leídas.
+      // `alEscribir`: mientras escribe, solo se LIMPIA (o se actualiza un aviso que ya estaba a la
+      // vista). Marcar en cada tecla le ponía "centavos con punto" a un "8.0" que iba camino a
+      // "8.000" (verificación del 19/9). El aviso nuevo sale al salir del campo ('change'), que
+      // también corre antes del clic en Guardar o Confirmar.
+      const marcarMonto = (campo, alEscribir = false) => {
+        const opciones = { negativo: campo.classList.contains('of-saldo') };
+        const m = montoEscrito(campo.value, opciones);
+        const aviso = card.querySelector('#' + campo.getAttribute('aria-describedby'));
+        if (m === undefined) {
+          if (alEscribir && campo.getAttribute('aria-invalid') !== 'true') return;
+          campo.setAttribute('aria-invalid', 'true');
+          if (aviso) { aviso.textContent = 'Este monto ' + porQueNoSeEntiende(campo.value, opciones) + '.'; aviso.hidden = false; }
+        } else {
+          campo.removeAttribute('aria-invalid');
+          if (aviso) { aviso.textContent = ''; aviso.hidden = true; }
+        }
+      };
+      card.querySelectorAll('.of-saldo, .of-envio').forEach((i) => {
+        i.addEventListener('input', () => { marcarMonto(i, true); recompute(); });
+        i.addEventListener('change', () => marcarMonto(i));
+      });
       card.querySelector('.save-ord')?.addEventListener('click', async () => {
         const btn = card.querySelector('.save-ord');
-        const items = rows.map((row) => ({ id: row.dataset.item, qty: Math.max(0, parseInt(row.querySelector('.qty-edit').value) || 0) }));
-        const extra = {
-          saldo_anterior: card.querySelector('.of-saldo')?.value ?? '',
-          costo_envio: card.querySelector('.of-envio')?.value ?? '',
-        };
-        btn.textContent = 'Guardando…';
-        const r = await fetch('/api/admin/order', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: card.dataset.id, items,
-            client_name: val('.of-name'), client_contact: val('.of-contact'),
-            delivery_address: val('.of-addr'), delivery_date: val('.of-date'), notes: val('.of-notes'),
-            discount_pct: discPct(), ...extra,
-          }),
-        });
-        if (r.ok) location.reload();
-        else {
-          // El servidor manda mensajes escritos para ella. Pintar solo 'Error' la deja
-          // reintentando a ciegas sobre algo que solo el mensaje explica.
-          const o = await r.json().catch(() => ({}));
-          alert((o && o.error) || 'No se pudo completar la acción.');
-          btn.textContent = 'Reintentar';
+        // Un solo guardado en vuelo: el doble clic mandaba dos veces lo mismo. El servidor ya lo
+        // frena (versión del pedido), pero el segundo volvía con un error que la asustaba.
+        if (btn.disabled) return;
+        if (btn.dataset.recargar) { location.reload(); return; }
+        if (descuentoEnVuelo) { alert('Esperá un segundo: se está aplicando el descuento.'); return; }
+        // Un producto elegido en el menú pero sin tocar «＋ Agregar»: antes se descartaba en
+        // silencio, y "cambiar una torta por otra" quedaba guardado como una baja sola.
+        if (selProd && selProd.value) {
+          const nombre = decod(selProd.selectedOptions[0]?.dataset.name);
+          if (!confirm('Elegiste «' + nombre + '» pero no tocaste «＋ Agregar». ¿Lo agrego (cantidad ' + (qtyNueva.value.trim() || '?') + ') y guardo?')) {
+            selProd.focus();
+            return;
+          }
+          if (!agregarElegido()) return;
         }
+        // Las cantidades viajan CRUDAS, como ella las escribió. Antes se mandaba
+        // `parseInt(...) || 0`: un casillero vacío o con "2x" llegaba como 0 y el servidor SACABA
+        // ese producto del pedido. Ahora lo valida el servidor y, si no es un número, no guarda
+        // nada y le dice por qué.
+        // Y solo las que CAMBIARON, con `desde` (lo que mostraba esta pantalla): si la base ya
+        // tiene otra cantidad, el servidor corta en vez de pisar un cambio hecho desde el celular.
+        const items = existentes()
+          .map((row) => row.querySelector('.qty-edit'))
+          .filter((q) => q.value !== q.defaultValue)
+          .map((q) => ({ id: q.closest('.oi-row').dataset.item, qty: q.value, desde: q.defaultValue }));
+        const add = nuevas().map((f) => ({ product_id: f.dataset.product, qty: f.querySelector('.qty-add').value }));
+        const cuerpo = { id: card.dataset.id, items, add, ...datosCambiados(), ...montosCambiados() };
+        // El descuento solo si cambió (en modo edición su selector está oculto: casi nunca).
+        if (discPct() !== (Number(card.dataset.pct) || 0)) cuerpo.discount_pct = discPct();
+        bloquear(true);
+        btn.textContent = 'Guardando…';
+        const res = await enviar(cuerpo, 'No se pudo completar la acción.');
+        if (res.ok) { location.reload(); return; }
+        bloquear(false);
+        // El servidor manda mensajes escritos para ella. Pintar solo 'Error' la deja
+        // reintentando a ciegas sobre algo que solo el mensaje explica.
+        alert(res.mensaje);
+        // `partial`: una parte SÍ se guardó. Lo que hay en pantalla ya no es lo que hay en la
+        // base, así que se recarga para que ella vea el estado real antes de tocar nada más.
+        if (res.partial) { location.reload(); return; }
+        // Sin saber si entró, o con un 409 (pantalla vieja, el pedido cambió o se confirmó), el botón
+        // pasa a "Recargar". Antes quedaba en "Reintentar" y reenviaba lo mismo para siempre: el 409
+        // se repetía, y en la app instalada no había cómo recargar.
+        if (res.sinSaber || res.status === 409) { aRecargar(btn); return; }
+        btn.textContent = 'Reintentar';
       });
 
       card.querySelector('.del-ord')?.addEventListener('click', async () => {
         const b = card.querySelector('.del-ord');
-        const extra = b.dataset.st === 'confirmado' ? ' Se repone el stock que había descontado.' : '';
+        if (b.disabled) return;
+        if (b.dataset.recargar) { location.reload(); return; }
+        const extra = b.dataset.st === 'confirmado'
+          ? (b.dataset.reponer
+            ? ' Se le suma al stock lo que se pidió (' + b.dataset.reponer + ')'
+            : ' Se le suma al stock lo que se pidió') +
+            ' y se saca el remito de la carpeta de impresión: si el local ya lo imprimió, avisale.'
+          : b.dataset.st === 'anulado'
+            // No afirma que el stock se repuso: la pantalla no sabe si se repuso (ver la tarjeta).
+            ? ' Está anulado: Borrar ya NO repone stock. Si todavía no revisaste el stock de sus productos en Productos, hacelo antes. Solo se saca el pedido y su remito de la carpeta de impresión.'
+            : '';
         if (!confirm('¿Borrar el pedido ' + (b.dataset.num || '') + '?' + extra + ' No se puede deshacer.')) return;
         b.textContent = '…';
-        const r = await fetch('/api/admin/order', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: card.dataset.id }),
-        });
-        if (r.ok) location.reload();
-        else {
-          // El servidor manda mensajes escritos para ella. Pintar solo 'Error' la deja
-          // reintentando a ciegas sobre algo que solo el mensaje explica.
-          const o = await r.json().catch(() => ({}));
-          alert((o && o.error) || 'No se pudo completar la acción.');
-          b.textContent = 'Reintentar';
+        b.disabled = true;
+        let r = null, o = {};
+        try {
+          r = await fetch('/api/admin/order', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: card.dataset.id }),
+          });
+          o = (await r.json().catch(() => null)) || {};
+        } catch { r = null; }
+        if (r && r.ok) { location.reload(); return; }
+        b.disabled = false;
+        // Si el pedido quedó anulado, el próximo Borrar ya no repone: el diálogo lo tiene que decir.
+        if (o.anulado) b.dataset.st = 'anulado';
+        if (!o.error && (!r || r.status !== 401)) {
+          // Sin respuesta legible (red cortada, o un 504 porque la función se cortó con Google colgado)
+          // el pedido pudo haberse borrado igual.
+          alert('No sé si se borró (se cortó la conexión o el servidor tardó demasiado). Recargá la página para ver cómo quedó.');
+          b.textContent = 'Recargar'; b.dataset.recargar = '1';
+          return;
         }
+        // El servidor manda mensajes escritos para ella. Pintar solo 'Error' la deja
+        // reintentando a ciegas sobre algo que solo el mensaje explica.
+        alert(o.error || 'Se cerró la sesión del panel. No se borró nada: recargá la página y volvé a entrar.');
+        // 409 = el pedido cambió desde otro lado: reintentar repetiría lo mismo. `recargar` = el
+        // servidor no sabe cómo quedó (o quedó anulado sin reponer): reintentar a ciegas podía reponer
+        // dos veces, o borrarlo sin reponer nada.
+        if (r && (r.status === 409 || o.recargar)) { b.textContent = 'Recargar'; b.dataset.recargar = '1'; return; }
+        b.textContent = 'Reintentar';
       });
     });
 
@@ -1624,6 +2208,48 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
       })
     );
 
+    // ---- mandar el remito a la carpeta que imprime el local ----
+    // Al confirmar un pedido la copia ya sale sola; esto es para reimprimir uno que ella borró
+    // de la carpeta, y para los pedidos confirmados antes de que esto existiera.
+    // El fetch va envuelto en try/catch: sin eso, un corte de red deja el botón clavado en
+    // "Mandando…" para siempre (le pasa hoy a Reintentar, ver más arriba).
+    document.querySelectorAll('.print-rem').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const original = b.textContent;
+        b.disabled = true; b.textContent = 'Mandando…';
+        const restore = () => { b.textContent = original; b.disabled = false; };
+        try {
+          const r = await fetch('/api/admin/print', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: b.dataset.id }),
+          });
+          const o = await r.json().catch(() => null);
+          if (r.status === 401) {
+            // La sesión del panel dura 30 días y se vence sin avisar. Sin este caso, el botón
+            // repetiría "probá de nuevo" para siempre y ella no sabría que tiene que entrar otra vez.
+            restore();
+            alert('Se venció tu sesión del panel. Recargá la página y volvé a entrar con tu clave.');
+          } else if (o && o.demo) {
+            // Modo demo (sin Supabase): el endpoint contesta ok pero no pasó nada. Ni éxito ni error.
+            restore();
+            alert('Estás en modo demo: no hay carpeta de Drive donde dejar el remito.');
+          } else if (r.ok && o && o.ok) {
+            b.textContent = '✓ En la carpeta';
+            const tilde = b.closest('.ordcard__arch')?.querySelector('.print-ok');
+            if (tilde) tilde.hidden = false;
+            setTimeout(restore, 2600);
+          } else {
+            restore();
+            alert((o && o.error) || 'No se pudo mandar el remito a la carpeta. Probá de nuevo.');
+          }
+        } catch {
+          restore();
+          alert('No se pudo mandar el remito a la carpeta. Fijate la conexión y probá de nuevo.');
+        }
+      })
+    );
+
     // ---- clientes: cuentas por CUIT (editar datos, borrar) ----
     document.querySelectorAll('.clicard').forEach((card) => {
       const body = card.querySelector('.clicard__body');
@@ -1635,21 +2261,90 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
 
       // Guarda la ficha y devuelve si salió bien. NO recarga: el que llama decide, porque el
       // botón de WhatsApp necesita seguir vivo después de guardar para abrir la hoja de compartir.
-      const guardarCuenta = async () => {
-        const val = (sel) => { const e = card.querySelector(sel); return e ? e.value : ''; };
-        const r = await fetch('/api/admin/client', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: card.dataset.id,
-            business_name: val('.cf-name'), client_contact: val('.cf-contact'),
-            delivery_address: val('.cf-addr'), notes: val('.cf-notes'), cuit: val('.cf-cuit'),
-            catalog: val('.cf-catalog'), active: val('.cf-active') === '1',
-            access_code: val('.cf-code'), // la escribe ella a mano, como el resto
-          }),
-        });
-        const o = await r.json().catch(() => ({}));
-        return { ok: r.ok, warning: o && o.warning, error: (o && o.error) || 'No se pudo guardar la cuenta.' };
+      // `forzar`: campos que viajan aunque no hayan cambiado (ver el botón de WhatsApp).
+      const guardarCuenta = async (forzar = []) => {
+        // Viaja SOLO lo que ella cambió en esta pantalla, como en los pedidos. Antes la ficha se
+        // mandaba entera, y guardar desde una pantalla vieja (la compu abierta desde la mañana)
+        // devolvía la lista, el estado o la contraseña que se habían cambiado desde el celular: una
+        // cuenta dada de baja volvía a estar habilitada, un comercio volvía a otra lista de precios.
+        // De paso, lo que no se toca ya no se reescribe con attrSafe (que cambia comillas por espacios).
+        const cambio = (sel) => {
+          const e = card.querySelector(sel);
+          if (!e) return false;
+          if (forzar.includes(sel)) return true;
+          if (e.tagName === 'SELECT') {
+            const inicial = [...e.options].find((o) => o.defaultSelected) || e.options[0];
+            return e.value !== (inicial ? inicial.value : '');
+          }
+          return e.value !== e.defaultValue;
+        };
+        const campos = [['.cf-name', 'business_name'], ['.cf-contact', 'client_contact'], ['.cf-addr', 'delivery_address'],
+          ['.cf-notes', 'notes'], ['.cf-cuit', 'cuit'], ['.cf-catalog', 'catalog'], ['.cf-code', 'access_code']];
+        // `panel: 2`: el servidor rechaza las ediciones de un panel de antes del deploy (lib/panel.ts).
+        // `esperado`: lo que la pantalla MOSTRABA de cada campo que viaja. Si la base ya tiene otra
+        // cosa (se cambió desde el celular), el servidor corta en vez de pisarlo.
+        const inicial = (e) => e.tagName === 'SELECT'
+          ? (([...e.options].find((o) => o.defaultSelected) || e.options[0] || {}).value || '')
+          : e.defaultValue;
+        const cuerpo = { id: card.dataset.id, panel: 2, esperado: {} };
+        const enviados = []; // [campo del DOM, valor que viajó]: solo esos pasan a "guardados"
+        for (const [sel, campo] of [...campos, ['.cf-active', 'active']]) {
+          if (!cambio(sel)) continue;
+          const e = card.querySelector(sel);
+          cuerpo[campo] = campo === 'active' ? e.value === '1' : e.value;
+          cuerpo.esperado[campo] = campo === 'active' ? inicial(e) === '1' : inicial(e);
+          enviados.push([e, e.value]);
+        }
+        // El envío sin cargo propio viaja SOLO si ella lo tocó. Si viajara siempre y el SQL de la
+        // columna no estuviera corrido, la base rechazaría el guardado ENTERO de la ficha — nombre,
+        // contraseña, todo — y también el botón de WhatsApp, que guarda por acá. Se manda crudo:
+        // el servidor decide qué es un monto válido ('' = el de su lista, 0 = nunca paga envío).
+        const envio = card.querySelector('.cf-envio');
+        const envioCambio = !!envio && !envio.disabled && envio.value.trim() !== (envio.dataset.orig || '').trim();
+        const envioEnviado = envioCambio ? envio.value : null; // lo que viaja, no lo que haya al volver
+        if (envioCambio) {
+          cuerpo.envio_min = envioEnviado;
+          // Como los demás campos: lo que la pantalla mostraba. Sin esto, guardar un envío desde una
+          // pantalla vieja pisaba en silencio el que se había cargado desde el celular.
+          cuerpo.esperado.envio_min = envio.dataset.orig || '';
+        }
+        if (!enviados.length && !envioCambio) return { ok: true, sinCambios: true };
+        let r = null, o = {};
+        try {
+          r = await fetch('/api/admin/client', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cuerpo),
+          });
+          o = (await r.json().catch(() => null)) || {};
+        } catch { r = null; }
+        // `recargar`: reintentar no sirve (no se sabe si entró, la pantalla está vieja o la cuenta ya no
+        // existe). El botón pasa a "Recargar", porque en la app instalada no hay otra forma de hacerlo.
+        if (!r) return { ok: false, recargar: true, error: 'No se pudo conectar. No sé si se guardó: recargá la página para ver cómo quedó la cuenta.' };
+        if (r.status === 401) return { ok: false, error: 'Se cerró la sesión del panel. No se guardó nada: recargá la página y volvé a entrar.' };
+        if (r.ok) {
+          // Lo que VIAJÓ pasa a ser "lo que muestra la pantalla": el botón de WhatsApp guarda por acá y
+          // NO recarga, y el guardado siguiente tiene que comparar contra lo que ya está en la base.
+          // Solo lo que viajó, y con el valor que viajó: si ella escribió algo mientras se guardaba,
+          // eso no se guardó y tiene que seguir contando como cambiado.
+          for (const [e, valor] of enviados) {
+            if (e.tagName === 'SELECT') [...e.options].forEach((op) => (op.defaultSelected = op.value === valor));
+            else e.defaultValue = valor;
+          }
+        }
+        if (r.ok && envioCambio && !(o && o.warning && /MENOS el envío/.test(o.warning))) {
+          envio.dataset.orig = envioEnviado;
+        }
+        return {
+          ok: r.ok, warning: o && o.warning, error: (o && o.error) || 'No se pudo guardar la cuenta.',
+          // Lo dice el servidor con un campo, no el texto del mensaje: un 409 también puede ser "ese
+          // CUIT ya está en otra cuenta", y ahí lo que sirve es corregir el CUIT, no recargar.
+          recargar: !r.ok && !!(o && o.recargar),
+        };
       };
+      // Los DOS botones que guardan la ficha: si uno ya sabe que la pantalla está vieja, el otro también.
+      const aRecargarCuenta = () => card.querySelectorAll('.save-cli, .wa-code').forEach((boton) => {
+        boton.textContent = 'Recargar'; boton.dataset.recargar = '1';
+      });
 
       // Manda las credenciales por WhatsApp (o las copia si no hay hoja de compartir).
       // GUARDA PRIMERO, siempre. Antes leía los campos sin guardar: se podía escribir una
@@ -1658,14 +2353,22 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
       // solo si lo que dice ya está guardado.
       card.querySelector('.wa-code')?.addEventListener('click', async () => {
         const boton = card.querySelector('.wa-code');
+        if (boton.dataset.recargar) { location.reload(); return; }
         const v = (sel) => (card.querySelector(sel)?.value || '').trim();
         const codigo = v('.cf-code');
         if (!codigo) { alert('Escribí la contraseña antes de mandarla: la cuenta no está lista hasta tenerla.'); return; }
         const rotulo = boton.textContent;
         boton.textContent = 'Guardando…'; boton.disabled = true;
-        const guardado = await guardarCuenta();
+        // La contraseña y el CUIT viajan SIEMPRE: el mensaje los manda, así que tienen que ser los de la
+        // base. Si esta pantalla estuviera vieja, sin esto el comercio recibiría una contraseña que ya
+        // no existe (con esto, lo que se guarda y lo que se manda son lo mismo).
+        const guardado = await guardarCuenta(['.cf-code', '.cf-cuit']);
         boton.textContent = rotulo; boton.disabled = false;
-        if (!guardado.ok) { alert('No se mandó nada: primero hay que poder guardar la cuenta.\n\n' + guardado.error); return; }
+        if (!guardado.ok) {
+          alert('No se mandó nada: primero hay que poder guardar la cuenta.\n\n' + guardado.error);
+          if (guardado.recargar) aRecargarCuenta();
+          return;
+        }
         if (guardado.warning) alert(guardado.warning);
         const appUrl = document.querySelector('.admin-wrap')?.dataset.appUrl || 'https://teia-bakery.vercel.app';
         const texto =
@@ -1718,15 +2421,35 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
 
       card.querySelector('.save-cli')?.addEventListener('click', async () => {
         const btn = card.querySelector('.save-cli');
+        if (btn.dataset.recargar) { location.reload(); return; }
         btn.textContent = 'Guardando…'; btn.disabled = true;
         const guardado = await guardarCuenta();
+        if (guardado.sinCambios) {
+          alert('No cambiaste nada en esta cuenta.');
+          btn.textContent = 'Guardar cuenta'; btn.disabled = false;
+          return;
+        }
         if (guardado.ok) {
           if (guardado.warning) alert(guardado.warning); // CUIT sin verificador válido: se guarda igual
           location.reload();
         } else {
           alert(guardado.error);
-          btn.textContent = 'Guardar cuenta'; btn.disabled = false;
+          btn.disabled = false;
+          // Pantalla vieja, cuenta borrada o sin saber si entró: reintentar repetiría lo mismo.
+          if (guardado.recargar) aRecargarCuenta();
+          else btn.textContent = 'Guardar cuenta';
         }
+      });
+      card.querySelector('.cli-armar')?.addEventListener('click', (ev) => {
+        const cambiado = [...card.querySelectorAll('.cf-name, .cf-contact, .cf-addr, .cf-notes, .cf-cuit, .cf-code')]
+          .some((e) => e.value !== e.defaultValue)
+          || [...card.querySelectorAll('.cf-catalog, .cf-active')].some((e) => {
+            const inicial = [...e.options].find((o) => o.defaultSelected) || e.options[0];
+            return e.value !== (inicial ? inicial.value : '');
+          })
+          || (() => { const en = card.querySelector('.cf-envio'); return !!en && !en.disabled && en.value.trim() !== (en.dataset.orig || '').trim(); })();
+        if (!cambiado) return;
+        if (!confirm('Tenés cambios sin guardar en esta cuenta y el pedido se arma con los datos guardados. Aceptar = ir a armar el pedido y perder esos cambios. Cancelar = quedarte y tocar "Guardar cuenta".')) ev.preventDefault();
       });
       card.querySelector('.del-cli')?.addEventListener('click', async () => {
         const b = card.querySelector('.del-cli');
@@ -1889,7 +2612,8 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
     }
 
     const initTab = (location.hash || '').slice(1);
-    if (['pedidos', 'clientes', 'productos', 'nuevo', 'rubros', 'info'].includes(initTab)) { if (initTab === 'nuevo') resetForm(); showTab(initTab); }
+    // 'envios' también: guardar en Envíos recarga, y sin esto volvía a Pedidos como si no hubiera pasado nada.
+    if (['pedidos', 'clientes', 'productos', 'nuevo', 'rubros', 'info', 'envios'].includes(initTab)) { if (initTab === 'nuevo') resetForm(); showTab(initTab); }
 
     // ── Volver a la fila donde estaba ────────────────────────────────────────────────────
     // Pedido de Mica: "cada vez que quiero editar algo me vuelve al inicio de pantalla y tengo
@@ -1931,6 +2655,36 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
       }, 120);
     })();
 
+    // ── El pedido que se acaba de armar (/administradora/armar) ─────────────────────────────
+    // Al crear, la página de armar deja acá qué pedido fue y vuelve a Pedidos. Se dice en voz alta
+    // que quedó PENDIENTE (si se olvida de confirmarlo, el remito nunca llega a la carpeta de
+    // impresión) y se lleva la pantalla a su tarjeta. Una sola vez: se borra al leerlo.
+    (function avisarPedidoArmado() {
+      let d = null;
+      try { d = JSON.parse(sessionStorage.getItem('teia:pedidoArmado') || 'null'); sessionStorage.removeItem('teia:pedidoArmado'); } catch (e) {}
+      if (!d) return;
+      const aviso = document.querySelector('.armado-ok');
+      if (aviso) {
+        const estado = String(d.estado || '');
+        aviso.textContent = (d.repetido ? 'Ese pedido ya estaba creado: ' + (d.num || '') : 'Pedido ' + (d.num || '') + ' creado')
+          + ' para ' + (d.para || 'el comercio') + '. '
+          + (estado && estado !== 'pendiente'
+            ? 'Está ' + estado + ': revisalo en su tarjeta.'
+            : 'Quedó pendiente: cuando lo prepares, tocá Confirmar y el remito va a la carpeta de impresión.');
+        aviso.hidden = false;
+      }
+      showTab('pedidos');
+      const card = Number(d.id) ? document.querySelector('.ordcard[data-id="' + Number(d.id) + '"]') : null;
+      if (!card) return;
+      card.classList.add('is-recien');
+      setTimeout(() => card.classList.remove('is-recien'), 4000);
+      setTimeout(() => {
+        const lenis = window.__lenis;
+        if (lenis && typeof lenis.scrollTo === 'function') lenis.scrollTo(card, { offset: -140, immediate: true });
+        else card.scrollIntoView({ block: 'start', behavior: 'auto' });
+      }, 120);
+    })();
+
     updatePreview();
 
     // ---- botones de Google según el estado REAL (nada hardcodeado — sobrevive el handoff:
@@ -1942,7 +2696,35 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
         if (!s.connected) { document.getElementById('gConnect').hidden = false; return; }
         if (s.driveUrl) { const a = document.getElementById('gDrive'); a.href = s.driveUrl; a.hidden = false; }
         if (s.sheetUrl) { const a = document.getElementById('gSheet'); a.href = s.sheetUrl; a.hidden = false; }
+        if (s.printUrl) { const a = document.getElementById('gPrint'); a.href = s.printUrl; a.hidden = false; }
         // conectado pero sin carpeta/planilla todavía: se crean solas con el primer archivado
+
+        // El ✓ "en la carpeta" sale de lo que Drive dice que HAY, no de una columna nuestra:
+        // una columna diría "lo subí" aunque ella lo haya borrado hace una hora. Cuando vacía la
+        // carpeta el viernes, los pedidos viejos pierden el ✓ — que es exactamente la verdad.
+        if (s.printNames) {
+          const hay = new Set(s.printNames);
+          document.querySelectorAll('.print-ok').forEach((e) => {
+            if (hay.has(e.dataset.name)) e.hidden = false;
+          });
+        }
+
+        const aviso = document.getElementById('printAviso');
+        if (s.printTrashed) {
+          aviso.textContent = '⚠️ La carpeta "Remitos para imprimir" está en la papelera de Drive. Restaurala desde Drive: mientras tanto, al local no le llega ningún remito nuevo.';
+          aviso.hidden = false;
+        } else if (s.printDupes) {
+          aviso.textContent = '⚠️ Hay más de una carpeta "Remitos para imprimir" en tu Drive. Los remitos van a la más vieja (la que compartiste). Escribinos y la ordenamos.';
+          aviso.hidden = false;
+        } else if (s.printError) {
+          // No es lo mismo "no pude mirar" que "no está". Sin este cartel, un problema de Drive
+          // apaga todos los ✓ y ella creería que ningún remito llegó a la carpeta.
+          aviso.textContent = '⚠️ No pudimos leer la carpeta de impresión ahora. Los tildes "en la carpeta" pueden faltar aunque los remitos estén. Recargá en un rato.';
+          aviso.hidden = false;
+        } else if (s.printTruncated) {
+          aviso.textContent = 'ℹ️ La carpeta de impresión tiene muchísimos archivos y no podemos verlos todos: puede faltar algún tilde. Conviene vaciar lo ya impreso.';
+          aviso.hidden = false;
+        }
       })
       .catch(() => {});
   </script>

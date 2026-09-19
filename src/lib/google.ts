@@ -15,6 +15,17 @@ import { env } from './supabase';
 export const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const ROOT_NAME = 'Remitos Teia';
 const SHEET_NAME = 'Teia — Pedidos (espejo)';
+
+// Carpeta PLANA que la administradora comparte con la encargada del local para que imprima.
+// El remito de cada pedido confirmado cae acá solo, además de ir al archivador por año/mes/comercio.
+//
+// ⚠️ Se encuentra SIEMPRE por la marca (teia_role='print'), nunca por el nombre: si la clienta la
+// renombra o la mueve, la app la sigue encontrando. Si en cambio se creara una carpeta NUEVA, la
+// que ella compartió quedaría huérfana y el local dejaría de ver remitos sin que nadie se entere.
+// Ese es el modo de falla más caro de esta función, y por eso `ensurePrintFolder` es determinista.
+const PRINT_NAME = 'Remitos para imprimir';
+const PRINT_ROLE = 'print';
+const PRINT_Q = `appProperties has { key='teia_role' and value='${PRINT_ROLE}' } and mimeType = 'application/vnd.google-apps.folder'`;
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 export function gConfigured(): boolean {
@@ -54,9 +65,26 @@ async function gFetch(url: string, init: RequestInit = {}): Promise<any> {
 const q = (s: string) => encodeURIComponent(s);
 const escQ = (s: string) => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
+// Búsqueda general. `driveFindOne` delega acá con los defaults de siempre (trashed=false,
+// pageSize=2, sin orden), así que el camino que hoy funciona no cambia una letra.
+// ⚠️ La URL se arma EXACTAMENTE como la armaba driveFindOne: `q` con encodeURIComponent (espacios
+// como %20) y `fields` sin codificar. Con URLSearchParams los espacios saldrían como '+' y los
+// paréntesis de `fields` percent-encodeados — otra petición, sobre el camino por el que pasan
+// todas las confirmaciones de pedidos. Esto no es un capricho de estilo: es no mover lo que anda.
+async function driveFind(
+  query: string,
+  opts: { trashed?: boolean; orderBy?: string; pageSize?: number } = {}
+): Promise<any[]> {
+  const filtro = `${query} and trashed = ${opts.trashed ? 'true' : 'false'}`;
+  const orden = opts.orderBy ? `&orderBy=${q(opts.orderBy)}` : '';
+  const o = await gFetch(
+    `https://www.googleapis.com/drive/v3/files?q=${q(filtro)}&fields=files(id,name,webViewLink)&pageSize=${opts.pageSize ?? 2}${orden}`
+  );
+  return o.files || [];
+}
+
 async function driveFindOne(query: string): Promise<any | null> {
-  const o = await gFetch(`https://www.googleapis.com/drive/v3/files?q=${q(query + ' and trashed = false')}&fields=files(id,name,webViewLink)&pageSize=2`);
-  return (o.files && o.files[0]) || null;
+  return (await driveFind(query))[0] || null;
 }
 
 async function driveCreateFolder(name: string, parentId?: string, appProp?: string): Promise<any> {
@@ -119,6 +147,131 @@ export async function driveUploadPdf(folderId: string, name: string, bytes: Uint
     method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body: body as any,
   });
   return o.id;
+}
+
+// ---- Carpeta "Remitos para imprimir" (la que la clienta comparte con el local) ----
+
+/**
+ * Nombre de archivo seguro para Drive. Existe aparte del `safeName` de ensureMonthClientPath
+ * porque este viaja a una carpeta PLANA donde conviven remitos de comercios distintos: acá el
+ * nombre es lo único que distingue un archivo de otro, así que tiene que ser estable.
+ * NFC porque los teclados de celular mandan acentos descompuestos: "Café" en NFD y en NFC son
+ * dos strings distintos, y buscarían dos archivos distintos.
+ */
+export function driveSafeName(s: string, max = 60): string {
+  const limpio = String(s ?? '')
+    .normalize('NFC')
+    .replace(/[\u0000-\u001F\u007F\u200B-\u200F\u2028\u2029\u202A-\u202E]/g, '')
+    // La comilla simple entra acá por una razón que no es de Drive: el panel escribe este mismo
+    // nombre en un atributo HTML pasándolo por `attrSafe`, que convierte < > " ' en espacio. Si el
+    // archivo real conservara el apóstrofo, el atributo y el archivo NUNCA coincidirían, y el ✓
+    // "en la carpeta" no se encendería jamás para un comercio como "Café Rivas' S.R.L.".
+    // Se saca en el ORIGEN para que las dos representaciones no puedan divergir. El test lo fija.
+    .replace(/[\\/:*?"<>|']/g, '·')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // El recorte va por PUNTOS DE CÓDIGO, no por unidades UTF-16: `slice` puede partir un emoji al
+  // medio y dejar media pareja suelta, que es un carácter inválido en el nombre de un archivo.
+  const recortado = Array.from(limpio).slice(0, max).join('');
+  return recortado.replace(/^[.\s]+|[.\s]+$/g, '') || 'Sin nombre';
+}
+
+/**
+ * El nombre del remito dentro de la carpeta de impresión. FUENTE ÚNICA: la usan el archivador,
+ * el endpoint del botón, el borrado de pedidos y el panel. Si dos de esos armaran el string por
+ * su cuenta, una subida y su borrado (o su ✓) apuntarían a archivos distintos.
+ * Lleva el comercio en el nombre porque la carpeta es plana: sin eso, "TEIA-0028" no le dice a
+ * la encargada de quién es el pedido hasta abrirlo.
+ */
+export function printFileName(order: any): string {
+  const num = order.order_number || '#' + order.id;
+  const cuando = new Date(order.confirmed_at || order.created_at || NaN);
+  // Fecha inválida → marca estable, NUNCA la de hoy: un nombre que cambia según cuándo se lo
+  // calcula rompe el borrado y el ✓ del panel, que dependen de que dé siempre lo mismo.
+  const fecha = isNaN(cuando.getTime())
+    ? 'sin-fecha'
+    : new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric' })
+        .format(cuando).replace(/\//g, '-');
+  return `${driveSafeName(num, 20)} - ${fecha} - ${driveSafeName(order.client_name)}.pdf`;
+}
+
+/**
+ * La carpeta de impresión, por MARCA. Determinista a propósito:
+ *  · si hay varias marcadas (carrera de dos confirmaciones simultáneas), gana SIEMPRE la más
+ *    vieja — que es la que la clienta compartió con el local.
+ *  · si la marca solo aparece en la papelera, LANZA en vez de crear otra. Crear una segunda
+ *    dejaría a la encargada mirando para siempre la carpeta compartida, que ya no recibe nada.
+ *    Y restaurarla automáticamente tampoco: restaurar la carpeta restaura a sus hijos, o sea que
+ *    resucitaría los remitos que la clienta acaba de imprimir y borrar.
+ */
+export async function ensurePrintFolder(): Promise<{ id: string; url: string }> {
+  const link = (f: any) => f.webViewLink || `https://drive.google.com/drive/folders/${f.id}`;
+
+  const vivas = await driveFind(PRINT_Q, { orderBy: 'createdTime', pageSize: 10 });
+  if (vivas.length) {
+    if (vivas.length > 1) {
+      console.warn(`[teia] hay ${vivas.length} carpetas de impresión marcadas; se usa la más vieja (${vivas[0].id}).`);
+    }
+    return { id: vivas[0].id, url: link(vivas[0]) };
+  }
+
+  const enPapelera = await driveFind(PRINT_Q, { trashed: true, pageSize: 1 });
+  if (enPapelera.length) {
+    throw new Error('La carpeta "Remitos para imprimir" está en la papelera de Drive. Restaurala desde Drive — si creo otra, la que compartiste con el local queda vacía para siempre.');
+  }
+
+  const root = await ensureRoot();
+  const nueva = await driveCreateFolder(PRINT_NAME, root.id, PRINT_ROLE);
+  return { id: nueva.id, url: link(nueva) };
+}
+
+/**
+ * Promise.race contra un reloj, con el timer limpiado siempre (si no, en serverless el proceso se
+ * queda vivo esperando un setTimeout que ya no le importa a nadie).
+ *
+ * ⚠️ REGLA: toda llamada a Drive que esté en el camino de una escritura a la base va envuelta acá.
+ * `gFetch` usa `fetch` pelado, sin señal de aborto: con los valores por defecto de undici, una
+ * respuesta que no llega se come los 30 s de la lambda entera. Un fallo de Google se atrapa con un
+ * try/catch; un CUELGUE de Google, no — y ahí es donde una operación queda por la mitad.
+ */
+export function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  let t: any;
+  const reloj = new Promise<never>((_, rej) => {
+    t = setTimeout(() => rej(new Error(`Google no contestó en ${ms} ms`)), ms);
+  });
+  return Promise.race([p, reloj]).finally(() => clearTimeout(t)) as Promise<T>;
+}
+
+/**
+ * Cuánto le queda a la función de sus 30 s (maxDuration en astro.config), menos una reserva para
+ * contestar. Para darle a un paso de Google TODO el tiempo que sobra y no un tope fijo: con topes
+ * fijos (12 + 12 s en el confirm) un espejo lento pero sano se cortaba a los 12 s aunque sobraran 15,
+ * y withDeadline deja de esperar pero no cancela (verificación del 19/9).
+ */
+export function tiempoRestante(inicio: number, reserva = 3000): number {
+  return Math.max(2000, 30000 - reserva - (Date.now() - inicio));
+}
+
+/** Sube (o pisa) un remito en la carpeta de impresión. Lanza: el que llama decide qué hacer. */
+export async function uploadPrintCopy(name: string, bytes: Uint8Array): Promise<string> {
+  const { id } = await ensurePrintFolder();
+  return driveUploadPdf(id, name, bytes);
+}
+
+/**
+ * Manda a la papelera la copia de impresión de un pedido. Para cuando el pedido deja de existir:
+ * que el local imprima un remito de algo borrado es peor que no imprimir nada.
+ * A diferencia de la subida, NO crea la carpeta si no existe — borrar no es motivo para crear.
+ */
+export async function trashPrintCopy(name: string): Promise<boolean> {
+  const carpetas = await driveFind(PRINT_Q, { orderBy: 'createdTime', pageSize: 10 });
+  if (!carpetas.length) return false;
+  const archivo = await driveFindOne(`name = '${escQ(name)}' and '${carpetas[0].id}' in parents`);
+  if (!archivo) return false;
+  await gFetch(`https://www.googleapis.com/drive/v3/files/${archivo.id}?fields=id`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }),
+  });
+  return true;
 }
 
 // ---- Sheets: planilla espejo auto-provisionada (marcada teia_role=sheet) ----
@@ -242,7 +395,7 @@ async function writeTab(sheetId: string, tab: string, rows: any[][]): Promise<vo
 }
 
 // ---- el espejo: REBUILD completo desde la base (refleja también ediciones y borrados) ----
-import { sbSelectStrict } from './supabase';
+import { sbSelectTodoStrict } from './supabase';
 
 const fmtDia = (s?: string) => {
   if (!s) return '';
@@ -267,13 +420,22 @@ const semanaDe = (s?: string): { k: string; label: string } => {
 };
 
 export async function mirrorToSheet(): Promise<{ url: string }> {
-  const [orders, items, products, clients] = await Promise.all([
-    sbSelectStrict(`teia_orders?select=*&order=created_at.desc&limit=2000`),
-    sbSelectStrict(`teia_order_items?select=*&order=order_id.desc&limit=8000`),
-    sbSelectStrict(`teia_products?select=*&order=category.asc,name.asc`),
-    sbSelectStrict(`teia_clients?select=*&order=business_name.asc`),
+  // TODAS las filas, de a páginas por rangos de id: Supabase corta cada respuesta en 1000 filas sin
+  // avisar, y con `limit=8000` el Sheet perdía en silencio los pedidos viejos (ver sbSelectTodoStrict).
+  // Vienen ordenadas por id; el orden de cada pestaña se arma acá.
+  const [ordersPorId, itemsPorId, productsPorId, clientsPorId] = await Promise.all([
+    sbSelectTodoStrict<any>('teia_orders'),
+    sbSelectTodoStrict<any>('teia_order_items'),
+    sbSelectTodoStrict<any>('teia_products'),
+    sbSelectTodoStrict<any>('teia_clients'),
   ]);
-  if (!orders || !items || !products || !clients) throw new Error('No se pudo leer la base para el espejo.');
+  if (!ordersPorId || !itemsPorId || !productsPorId || !clientsPorId) throw new Error('No se pudo leer la base para el espejo.');
+  const texto = (v: unknown) => String(v ?? '');
+  const orders = [...ordersPorId].sort((a, b) => texto(b.created_at).localeCompare(texto(a.created_at)) || Number(b.id) - Number(a.id));
+  const items = [...itemsPorId].sort((a, b) => Number(b.order_id) - Number(a.order_id) || Number(a.id) - Number(b.id));
+  const products = [...productsPorId].sort((a, b) =>
+    texto(a.category).localeCompare(texto(b.category), 'es') || texto(a.name).localeCompare(texto(b.name), 'es') || Number(a.id) - Number(b.id));
+  const clients = [...clientsPorId].sort((a, b) => texto(a.business_name).localeCompare(texto(b.business_name), 'es') || Number(a.id) - Number(b.id));
 
   const { id: sheetId, url, created } = await ensureSpreadsheet();
   const TITLES = ['Pedidos', 'Ítems', 'Productos', 'Clientes', 'Resumen'];
@@ -285,12 +447,13 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
   const numOf = (o: any) => o.order_number || `#${o.id}`;
 
   await writeTab(sheetId, 'Pedidos', [
-    ['Número', 'Fecha', 'Estado', 'Cliente', 'CUIT', 'Contacto', 'Dirección', 'Entrega', 'Desc %', 'Total', 'Notas', 'Remito'],
+    // "Cargado por" va AL FINAL (columna M): el link al remito se escribe aparte en L2:L y no se puede correr.
+    ['Número', 'Fecha', 'Estado', 'Cliente', 'CUIT', 'Contacto', 'Dirección', 'Entrega', 'Desc %', 'Total', 'Notas', 'Remito', 'Cargado por'],
     ...(orders as any[]).map((o) => {
       const cli = (clients as any[]).find((c) => c.id === o.client_id);
       return [numOf(o), fmtDia(o.created_at), o.status, o.client_name, cli ? cli.cuit : '', o.client_contact,
         o.delivery_address, o.delivery_date || 'a coordinar', Number(o.discount_pct) || 0, Number(o.total) || 0,
-        o.notes || '', ''];
+        o.notes || '', '', o.placed_by === 'teia' ? 'Teia' : ''];
     }),
   ]);
 
@@ -370,6 +533,18 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
     [...porCliente.entries()].sort((a, b) => b[1].t - a[1].t).map(([c, v]) => [c, v.n, v.t]));
   section('POR PRODUCTO', ['Producto', 'Unidades', 'Total'],
     [...porProducto.entries()].sort((a, b) => b[1].t - a[1].t).map(([p, v]) => [p, v.u, v.t]));
+  // Los pedidos que armó la administradora (tarea 3): ya están sumados en todo lo de arriba; esto
+  // dice cuántos de esos los cargó ella. Solo si hay alguno.
+  const porMesTeia = new Map<string, { n: number; t: number }>();
+  for (const o of conf) {
+    if (o.placed_by !== 'teia') continue;
+    const m = mesDe(o.confirmed_at || o.created_at);
+    porMesTeia.set(m, { n: (porMesTeia.get(m)?.n || 0) + 1, t: (porMesTeia.get(m)?.t || 0) + (Number(o.total) || 0) });
+  }
+  if (porMesTeia.size) {
+    section('CARGADOS POR TEIA (ya incluidos arriba)', ['Mes', 'Pedidos', 'Total'],
+      [...porMesTeia.entries()].sort().map(([m, v]) => [m, v.n, v.t]));
+  }
   await writeTab(sheetId, 'Resumen', resumen);
 
   // ---- diseño (idempotente: reset + re-aplicación en cada rebuild) ----
@@ -379,7 +554,7 @@ export async function mirrorToSheet(): Promise<{ url: string }> {
   const nClients = (clients as any[]).length + 1;
   // Los anchos SOLO en la creación inicial (created): después son de la clienta y no se pisan.
   const fmt: any[] = [
-    ...tabFormat(tabOf('Pedidos'), nOrders, 12, [9], { 6: 200, 10: 240, 11: 110 }, created),
+    ...tabFormat(tabOf('Pedidos'), nOrders, 13, [9], { 6: 200, 10: 240, 11: 110 }, created),
     ...tabFormat(tabOf('Ítems'), nItems, 7, [5, 6], {}, created),
     ...tabFormat(tabOf('Productos'), nProds, 6, [3], {}, created),
     ...tabFormat(tabOf('Clientes'), nClients, 7, [], { 3: 200, 6: 220 }, created),
@@ -400,16 +575,61 @@ export async function tryMirror(): Promise<void> {
 }
 
 // Links para los botones del panel (si todo existe ya, no crea nada).
-export async function googleStatus(): Promise<{ connected: boolean; sheetUrl?: string; driveUrl?: string }> {
+export async function googleStatus(): Promise<{
+  connected: boolean; sheetUrl?: string; driveUrl?: string;
+  printUrl?: string; printCount?: number; printNames?: string[];
+  printTrashed?: boolean; printDupes?: boolean; printError?: boolean; printTruncated?: boolean;
+}> {
   if (!gConfigured()) return { connected: false };
   try {
     const sheet = await driveFindOne(`appProperties has { key='teia_role' and value='sheet' }`);
     const root = await driveFindOne(`appProperties has { key='teia_role' and value='root' } and mimeType = 'application/vnd.google-apps.folder'`);
-    return {
+    const base = {
       connected: true,
       sheetUrl: sheet ? `https://docs.google.com/spreadsheets/d/${sheet.id}` : undefined,
       driveUrl: root ? `https://drive.google.com/drive/folders/${root.id}` : undefined,
     };
+
+    // La carpeta de impresión va en su PROPIO try. Es información de apoyo: si la lectura falla,
+    // los links a Drive y a la planilla —que ella usa todos los días— tienen que seguir saliendo.
+    // El catch de afuera devuelve { connected: false } y le escondería los tres botones.
+    //
+    // Los NOMBRES de lo que hay adentro son lo que le deja al panel poner el ✓ "en la carpeta"
+    // pedido por pedido. La verdad de si un remito está para imprimir vive en la carpeta, no en
+    // nuestra base: una columna diría "lo subí" aunque la clienta lo haya borrado hace una hora.
+    try {
+      const vivas = await driveFind(PRINT_Q, { orderBy: 'createdTime', pageSize: 10 });
+      if (vivas.length) {
+        const carpeta = vivas[0];
+        // 1000 es el máximo que acepta Drive por página. No se pagina: a su volumen (ella vacía la
+        // carpeta cada semana) llegar a mil archivos sería años. Pero si alguna vez pasa, el
+        // listado quedaría corto y los ✓ dejarían de salir sin motivo aparente — por eso, si
+        // vuelve la página llena, se avisa en vez de mentir en silencio.
+        const TOPE = 1000;
+        const dentro = await driveFind(`'${carpeta.id}' in parents`, { pageSize: TOPE });
+        return {
+          ...base,
+          printUrl: carpeta.webViewLink || `https://drive.google.com/drive/folders/${carpeta.id}`,
+          printCount: dentro.length,
+          printNames: dentro.map((f: any) => f.name),
+          ...(vivas.length > 1 ? { printDupes: true } : {}),
+          ...(dentro.length >= TOPE ? { printTruncated: true } : {}),
+        };
+      }
+      // Sin carpeta viva: puede ser que todavía no exista (normal antes del primer pedido) o que
+      // la hayan mandado a la papelera (hay que avisarle, porque el local dejó de recibir).
+      const enPapelera = await driveFind(PRINT_Q, { trashed: true, pageSize: 1 });
+      if (enPapelera.length) return { ...base, printTrashed: true };
+    } catch (e: any) {
+      console.warn('[teia] no se pudo leer la carpeta de impresión:', (e && e.message) || e);
+      // ⚠️ "No pude leer la carpeta" NO puede verse igual que "no hay nada en la carpeta".
+      // Sin esta marca, un fallo de lectura apaga todos los ✓ del panel y la regla que se le
+      // enseñó a Mica —"los pedidos de hoy tienen que tener el ✓"— la haría reenviar a mano
+      // remitos que ya estaban. Es el mismo error de [] vs null que ya costó caro en este repo.
+      return { ...base, printError: true };
+    }
+
+    return base;
   } catch {
     return { connected: false };
   }

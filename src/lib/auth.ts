@@ -16,8 +16,11 @@ import { env } from './supabase';
 import { secret, isSecureRequest } from './session';
 
 export const ADMIN_COOKIE = 'teia_admin';
-// 30 días, y se renueva en cada visita al panel. Mica entra todos los días: que no le pida la
-// clave cada vez. Si alguna vez hay que cerrar todas las sesiones, se rota TEIA_SESSION_SECRET.
+// 30 días desde que entró, y NO se renueva: solo la emite /api/admin/entrar (antes este comentario
+// decía que se renovaba en cada visita, y no era así). Así que una vez por mes el panel le vuelve a
+// pedir la clave, en cualquier pantalla: todo lo que escriba el panel tiene que tratar el 401 como
+// "se cerró la sesión, no se guardó nada", no como un error cualquiera. Si alguna vez hay que cerrar
+// todas las sesiones, se rota TEIA_SESSION_SECRET.
 export const ADMIN_MAX_AGE = 60 * 60 * 24 * 30;
 
 function firmar(payload: string): string {
@@ -99,6 +102,15 @@ function leerCookie(request: Request, nombre: string): string | undefined {
     if (k === nombre) return v.join('=');
   }
   return undefined;
+}
+
+/**
+ * ¿Quien llama es el PANEL abierto en un navegador? Solo la cookie de sesión, sin Basic Auth.
+ * Para lo que ningún script necesita hacer —armar pedidos a nombre de un comercio—: Basic Auth no
+ * tiene límite de intentos, y armar es la única escritura que no le avisa a nadie (ni push ni mail).
+ */
+export function esSesionDelPanel(request: Request): boolean {
+  return readAdminSession(leerCookie(request, ADMIN_COOKIE));
 }
 
 /** ¿Quien llama tiene acceso al panel? Cookie propia, o Basic (curl/cron). */

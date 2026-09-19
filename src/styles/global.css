@@ -467,13 +467,29 @@ input[type="checkbox"] { width: auto; }
 .ordcard__cli { font-size: 13px; margin-top: 3px; }
 .ordcard__total { font-family: var(--font-display); font-weight: 600; font-size: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ordcard__items { list-style: none; margin: 12px 0; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
-.oi-row { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 12px; align-items: center; font-size: 14px; }
-.oi-name { font-weight: 600; }
+.oi-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 12px; align-items: center; font-size: 14px; }
+.oi-name { font-weight: 600; overflow-wrap: anywhere; } /* en un celular angosto el nombre se parte antes de que el importe se salga de la tarjeta */
 .oi-qty { color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .oi-line { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .qty-edit { display: none; width: 62px; padding: 4px 6px; text-align: center; }
 .ordcard.editing .qty-edit { display: inline-block; }
 .ordcard.editing .qty-view { display: none; }
+/* "＋ Agregar producto": solo en modo edición, porque viaja con el Guardar del pedido. */
+.ordcard__add { display: none; }
+.ordcard.editing .ordcard__add { display: block; margin: -2px 0 14px; }
+.ordcard__add-fila { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ordcard__add-fila .add-prod { flex: 1 1 240px; min-width: 0; margin: 0; }
+.ordcard__add-fila .add-qty { width: 62px; margin: 0; text-align: center; }
+.ordcard__add-fila .add-btn { padding: 9px 14px; font-size: 14px; }
+.ordcard__add-nota { font-size: 13px; margin: 0; }
+/* Avisos de datos que no cuadran: van en rojo porque terminan en un remito con plata. */
+.oi-error { color: var(--bad); font-size: 13px; font-weight: 600; }
+.ordcard__descuadre { margin: -4px 0 12px; font-size: 13px; font-weight: 600; color: var(--bad); }
+.qty-add { width: 62px; padding: 4px 6px; text-align: center; }
+.oi-nueva { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; vertical-align: 1px; background: color-mix(in srgb, var(--good) 16%, transparent); color: #2b6e46; }
+/* 28px de alto como mínimo: con 20px se erraba con el dedo en el celular. */
+.oi-quitar { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; margin-right: 2px; padding: 0 7px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-2); font: inherit; font-size: 13px; line-height: 1; cursor: pointer; vertical-align: middle; }
+.oi-quitar:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
 .ordcard__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .ordcard__actions .btn { padding: 9px 14px; font-size: 14px; }
 
@@ -496,8 +512,11 @@ input[type="checkbox"] { width: auto; }
 .ordcard.editing .edit-ord, .ordcard.editing .confirm, .ordcard.editing .del-ord { display: none; }
 .badge--ok { background: color-mix(in srgb, var(--good) 16%, transparent); color: #2b6e46; }
 .badge--wait { background: color-mix(in srgb, var(--warn) 18%, transparent); color: #8a6318; }
+/* Un borrado a mitad de camino (el stock ya se repuso): gris, no el ámbar de "pendiente". */
+.badge--anulado { background: color-mix(in srgb, var(--ink-2) 16%, transparent); color: var(--ink-2); }
 .ordcard__edit { display: none; margin-top: 10px; }
 .ordcard.editing .ordcard__edit { display: block; }
+.ordcard__edit textarea { resize: vertical; min-height: 46px; line-height: 1.35; }
 .ordcard.editing .ordcard__view { display: none; }
 .prod-actions { display: flex; gap: 6px; white-space: nowrap; }
 .prod-actions .btn { padding: 6px 12px; font-size: 13px; }
@@ -656,6 +675,9 @@ html.lenis, html.lenis body { height: auto; }
 .ordcard__extra label { display: block; margin: 0; }
 .ordcard__extra label span { display: block; font-size: 11.5px; color: var(--ink-2); margin-bottom: 3px; }
 .ordcard__extra input { width: 100%; padding: 7px 9px; font-size: 14px; }
+/* Un monto que no se entiende ("8 mil"): se marca antes de que toque Confirmar. */
+.ordcard__extra input[aria-invalid="true"] { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad) inset; }
+.monto-error { display: block; margin-top: 3px; font-size: 11.5px; line-height: 1.3; color: var(--bad); }
 .ordcard__final { text-align: right; white-space: nowrap; }
 .ordcard__final span { display: block; font-size: 11.5px; color: var(--ink-2); }
 .ordcard__final b { font-family: var(--font-display); font-size: 19px; color: var(--accent); font-variant-numeric: tabular-nums; }
@@ -715,3 +737,87 @@ tr.is-recien { background: var(--accent-soft); outline: 2px solid var(--accent);
 /* Interruptor de dónde se muestra cada entrada de Información. */
 .if-check { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
 .if-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); flex: 0 0 auto; }
+
+/* ---- Armar un pedido a nombre de un comercio (/administradora/armar, tarea 3) ----
+   Pensado para el celular primero: ella arma mirando el WhatsApp del comercio. Filas de dos
+   renglones, botones de 44 px, el campo de cantidad a 16 px (con menos, iOS hace zoom al tocarlo),
+   buscador fijo arriba y una barra fija abajo con el total. */
+.armar { padding-bottom: 110px; }
+.armar__volver { display: inline-block; margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+.armar__head .muted { margin: 0 0 12px; font-size: 13.5px; }
+.armar__h2 { font-size: 1.1rem; margin: 0 0 10px; }
+.armar__estado p { margin: 6px 0 14px; }
+.armar__aviso { margin: 0 0 12px; padding: 10px 13px; font-size: 13.5px; line-height: 1.5; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
+.armar__aviso p { margin: 0 0 4px; }
+.armar__aviso p:last-child { margin-bottom: 0; }
+.armar__aviso--ojo { background: #FBF0E8; border-color: #EBD2C1; color: #6E3B21; }
+.armar__aviso--ojo .btn { margin-top: 6px; }
+.armar__aviso-botones { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.armar__ultimos { margin-bottom: 14px; }
+.armar__ultimos ul { list-style: none; margin: 0; padding: 0; }
+.armar__ultimos li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+.armar__ultimos li:first-child { border-top: 0; }
+.armar__ultimos li.is-actual { color: var(--accent-2); }
+.armar__buscar { position: sticky; top: 0; z-index: 20; padding: 8px 0; background: var(--bg); }
+.armar__buscar input { font-size: 16px; }
+.arm-rubro { margin: 6px 0 14px; }
+.arm-rubro__t { font-size: 13.5px; color: var(--accent-2); margin: 10px 0 6px; padding-bottom: 4px; border-bottom: 2px solid var(--accent); }
+.arm-fila { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; margin-bottom: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
+.arm-fila.is-elegida { border-color: var(--accent); background: var(--accent-soft); }
+.arm-fila.is-cambio .arm-precio { color: var(--bad); font-weight: 700; }
+.arm-fila.is-quitada { opacity: .55; }
+.arm-fila__info { display: flex; flex-direction: column; min-width: 0; }
+.arm-fila__nombre { font-weight: 600; font-size: 14.5px; overflow-wrap: anywhere; }
+.arm-fila__datos { font-size: 12.5px; color: var(--ink-2); }
+.arm-stock.is-sin { color: var(--bad); font-weight: 600; }
+.arm-fila__nopide { font-size: 12px; text-align: right; }
+.arm-stepper { display: flex; align-items: center; gap: 4px; flex: none; }
+.arm-stepper button, .arm-elegido__ctl button { width: 44px; height: 44px; border-radius: var(--r-full); border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink); font-size: 20px; font-weight: 700; cursor: pointer; line-height: 1; }
+.arm-stepper button:disabled { opacity: .4; cursor: default; }
+.arm-qty { width: 56px; padding: 8px 4px; text-align: center; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.armar__revision { margin-top: 18px; scroll-margin-top: 12px; }
+.arm-elegidos { list-style: none; margin: 0 0 10px; padding: 0; }
+.arm-elegido { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.arm-elegido:first-child { border-top: 0; }
+.arm-elegido__ctl { display: inline-flex; align-items: center; gap: 6px; }
+.arm-elegido__ctl button { width: 36px; height: 36px; font-size: 17px; }
+.arm-elegido__ctl b { min-width: 28px; text-align: center; font-variant-numeric: tabular-nums; }
+.arm-elegido__sub { min-width: 84px; text-align: right; font-variant-numeric: tabular-nums; }
+.armar__totales { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+.arm-desc-l { margin: 0; }
+.arm-desc-l select { margin-top: 4px; width: auto; min-width: 150px; }
+.arm-total { margin: 0; font-size: 15px; }
+.arm-total b { font-family: var(--font-display); font-size: 21px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.arm-envio { font-size: 12.5px; margin: 6px 0 0; }
+.armar__revision input, .armar__revision textarea { font-size: 16px; }
+.arm-pista { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-2); }
+.arm-pista .btn { margin-left: 6px; }
+.arm-fecha-fila { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.arm-fecha-fila .arm-fecha { flex: 1 1 170px; width: auto; }
+.arm-msg { margin: 14px 0 4px; font-size: 14px; }
+.arm-msg[data-tipo='error'] { color: var(--bad); font-weight: 600; }
+.armar .arm-entrar { margin: 6px 0; }
+.armar .arm-crear { margin-top: 12px; }
+.armar__nota { font-size: 12.5px; margin: 10px 0 0; }
+.arm-barra { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--line-2); box-shadow: var(--sh-lg); }
+.arm-barra__txt { font-weight: 700; font-variant-numeric: tabular-nums; }
+.arm-barra .btn { padding: 10px 16px; }
+@media (min-width: 900px) {
+  .arm-barra { left: 50%; right: auto; transform: translateX(-50%); width: min(var(--maxw), 100%); border: 1px solid var(--line-2); border-bottom: 0; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+}
+/* Tarjeta de pedido: la marca de los pedidos que armó ella, y el aviso del recién creado. */
+.badge--teia { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent-2); margin-left: 6px; }
+.ordcard.is-recien { outline: 2px solid var(--accent); outline-offset: 2px; }
+.armado-ok { margin: 0 0 12px; padding: 10px 13px; font-size: 13.5px; background: #EDF6EE; color: #2F6B3A; border: 1px solid #CFE6D3; border-radius: var(--r-md); }
+.armar-atajo { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin: 0 0 14px; }
+.armar-atajo label { margin: 0; flex: 1 1 220px; }
+.armar-atajo select { margin-top: 4px; }
+/* En modo edición la tarjeta muestra solo Guardar y Cancelar: "Repetir" se esconde como las otras acciones. */
+.ordcard.editing .rep-ord { display: none; }
+/* Los selects heredan el 13px del <label> que los envuelve: con menos de 16 px, iOS hace zoom al
+   tocarlos y deja la pantalla corrida. */
+.arm-desc-l select, .armar-atajo select { font-size: 16px; }
+/* Botones chicos de esta pantalla: se tocan con el pulgar, en la calle. */
+.armar .btn--mini, .arm-elegido__ctl button { min-height: 40px; }
+.arm-msg:empty { margin: 0; }
+.arm-sin-resultados { margin-top: 10px; }

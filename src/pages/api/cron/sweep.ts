@@ -18,7 +18,10 @@ const json = (o: any, s = 200) =>
 // — la operación es idempotente (mismo path de PDF → sobreescribe) y está capada por corrida.
 // La admin autenticada también puede dispararlo a mano.
 
-const MAX_PER_RUN = 5; // maxDuration=30s y cada archivado son 2 PDFs + 2 uploads
+// maxDuration=30s y cada archivado es 1 PDF y ~9 idas y vueltas a Drive (buscar/crear año, mes y
+// comercio, subir, más la copia para imprimir). El comentario viejo decía "2 PDFs + 2 uploads",
+// que quedó de cuando se generaba también la hoja interna.
+const MAX_PER_RUN = 5;
 
 // FAIL-CLOSED: sin CRON_SECRET no entra nadie. Antes devolvía true y el endpoint quedaba
 // abierto — cualquiera podía dispararlo en loop y quemar cuota de Google/Supabase/Vercel.

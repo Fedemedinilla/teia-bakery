@@ -1,0 +1,652 @@
+---
+export const prerender = false;
+// ARMAR UN PEDIDO a nombre de un comercio (tarea 3, 19/9). Pedido de la clienta: "tengo un cliente
+// que me hace el mismo pedido todos los viernes... poder armar un pedido que no sea con mi CUIT".
+//
+// Vive DENTRO de /administradora a propósito: es el alcance de la app instalada del panel. En el
+// iPhone, una página fuera de ese alcance (el catálogo del comercio) se abre fuera de la app, con
+// otras cookies, y le pide la clave. Por eso NO se entra al catálogo "como el comercio": ni sesión
+// del comercio, ni su carrito (que es uno solo por navegador), ni sus avisos.
+//
+// La página solo LEE. El pedido se crea en /api/admin/armar, que vuelve a leer la cuenta, la lista
+// y los precios de la base y compara con lo que esta pantalla mostró.
+//   ?c=<id de la cuenta>              → armar desde cero
+//   ?c=<id>&repetir=<id de un pedido> → precargado con ese pedido (productos y cantidades; precios de HOY)
+import Base from '../../layouts/Base.astro';
+import { esSesionDelPanel, redirigirAlIngreso } from '../../lib/auth';
+import { sbSelect, sbSelectStrict, supaConfigured } from '../../lib/supabase';
+import { catalogOf, catalogLabel, attrSafe } from '../../lib/catalogs';
+import { fmtCuit } from '../../lib/cuit';
+import { readSettingsStrict } from '../../lib/settings';
+import { umbralDelCliente } from '../../lib/envio';
+import { DESCUENTOS, lineasParaRepetir } from '../../lib/pedidos';
+import { DEMO_PRODUCTS, DEMO_CLIENTS, DEMO_ORDERS, DEMO_ORDER_ITEMS } from '../../lib/demo';
+
+// Solo la sesión del panel (cookie). Sin sesión, al ingreso, y de vuelta ACÁ después de entrar.
+if (!esSesionDelPanel(Astro.request)) return redirigirAlIngreso(Astro.url.pathname + Astro.url.search);
+// Muestra contacto, dirección y precios de un comercio en la compu compartida del local: que no
+// quede ninguna copia en caché (sobreviviría al Salir con el botón atrás).
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
+const fecha = (s: any) => {
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', weekday: 'short', day: 'numeric', month: 'numeric' }).format(d);
+};
+
+// Los parámetros van a la URL de PostgREST: solo dígitos. Un "5&or=(...)" armado a mano agregaría
+// filtros a la consulta.
+const pc = Astro.url.searchParams.get('c') || '';
+const pr = Astro.url.searchParams.get('repetir') || '';
+const cOk = /^\d{1,12}$/.test(pc);
+const rOk = pr === '' || /^\d{1,12}$/.test(pr);
+const demo = !supaConfigured();
+
+type Estado = 'ok' | 'parametros' | 'error' | 'noexiste' | 'baja';
+let estado: Estado = 'ok';
+let cuenta: any = null;
+let productos: any[] = [];
+let rubros: string[] = [];
+let ultimos: any[] | null = [];
+let pendientes: any[] | null = [];
+let copia: any = null;          // el pedido que se repite
+let copiaError = '';            // por qué no se pudo precargar
+let precarga: ReturnType<typeof lineasParaRepetir> | null = null;
+let umbral: number | null = null;
+
+if (!cOk || !rOk) {
+  estado = 'parametros';
+} else if (demo) {
+  cuenta = DEMO_CLIENTS.find((c: any) => String(c.id) === pc) || null;
+  if (!cuenta) estado = 'noexiste';
+  else {
+    productos = DEMO_PRODUCTS.filter((p: any) => p.active && p.catalog === catalogOf(cuenta.catalog));
+    ultimos = DEMO_ORDERS.filter((o: any) => String(o.client_id) === pc && o.status !== 'anulado');
+    pendientes = ultimos.filter((o: any) => o.status === 'pendiente');
+    umbral = 140000;
+    if (pr) {
+      copia = DEMO_ORDERS.find((o: any) => String(o.id) === pr) || null;
+      if (copia) copia = { ...copia, items: DEMO_ORDER_ITEMS.filter((i: any) => i.order_id === copia.id) };
+    }
+  }
+} else {
+  // select=* y ESTRICTA: null = no se pudo leer; `*` nunca falla por una columna que falta, y trae
+  // envio_min si existe (el envío sin cargo propio: Pilar 250.000).
+  const cs = await sbSelectStrict(`teia_clients?id=eq.${pc}&select=*`);
+  if (cs === null) estado = 'error';
+  else if (!(cs as any[]).length) estado = 'noexiste';
+  else {
+    cuenta = (cs as any[])[0];
+    if (cuenta.active === false) estado = 'baja';
+  }
+  if (estado === 'ok') {
+    const catalog = catalogOf(cuenta.catalog);
+    const [ps, cats, us, pends, ajustes] = await Promise.all([
+      sbSelectStrict(`teia_products?active=is.true&catalog=eq.${catalog}&select=id,name,category,pack_label,price,stock&order=sort_order.asc,name.asc`),
+      sbSelect('teia_categories?order=sort_order.asc,name.asc&select=*'),
+      sbSelectStrict(`teia_orders?client_id=eq.${pc}&status=neq.anulado&select=id,order_number,created_at,total,status,discount_pct&order=created_at.desc&limit=5`),
+      sbSelectStrict(`teia_orders?client_id=eq.${pc}&status=eq.pendiente&select=id,order_number,created_at,total&order=created_at.desc`),
+      readSettingsStrict(),
+    ]);
+    if (ps === null) estado = 'error';
+    else {
+      productos = ps as any[];
+      rubros = (cats as any[]).map((c: any) => String(c.name));
+      ultimos = us as any[] | null;
+      pendientes = pends as any[] | null;
+      // Sin los ajustes no se sabe el umbral: la página no afirma "llega" ni "no llega".
+      umbral = ajustes ? umbralDelCliente(ajustes, cuenta) : null;
+    }
+    if (estado === 'ok' && pr) {
+      const [os, its] = await Promise.all([
+        sbSelectStrict(`teia_orders?id=eq.${pr}&select=id,order_number,client_id,created_at,delivery_date,discount_pct,notes,client_contact,delivery_address,status`),
+        sbSelectStrict(`teia_order_items?order_id=eq.${pr}&select=product_id,name,qty,unit_price&order=id.asc`),
+      ]);
+      if (os === null || its === null) copiaError = 'No se pudo leer el pedido a copiar: armalo a mano o recargá la página.';
+      else if (!(os as any[]).length) copiaError = 'El pedido a copiar ya no existe.';
+      else if (String((os as any[])[0].client_id) !== pc) copiaError = 'Ese pedido es de otro comercio: no se copió.';
+      else copia = { ...(os as any[])[0], items: its as any[] };
+    }
+  }
+}
+
+if (estado === 'ok' && copia) {
+  const hoy = new Map<number, any>(productos.map((p: any) => [Number(p.id), { ...p, id: Number(p.id), price: Number(p.price), stock: Number(p.stock) }]));
+  precarga = lineasParaRepetir(copia.items || [], hoy);
+}
+const qtyInicial = new Map<number, number>((precarga?.lineas || []).map((l) => [l.product_id, l.qty]));
+
+// Rubros en el orden del catálogo; lo que no tiene rubro, al final.
+const grupos: { rubro: string; items: any[] }[] = [];
+for (const p of productos) {
+  const r = String(p.category || '').trim() || 'Otros';
+  let g = grupos.find((x) => x.rubro === r);
+  if (!g) grupos.push((g = { rubro: r, items: [] }));
+  g.items.push(p);
+}
+const pos = (r: string) => { const i = rubros.indexOf(r); return i < 0 ? 999 : i; };
+grupos.sort((a, b) => pos(a.rubro) - pos(b.rubro));
+
+// Contacto y dirección: los de la cuenta; si están vacíos (el alta no tiene dirección), los del
+// pedido que se copia. Las aclaraciones NO se precargan: salen en el remito y las de un pedido viejo
+// suelen ser de esa vez ("esta vez sin la caja grande"); se muestran para copiarlas si corresponde.
+const contactoInicial = String(cuenta?.client_contact || copia?.client_contact || '').trim();
+const direccionInicial = String(cuenta?.delivery_address || copia?.delivery_address || '').trim();
+const difiere = (a: any, b: any) => String(a || '').trim() && String(b || '').trim() && String(a).trim() !== String(b).trim();
+const pctInicial = copia && DESCUENTOS.includes(Number(copia.discount_pct)) ? Number(copia.discount_pct) : 0;
+// Para el botón "próximo viernes": el día de la semana en que se entregó el pedido que se copia.
+const diaSemana = copia?.delivery_date ? new Date(String(copia.delivery_date).slice(0, 10) + 'T12:00:00Z').getUTCDay() : '';
+const titulo = cuenta ? `Pedido para ${cuenta.business_name}` : 'Armar un pedido';
+---
+<Base title={`${titulo} — Teia Panel`} app="admin">
+  <main class="container admin-wrap armar" id="armar"
+        data-client-id={cuenta ? String(cuenta.id) : ''} data-catalog={cuenta ? catalogOf(cuenta.catalog) : ''}
+        data-umbral={umbral === null ? '' : String(umbral)} data-repetir={copia ? String(copia.id) : ''}
+        data-dia-semana={String(diaSemana)} data-demo={demo ? '1' : ''} data-nombre={attrSafe(cuenta?.business_name)}>
+    <a class="armar__volver" href="/administradora#clientes">← Volver al panel</a>
+
+    {estado !== 'ok' ? (
+      <section class="card armar__estado">
+        <h1 class="title">{titulo}</h1>
+        <p>{estado === 'parametros' ? 'Este link está incompleto: entrá desde Clientes → el comercio → 🛒 Armar pedido.'
+          : estado === 'error' ? 'No se pudieron leer los datos del comercio o sus productos. No se armó nada: recargá la página en un momento.'
+          : estado === 'noexiste' ? 'Esta cuenta ya no existe (se borró).'
+          : `${cuenta?.business_name} está dado de baja. Para armarle un pedido: Clientes → ${cuenta?.business_name} → Ver cuenta → Estado: Habilitado.`}</p>
+        <a class="btn btn--ghost" href="/administradora#clientes">Ir a Clientes</a>
+      </section>
+    ) : (
+      <Fragment>
+        <header class="armar__head">
+          <h1 class="title">{titulo}</h1>
+          <p class="muted">Lista {catalogLabel(cuenta.catalog)} · CUIT {fmtCuit(cuenta.cuit)}{demo ? ' · modo demo: no se guarda nada' : ''}</p>
+        </header>
+
+        {/* Lo que se recuperó de un armado a medio hacer (lo destapa el script). */}
+        <div class="armar__aviso armar__borrador" hidden>
+          <p class="armar__borrador-txt"></p>
+          <div class="armar__aviso-botones">
+            <button class="btn btn--mini arm-seguir" type="button">Seguir con ese</button>
+            <button class="btn btn--ghost btn--mini arm-descartar" type="button">Empezar de cero</button>
+          </div>
+        </div>
+
+        {pendientes === null ? (
+          <p class="armar__aviso">No se pudo revisar si ya tiene un pedido pendiente: mirá en Pedidos antes de crear otro.</p>
+        ) : pendientes.length ? (
+          <div class="armar__aviso armar__aviso--ojo">
+            <p><b>Ya tiene {pendientes.length === 1 ? 'un pedido pendiente' : `${pendientes.length} pedidos pendientes`}:</b>{' '}
+              {pendientes.map((o: any) => `${o.order_number || '#' + o.id} (${fecha(o.created_at)}, ${money(o.total)})`).join(' · ')}.
+              {' '}Si es el mismo pedido, sumale los productos desde su tarjeta en Pedidos en vez de crear otro.</p>
+            <a class="btn btn--ghost btn--mini" href="/administradora#pedidos">Ver en Pedidos</a>
+          </div>
+        ) : null}
+
+        {copiaError && <p class="armar__aviso armar__aviso--ojo">{copiaError}</p>}
+        {copia && precarga && (
+          <div class="armar__aviso">
+            <p><b>Copia de {copia.order_number || '#' + copia.id}{copia.created_at ? ` del ${fecha(copia.created_at)}` : ''}</b>, con los precios de hoy. Revisá cantidades y datos antes de crear.</p>
+            {precarga.omitidas.length > 0 && <p>No se copió: {precarga.omitidas.map((x) => `${x.name} (${x.motivo})`).join('; ')}.</p>}
+            {precarga.juntadas.length > 0 && <p>Estaba repetido y se juntó: {precarga.juntadas.map((x) => `${x.name} (${x.veces} líneas → ${x.qty})`).join('; ')}.</p>}
+            {precarga.topeadas.length > 0 && <p>Pasaba el máximo de 9999 y quedó en 9999: {precarga.topeadas.map((x) => x.name).join(', ')}.</p>}
+            {precarga.cambiosDePrecio.length > 0 && <p>Cambió el precio: {precarga.cambiosDePrecio.map((x) => `${x.name} ${money(x.antes)} → ${money(x.hoy)}`).join('; ')}.</p>}
+            {precarga.sinStock.length > 0 && <p>Hoy sin stock (se copiaron igual): {precarga.sinStock.map((x) => `${x.name} (${x.stock})`).join(', ')}.</p>}
+            {pctInicial > 0 && <p>Tenía −{pctInicial}% de descuento: ya está puesto abajo.</p>}
+          </div>
+        )}
+
+        {ultimos === null ? (
+          <p class="armar__aviso">No se pudieron leer sus últimos pedidos.</p>
+        ) : ultimos.length > 0 && (
+          <section class="card armar__ultimos">
+            <h2 class="armar__h2">Sus últimos pedidos</h2>
+            <ul>
+              {ultimos.map((o: any) => (
+                <li class={copia && String(copia.id) === String(o.id) ? 'is-actual' : ''}>
+                  <span><b>{o.order_number || '#' + o.id}</b> · {fecha(o.created_at)} · {money(o.total)}{Number(o.discount_pct) ? ` (−${o.discount_pct}%)` : ''} · {o.status}</span>
+                  {copia && String(copia.id) === String(o.id)
+                    ? <span class="muted">copiado abajo</span>
+                    : <a class="btn btn--ghost btn--mini" href={`/administradora/armar?c=${cuenta.id}&repetir=${o.id}`}>↻ Copiar</a>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <div class="armar__buscar">
+          <input class="arm-buscar" type="search" placeholder="Buscar producto…" aria-label="Buscar producto" autocomplete="off" />
+        </div>
+
+        {productos.length === 0 && <p class="card muted">Su lista ({catalogLabel(cuenta.catalog)}) no tiene productos visibles.</p>}
+        <p class="armar__aviso arm-sin-resultados" hidden></p>
+        <section class="armar__lista">
+          {grupos.map((g) => (
+            <div class="arm-rubro">
+              <h3 class="arm-rubro__t">{g.rubro}</h3>
+              {g.items.map((p: any) => (
+                <div class="arm-fila" data-id={String(p.id)} data-price={String(Number(p.price) || 0)} data-nombre={attrSafe(p.name)}
+                     data-pack={attrSafe(p.pack_label)} data-sin-precio={Number(p.price) > 0 ? '' : '1'}>
+                  <div class="arm-fila__info">
+                    <span class="arm-fila__nombre">{p.name}{p.pack_label ? <small class="muted"> {p.pack_label}</small> : null}</span>
+                    <span class="arm-fila__datos">
+                      <span class="arm-precio">{Number(p.price) > 0 ? money(p.price) : 'sin precio'}</span>
+                      {' · '}
+                      <span class={Number(p.stock) > 0 ? 'arm-stock' : 'arm-stock is-sin'}>{Number(p.stock) > 0 ? `stock ${p.stock}` : `sin stock (${Number(p.stock) || 0})`}</span>
+                    </span>
+                  </div>
+                  {Number(p.price) > 0 ? (
+                    <div class="arm-stepper">
+                      <button class="arm-menos" type="button" aria-label={`Uno menos de ${p.name}`}>−</button>
+                      <input class="arm-qty" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
+                             value={String(qtyInicial.get(Number(p.id)) || 0)} aria-label={`Cantidad de ${p.name}`} />
+                      <button class="arm-mas" type="button" aria-label={`Uno más de ${p.name}`}>+</button>
+                    </div>
+                  ) : (
+                    <span class="muted arm-fila__nopide">No se puede pedir hasta que tenga precio</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </section>
+
+        <section class="card armar__revision" id="revision">
+          <h2 class="armar__h2">Revisar y crear</h2>
+          <p class="arm-vacio muted">Todavía no pusiste cantidades.</p>
+          <ul class="arm-elegidos"></ul>
+          <template class="arm-elegido-tpl">
+            <li class="arm-elegido">
+              <span class="arm-elegido__nombre"></span>
+              <span class="arm-elegido__ctl">
+                <button class="arm-e-menos" type="button">−</button>
+                <b class="arm-e-qty"></b>
+                <button class="arm-e-mas" type="button">+</button>
+              </span>
+              <span class="arm-elegido__sub"></span>
+            </li>
+          </template>
+
+          <div class="armar__totales">
+            <label class="arm-desc-l">Descuento
+              <select class="arm-desc">
+                {DESCUENTOS.map((d) => <option value={String(d)} selected={d === pctInicial}>{d ? `−${d}%` : 'Sin descuento'}</option>)}
+              </select>
+            </label>
+            <p class="arm-total">Total: <b class="arm-total-n">$0</b></p>
+          </div>
+          <p class="arm-envio muted"></p>
+
+          <label for="arm-contacto">Contacto para la entrega (WhatsApp o mail)</label>
+          <input id="arm-contacto" class="arm-contacto" autocomplete="off" value={attrSafe(contactoInicial)} />
+          {copia && difiere(copia.client_contact, cuenta.client_contact) && (
+            <p class="arm-pista">En {copia.order_number || 'ese pedido'} decía: {copia.client_contact}
+              <button class="btn btn--ghost btn--mini arm-usar" type="button" data-para=".arm-contacto" data-valor={attrSafe(copia.client_contact)}>Usar este</button></p>
+          )}
+          <label for="arm-direccion">Dirección de entrega</label>
+          <input id="arm-direccion" class="arm-direccion" autocomplete="off" value={attrSafe(direccionInicial)} />
+          {copia && difiere(copia.delivery_address, cuenta.delivery_address) && (
+            <p class="arm-pista">En {copia.order_number || 'ese pedido'} decía: {copia.delivery_address}
+              <button class="btn btn--ghost btn--mini arm-usar" type="button" data-para=".arm-direccion" data-valor={attrSafe(copia.delivery_address)}>Usar esta</button></p>
+          )}
+          <label for="arm-fecha">Día de entrega (si no lo ponés: "a coordinar")</label>
+          <div class="arm-fecha-fila">
+            <input id="arm-fecha" class="arm-fecha" type="date" />
+            <button class="btn btn--ghost btn--mini arm-dia" type="button" data-dia="hoy">Hoy</button>
+            <button class="btn btn--ghost btn--mini arm-dia" type="button" data-dia="manana">Mañana</button>
+            <button class="btn btn--ghost btn--mini arm-dia" type="button" data-dia="semana" hidden></button>
+          </div>
+          <label for="arm-notas">Aclaraciones (salen en el remito que recibe el comercio)</label>
+          <textarea id="arm-notas" class="arm-notas" rows="2" maxlength="500"></textarea>
+          {copia && String(copia.notes || '').trim() && (
+            <p class="arm-pista">En {copia.order_number || 'ese pedido'} decía: “{copia.notes}”
+              <button class="btn btn--ghost btn--mini arm-usar" type="button" data-para=".arm-notas" data-valor={attrSafe(copia.notes)}>Copiar</button></p>
+          )}
+
+          {/* Siempre en el DOM (vacío, no `hidden`): una región viva que aparece recién cuando hay
+              error puede no llegar a anunciarse en el lector de pantalla. */}
+          <p class="arm-msg" role="status" aria-live="assertive"></p>
+          <a class="btn btn--ghost arm-entrar" hidden href={`/administradora/ingresar?volver=${encodeURIComponent(Astro.url.pathname + Astro.url.search)}`}>Entrar de nuevo</a>
+          <a class="btn btn--ghost arm-ver-pedidos" hidden href="/administradora#pedidos">Ver en Pedidos</a>
+          <button class="btn btn--block arm-crear" type="button">Crear pedido</button>
+          <p class="muted armar__nota">Queda <b>pendiente</b>, como los que hacen los comercios, y marcado “cargado por Teia”. Cuando lo prepares, lo confirmás desde Pedidos: ahí se descuenta el stock y el remito va a la carpeta de impresión. No te llega aviso de este pedido.</p>
+        </section>
+
+        <div class="arm-barra" hidden>
+          <span class="arm-barra__txt"></span>
+          <button class="btn arm-ir" type="button">Revisar ↓</button>
+        </div>
+      </Fragment>
+    )}
+  </main>
+</Base>
+
+<script>
+  import { totalConDescuento } from '../../lib/pedidos';
+
+  const raiz = document.getElementById('armar');
+  const crear = raiz && raiz.querySelector('.arm-crear');
+  if (raiz && crear) {
+    const clientId = Number(raiz.dataset.clientId);
+    const catalog = raiz.dataset.catalog || '';
+    const umbral = raiz.dataset.umbral === '' ? null : Number(raiz.dataset.umbral);
+    const repetir = raiz.dataset.repetir || '';
+    const nombre = raiz.dataset.nombre || '';
+    const money = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
+    const $ = (s) => raiz.querySelector(s);
+    const filas = [...raiz.querySelectorAll('.arm-fila')].filter((f) => f.querySelector('.arm-qty'));
+    const filaDe = (id) => filas.find((f) => f.dataset.id === String(id));
+    const qtyDe = (f) => {
+      const n = Number(String(f.querySelector('.arm-qty').value).trim());
+      return Number.isInteger(n) && n >= 0 ? Math.min(n, 9999) : 0;
+    };
+    const msg = $('.arm-msg');
+    const decir = (texto, tipo = '') => { msg.textContent = texto || ''; msg.dataset.tipo = tipo; };
+
+    // ── La clave de ESTE armado ──────────────────────────────────────────────────────────────
+    // Viaja con el pedido. Si llega dos veces (un reintento sin respuesta, el botón atrás, dos
+    // toques), la base devuelve el pedido de la primera en vez de crear otro.
+    const nuevaClave = () => {
+      try { if (crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
+      const b = new Uint8Array(16); crypto.getRandomValues(b);
+      return [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+    };
+    let armadoId = nuevaClave();
+
+    // ── Borrador: lo cargado no se pierde ────────────────────────────────────────────────────
+    // Ella arma mirando el WhatsApp del comercio y va y viene entre las dos apps; el celular puede
+    // recargar la página al volver, y también se corta la sesión del panel una vez por mes. Todo lo
+    // que escribe se guarda en ESTE aparato (por comercio) y se borra solo cuando el pedido se creó.
+    const CLAVE = 'teia:armar:' + clientId;
+    const leerBorrador = () => {
+      try { const b = JSON.parse(localStorage.getItem(CLAVE) || 'null'); return b && b.v === 1 && Date.now() - b.t < 24 * 3600e3 ? b : null; } catch (e) { return null; }
+    };
+    // Mientras el cartel pregunta "¿seguís con el anterior o con este?", NO se pisa el borrador viejo:
+    // antes, el primer toque lo sobreescribía y "Seguir con ese" ya no tenía nada que recuperar.
+    let eleccionPendiente = false;
+    // `enviado` = este armado ya se mandó una vez (puede haberse creado aunque no llegara la respuesta).
+    let enviado = false;
+    const guardarBorrador = () => {
+      if (eleccionPendiente) return;
+      const qty = {};
+      for (const f of filas) { const n = qtyDe(f); if (n) qty[f.dataset.id] = n; }
+      try {
+        localStorage.setItem(CLAVE, JSON.stringify({
+          v: 1, t: Date.now(), armadoId, repetir, qty, enviado, pct: $('.arm-desc').value,
+          contacto: $('.arm-contacto').value, direccion: $('.arm-direccion').value, fecha: $('.arm-fecha').value, notas: $('.arm-notas').value,
+        }));
+      } catch (e) {}
+    };
+    const borrarBorrador = () => { try { localStorage.removeItem(CLAVE); } catch (e) {} };
+    // Devuelve cuántos productos del borrador YA NO están en la página (la cuenta cambió de lista: los
+    // productos son otros). Sin esto, el cartel decía "recuperé lo que habías cargado" con todo en cero.
+    const aplicarBorrador = (b) => {
+      let perdidos = 0;
+      for (const id of Object.keys(b.qty || {})) if (!filaDe(id)) perdidos++;
+      for (const f of filas) f.querySelector('.arm-qty').value = String(b.qty[f.dataset.id] || 0);
+      if ([...$('.arm-desc').options].some((o) => o.value === b.pct)) $('.arm-desc').value = b.pct;
+      $('.arm-contacto').value = b.contacto || ''; $('.arm-direccion').value = b.direccion || '';
+      $('.arm-fecha').value = b.fecha || ''; $('.arm-notas').value = b.notas || '';
+      armadoId = b.armadoId || armadoId;
+      enviado = !!b.enviado;
+      return perdidos;
+    };
+
+    // ── Totales, revisión y barra ────────────────────────────────────────────────────────────
+    const tpl = $('.arm-elegido-tpl');
+    const recalcular = () => {
+      let sub = 0, n = 0;
+      const lista = $('.arm-elegidos');
+      // La lista de la revisión se rearma entera en cada cambio: sin esto, el botón ± que ella acaba de
+      // tocar deja de existir y el foco se va al body (con teclado no se puede tocar "+" dos veces).
+      const activo = document.activeElement;
+      const volverA = activo && activo.closest && activo.closest('.arm-elegido')
+        ? { id: activo.closest('.arm-elegido').dataset.pid, mas: activo.classList.contains('arm-e-mas') }
+        : null;
+      lista.replaceChildren();
+      for (const f of filas) {
+        const q = qtyDe(f);
+        f.classList.toggle('is-elegida', q > 0);
+        if (!q) continue;
+        n++;
+        const linea = Math.round(Number(f.dataset.price) * q * 100) / 100;
+        sub += linea;
+        const li = tpl.content.firstElementChild.cloneNode(true);
+        li.dataset.pid = f.dataset.id;
+        li.querySelector('.arm-elegido__nombre').textContent = f.dataset.nombre + (f.dataset.pack ? ' ' + f.dataset.pack : '');
+        li.querySelector('.arm-e-qty').textContent = String(q);
+        li.querySelector('.arm-elegido__sub').textContent = money(linea);
+        li.querySelector('.arm-e-menos').setAttribute('aria-label', 'Uno menos de ' + f.dataset.nombre);
+        li.querySelector('.arm-e-mas').setAttribute('aria-label', 'Uno más de ' + f.dataset.nombre);
+        li.querySelector('.arm-e-menos').addEventListener('click', () => cambiar(f, -1));
+        li.querySelector('.arm-e-mas').addEventListener('click', () => cambiar(f, +1));
+        lista.appendChild(li);
+      }
+      if (volverA) {
+        const li = lista.querySelector('.arm-elegido[data-pid="' + volverA.id + '"]');
+        const b = li && li.querySelector(volverA.mas ? '.arm-e-mas' : '.arm-e-menos');
+        if (b) b.focus();
+      }
+      const pct = Number($('.arm-desc').value) || 0;
+      const total = totalConDescuento(sub, pct);
+      $('.arm-total-n').textContent = money(total);
+      $('.arm-vacio').hidden = n > 0;
+      // Si el botón quedó en "Recargar", no vuelve a decir "Crear": lo que hace es recargar.
+      if (!crear.dataset.recargar && !crear.dataset.otro) crear.textContent = n ? 'Crear pedido · ' + money(total) : 'Crear pedido';
+      crear.dataset.total = String(total);
+      const envio = $('.arm-envio');
+      envio.textContent = !n ? '' : umbral === null ? 'No se pudieron leer los datos del envío: no sé si le corresponde envío sin cargo.'
+        : umbral === 0 ? 'Este comercio nunca paga envío: envío sin cargo'
+        : total >= umbral ? 'Llega a ' + money(umbral) + ': envío sin cargo' : 'No llega a ' + money(umbral) + ': se le cobra el envío';
+      const barra = $('.arm-barra');
+      barra.hidden = !n;
+      $('.arm-barra__txt').textContent = n + (n === 1 ? ' producto · ' : ' productos · ') + money(total);
+      return { total, n };
+    };
+    const cambiar = (f, d) => {
+      const i = f.querySelector('.arm-qty');
+      i.value = String(Math.max(0, Math.min(9999, qtyDe(f) + d)));
+      recalcular(); guardarBorrador();
+    };
+    for (const f of filas) {
+      f.querySelector('.arm-menos').addEventListener('click', () => cambiar(f, -1));
+      f.querySelector('.arm-mas').addEventListener('click', () => cambiar(f, +1));
+      const i = f.querySelector('.arm-qty');
+      i.addEventListener('focus', () => { if (i.value === '0') i.select(); });
+      i.addEventListener('input', () => { i.value = i.value.replace(/[^0-9]/g, '').slice(0, 4); recalcular(); guardarBorrador(); });
+      i.addEventListener('blur', () => { i.value = String(qtyDe(f)); });
+    }
+    for (const s of ['.arm-desc', '.arm-contacto', '.arm-direccion', '.arm-fecha', '.arm-notas']) {
+      $(s).addEventListener('input', () => { recalcular(); guardarBorrador(); });
+      $(s).addEventListener('change', () => { recalcular(); guardarBorrador(); });
+    }
+    raiz.querySelectorAll('.arm-usar').forEach((b) => b.addEventListener('click', () => {
+      $(b.dataset.para).value = b.dataset.valor || ''; guardarBorrador();
+    }));
+
+    // ── Buscar (sin importar acentos ni mayúsculas) ──────────────────────────────────────────
+    const plano = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    $('.arm-buscar').addEventListener('input', () => {
+      const escrito = $('.arm-buscar').value;
+      const q = plano(escrito).trim();
+      let total = 0;
+      raiz.querySelectorAll('.arm-rubro').forEach((r) => {
+        let alguna = false;
+        r.querySelectorAll('.arm-fila').forEach((f) => {
+          const si = !q || plano(f.dataset.nombre).includes(q);
+          f.hidden = !si; alguna = alguna || si;
+          if (si) total++;
+        });
+        r.hidden = !alguna;
+      });
+      const sin = $('.arm-sin-resultados');
+      sin.textContent = total ? '' : 'Ningún producto de su lista se llama así: “' + escrito.trim() + '”. Borrá la búsqueda para ver todos.';
+      sin.hidden = !!total;
+    });
+
+    // ── Día de entrega: atajos ────────────────────────────────────────────────────────────────
+    const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const dias = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+    const botonSemana = raiz.querySelector('.arm-dia[data-dia="semana"]');
+    const ds = raiz.dataset.diaSemana;
+    let proximo = null;
+    if (ds !== '' && ds !== undefined) {
+      proximo = new Date(); proximo.setHours(12, 0, 0, 0);
+      do { proximo.setDate(proximo.getDate() + 1); } while (proximo.getDay() !== Number(ds));
+      botonSemana.textContent = dias[proximo.getDay()] + ' ' + proximo.getDate() + '/' + (proximo.getMonth() + 1);
+      botonSemana.hidden = false;
+    }
+    raiz.querySelectorAll('.arm-dia').forEach((b) => b.addEventListener('click', () => {
+      const d = new Date(); d.setHours(12, 0, 0, 0);
+      if (b.dataset.dia === 'manana') d.setDate(d.getDate() + 1);
+      $('.arm-fecha').value = b.dataset.dia === 'semana' && proximo ? iso(proximo) : iso(d);
+      guardarBorrador();
+    }));
+
+    // ── Ir a la revisión (Lenis maneja el scroll: se le pide a él) ───────────────────────────
+    $('.arm-ir').addEventListener('click', () => {
+      const r = document.getElementById('revision');
+      // El buscador es fijo arriba: sin descontar su alto, el título "Revisar y crear" queda tapado.
+      const tapa = ($('.armar__buscar')?.offsetHeight || 0) + 12;
+      const lenis = window.__lenis;
+      if (lenis && typeof lenis.scrollTo === 'function') lenis.scrollTo(r, { offset: -tapa });
+      else r.scrollIntoView({ block: 'start' });
+    });
+
+    // ── Arranque: ¿hay un borrador? ──────────────────────────────────────────────────────────
+    const haceCuanto = (t) => {
+      const min = Math.max(1, Math.round((Date.now() - t) / 60000));
+      return min < 60 ? 'hace ' + min + ' min' : 'hace ' + Math.round(min / 60) + ' h';
+    };
+    const previo = leerBorrador();
+    if (previo) {
+      const hace = haceCuanto(previo.t);
+      if ((previo.repetir || '') === repetir) {
+        // El mismo armado (se recargó la página, volvió de WhatsApp, entró de nuevo): se recupera solo.
+        const perdidos = aplicarBorrador(previo);
+        $('.armar__borrador-txt').textContent = (previo.enviado
+          ? 'Este pedido ya se mandó una vez (' + hace + ') y puede estar creado. Tocá Crear: si ya estaba, te lo digo y no se duplica.'
+          : 'Recuperé lo que habías cargado ' + hace + '.')
+          + (perdidos ? ' Ojo: ' + perdidos + (perdidos === 1 ? ' producto que tenías cargado ya no está' : ' productos que tenías cargados ya no están') + ' en su lista.' : '');
+        $('.arm-seguir').hidden = true;
+        $('.armar__borrador').hidden = false;
+      } else {
+        // Otro armado para el mismo comercio (por ejemplo, tocó "Copiar" en otro pedido): que elija, y
+        // hasta que elija no se toca lo que tenía guardado.
+        eleccionPendiente = true;
+        $('.armar__borrador-txt').textContent = 'Tenés otro pedido a medio armar para ' + nombre + ' (' + hace + ')'
+          + (previo.enviado ? ', que ya se mandó una vez' : '') + '. ¿Seguís con ese o con este?';
+        $('.arm-descartar').textContent = 'Seguir con este';
+        $('.armar__borrador').hidden = false;
+      }
+    }
+    const cerrarEleccion = () => { eleccionPendiente = false; $('.armar__borrador').hidden = true; };
+    $('.arm-seguir').addEventListener('click', () => {
+      const b = leerBorrador();
+      cerrarEleccion();
+      if (b) aplicarBorrador(b);
+      recalcular(); guardarBorrador();
+    });
+    $('.arm-descartar').addEventListener('click', () => {
+      // Con la elección pendiente, "Seguir con este" descarta el anterior. Sin elección, es "Empezar de
+      // cero": se avisa, porque borra lo cargado.
+      if (!eleccionPendiente && !confirm('¿Descartar lo que tenías cargado y empezar de cero?')) return;
+      const volvia = eleccionPendiente;
+      cerrarEleccion();
+      borrarBorrador();
+      if (volvia) { armadoId = nuevaClave(); enviado = false; guardarBorrador(); return; }
+      // De cero = lo que trajo la página (vacío, o la copia del pedido), con una clave nueva.
+      location.reload();
+    });
+    recalcular();
+
+    // ── Crear ────────────────────────────────────────────────────────────────────────────────
+    let enVuelo = false;
+    crear.addEventListener('click', async () => {
+      if (enVuelo) return;
+      if (crear.dataset.recargar) { location.reload(); return; }
+      // Quedó claro que ese armado ya se había creado con otro contenido: esto es OTRO pedido.
+      if (crear.dataset.otro) {
+        armadoId = nuevaClave(); enviado = false;
+        delete crear.dataset.otro;
+        $('.arm-ver-pedidos').hidden = true;
+        decir('');
+      }
+      if (eleccionPendiente) cerrarEleccion(); // tocó Crear sin elegir: sigue con lo que tiene a la vista
+      const { total, n } = recalcular();
+      if (!n) { decir('Poné la cantidad de al menos un producto.', 'error'); return; }
+      if (!$('.arm-contacto').value.trim()) { decir('Falta el contacto para la entrega.', 'error'); $('.arm-contacto').focus(); return; }
+      if (!$('.arm-direccion').value.trim()) { decir('Falta la dirección de entrega.', 'error'); $('.arm-direccion').focus(); return; }
+      if (raiz.dataset.demo) { decir('Modo demo: el pedido no se guarda.', ''); return; }
+      // Se marca ANTES de mandarlo: si la respuesta no llega y la página se recarga, el cartel dice que
+      // este armado ya se mandó (y puede estar creado), en vez de "recuperé lo que habías cargado".
+      enviado = true;
+      guardarBorrador();
+      const items = filas.filter((f) => qtyDe(f) > 0).map((f) => ({ product_id: Number(f.dataset.id), qty: qtyDe(f), precio: Number(f.dataset.price) }));
+      enVuelo = true; crear.disabled = true; crear.textContent = 'Creando…'; decir('');
+      $('.arm-entrar').hidden = true;
+      let r = null, o = {};
+      try {
+        r = await fetch('/api/admin/armar', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            panel: 2, armado_id: armadoId, client_id: clientId, catalog_visto: catalog,
+            discount_pct: Number($('.arm-desc').value) || 0, total_visto: total, items,
+            client_contact: $('.arm-contacto').value, delivery_address: $('.arm-direccion').value,
+            delivery_date: $('.arm-fecha').value, notes: $('.arm-notas').value,
+          }),
+        });
+        o = (await r.json().catch(() => null)) || {};
+      } catch (e) { r = null; }
+      enVuelo = false; crear.disabled = false;
+
+      if (r && r.ok && o.ok) {
+        borrarBorrador();
+        try { sessionStorage.setItem('teia:pedidoArmado', JSON.stringify({ id: Number(o.id) || 0, num: String(o.order_number || ''), para: nombre, repetido: !!o.repetido, estado: String(o.status || '') })); } catch (e) {}
+        // replace: que el botón atrás no vuelva a este formulario lleno.
+        location.replace('/administradora#pedidos');
+        return;
+      }
+      if (!r || !o.error || o.incierto) {
+        // No se sabe si entró. Reintentar con la MISMA clave es seguro: si ya se creó, no se duplica.
+        decir(o.error || 'No sé si se creó el pedido (se cortó la conexión o el servidor tardó demasiado). Tocá Reintentar: si ya se había creado, no se duplica.', 'error');
+        crear.textContent = 'Reintentar';
+        return;
+      }
+      if (r.status === 401 || o.sesion) {
+        decir(o.error || 'Se cerró la sesión del panel. No se creó nada: lo que cargaste quedó guardado en este aparato.', 'error');
+        $('.arm-entrar').hidden = false;
+        crear.textContent = 'Crear pedido · ' + money(total);
+        return;
+      }
+      // Ese armado ya se había creado, pero con otras cantidades: lo de ahora NO se guardó. Ella decide
+      // si va a corregir el pedido que existe o si esto es un pedido aparte.
+      if (o.otro_armado) {
+        decir(o.error, 'error');
+        $('.arm-ver-pedidos').hidden = false;
+        crear.dataset.otro = '1';
+        crear.textContent = 'Crear como otro pedido';
+        return;
+      }
+      // Precios de hoy y productos que ya no se pueden pedir: se actualiza la pantalla EN EL LUGAR,
+      // sin perder lo cargado, y ella revisa antes de volver a tocar Crear.
+      if (o.precios || o.quitar) {
+        for (const [id, precio] of Object.entries(o.precios || {})) {
+          const f = filaDe(id); if (!f) continue;
+          if (Number(f.dataset.price) !== Number(precio)) f.classList.add('is-cambio');
+          f.dataset.price = String(precio);
+          f.querySelector('.arm-precio').textContent = money(precio);
+        }
+        for (const id of o.quitar || []) {
+          const f = filaDe(id); if (!f) continue;
+          f.querySelector('.arm-qty').value = '0';
+          f.querySelector('.arm-qty').disabled = true;
+          f.querySelector('.arm-menos').disabled = true; f.querySelector('.arm-mas').disabled = true;
+          f.classList.add('is-quitada');
+        }
+        recalcular(); guardarBorrador();
+      }
+      decir(o.error, 'error');
+      if (o.recargar) { crear.textContent = 'Recargar'; crear.dataset.recargar = '1'; return; }
+      recalcular();
+    });
+  }
+</script>

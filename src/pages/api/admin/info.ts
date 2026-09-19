@@ -49,10 +49,10 @@ export const POST: APIRoute = async ({ request }) => {
     const id = Number(b.id);
     if (!Number.isInteger(id) || id <= 0) return json({ error: 'id inválido.' }, 400);
     const ok = await sbPatch(`teia_info?id=eq.${id}`, fila);
-    return ok ? json({ ok: true }) : json({ error: 'No se pudo guardar. Si es la primera vez, puede faltar la tabla teia_info: corré supabase/schema.sql.' }, 500);
+    return ok ? json({ ok: true }) : json({ error: 'No se pudo guardar. Probá de nuevo en un momento; si sigue, avisá a soporte (puede faltar una actualización de la base).' }, 500);
   }
 
   if (!('sort_order' in fila)) fila.sort_order = 0;
   const creada = await sbInsert('teia_info', fila);
-  return creada ? json({ ok: true }) : json({ error: 'No se pudo guardar. Si es la primera vez, puede faltar la tabla teia_info: corré supabase/schema.sql.' }, 500);
+  return creada ? json({ ok: true }) : json({ error: 'No se pudo guardar. Probá de nuevo en un momento; si sigue, avisá a soporte (puede faltar una actualización de la base).' }, 500);
 };

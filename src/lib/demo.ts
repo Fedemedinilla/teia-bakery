@@ -44,9 +44,9 @@ export const DEMO_ORDERS = [
 
 // Ítems de los pedidos demo (para que las tarjetas muestren "qué se pidió").
 export const DEMO_ORDER_ITEMS = [
-  { id: 1, order_id: 101, name: 'Cheesecake de frutos rojos', pack_label: 'x6',  qty: 2, unit_price: 28800, line_total: 57600 },
-  { id: 2, order_id: 101, name: 'Medialunas de manteca',      pack_label: 'x12', qty: 3, unit_price: 9600,  line_total: 28800 },
-  { id: 3, order_id: 100, name: 'Brownie premium',            pack_label: 'x12', qty: 1, unit_price: 21600, line_total: 21600 },
-  { id: 4, order_id: 100, name: 'Alfajores de maicena',       pack_label: 'x12', qty: 2, unit_price: 14400, line_total: 28800 },
+  { id: 1, order_id: 101, product_id: 1, name: 'Cheesecake de frutos rojos', pack_label: 'x6',  qty: 2, unit_price: 28800, line_total: 57600 },
+  { id: 2, order_id: 101, product_id: 7, name: 'Medialunas de manteca',      pack_label: 'x12', qty: 3, unit_price: 9600,  line_total: 28800 },
+  { id: 3, order_id: 100, product_id: 5, name: 'Brownie premium',            pack_label: 'x12', qty: 1, unit_price: 21600, line_total: 21600 },
+  { id: 4, order_id: 100, product_id: 6, name: 'Alfajores de maicena',       pack_label: 'x12', qty: 2, unit_price: 14400, line_total: 28800 },
 ];
 

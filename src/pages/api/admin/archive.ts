@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { isTeiaAdmin } from '../../../lib/auth';
 import { sbSelectStrict, sbPatch, sbUpload, env, supaConfigured } from '../../../lib/supabase';
 import { buildRemito } from '../../../lib/remito';
-import { gConfigured, ensureMonthClientPath, driveUploadPdf, tryMirror } from '../../../lib/google';
+import { gConfigured, ensureMonthClientPath, driveUploadPdf, tryMirror, printFileName, uploadPrintCopy, withDeadline } from '../../../lib/google';
 
 const json = (o: any, s = 200) =>
   new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
@@ -86,6 +86,34 @@ export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: s
       remito_cliente_url: remitoPath, // el PATH del objeto, no una URL pública
       remito_interno_url: null, // ya no se genera hoja interna (ya escrito arriba)
     });
+
+    // Copia PLANA a "Remitos para imprimir": de ahí imprime la encargada del local, sin que la
+    // administradora tenga que descargar cada PDF y mandárselo por mail.
+    //
+    // VA ÚLTIMA y es BEST EFFORT, y las dos cosas importan:
+    //  · Última, porque el estado del pedido ya quedó durable en el PATCH de arriba. Si esto
+    //    fuera antes, una lambda que se muere acá dejaría archive_status en null con el remito
+    //    perfecto y subido.
+    //  · Best effort, porque marcar 'error' le esconde ✓ Remito, 📄 Abrir y 📤 Compartir en el
+    //    panel: un problema de la carpeta de impresión le taparía el remito que sí tiene. El
+    //    compensador es el botón "Mandar a imprimir", que hace exactamente esto a pedido.
+    const imprimible = order.status === 'confirmado' || order.status === 'entregado';
+    // Solo lo reciente. Sin este tope, la primera corrida del barrido nocturno sobre pedidos
+    // viejos con archivado fallido le volcaría meses de remitos en la carpeta recién compartida,
+    // justo el día que la encargada la abre por primera vez. NaN → false → no se copia.
+    const reciente = Date.now() - new Date(order.confirmed_at || order.created_at || NaN).getTime() < 48 * 3600 * 1000;
+    if (gConfigured() && imprimible && reciente) {
+      try {
+        // 5 s, no 8: la confirmación tiene 30 s en total y el archivado ya se lleva la mayor parte
+        // (una decena de idas y vueltas a Drive), y después todavía corre el espejo del Sheet. Si
+        // esto se estirara demasiado, el confirm entero se cortaría por timeout — el pedido queda
+        // igual confirmado y archivado, pero Mica ve un error donde no lo hay.
+        await withDeadline(uploadPrintCopy(printFileName(order), bytesCliente), 5000);
+      } catch (e: any) {
+        console.warn('[teia] la copia para imprimir falló', id, '→', (e && e.message) || e);
+      }
+    }
+
     return { ok: true, cliente: remitoPath };
   } catch (e: any) {
     const msg = ((e && e.message) || 'Error desconocido').slice(0, 300);

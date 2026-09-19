@@ -10,8 +10,7 @@ import { readSession, clearSessionCookie, setSessionCookie } from '../lib/sessio
 import { isTeiaAdmin, redirigirAlIngreso } from '../lib/auth';
 import { catalogOf, catalogLabel, DEFAULT_CATALOG, attrSafe } from '../lib/catalogs';
 import { DEMO_PRODUCTS, DEMO_CLIENTS } from '../lib/demo';
-import { readSettings } from '../lib/settings';
-import { umbralDe } from '../lib/envio';
+import { umbralDeSesion } from '../lib/envio';
 
 const configured = supaConfigured();
 
@@ -69,11 +68,13 @@ const rawRows = configured
 if (rawRows === null) return respuestaNoDisponible();
 const raw = rawRows;
 
-// Umbral de ENVÍO SIN CARGO de la lista de este comercio. Ya NO es un pedido mínimo: no bloquea
-// nada, solo dice a partir de cuánto el envío va sin costo. Sale de teia_settings (lo edita Mica
-// desde el panel) y cae a los valores por defecto si esa tabla todavía no existe.
-const ajustes = await readSettings();
-const UMBRAL_ENVIO = umbralDe(ajustes, catalog);
+// Umbral de ENVÍO SIN CARGO de este comercio. Ya NO es un pedido mínimo: no bloquea nada, solo
+// dice a partir de cuánto el envío va sin costo. Es el propio del comercio si tiene uno (hoy:
+// Chungo Pilar) y si no el de su lista (teia_settings, lo edita Mica desde el panel).
+// ⚠️ NO sumar `envio_min` a la consulta ESTRICTA de la cuenta de más arriba: ver umbralDeSesion,
+// que lo lee aparte para que una columna faltante no deje a nadie sin catálogo (trampa de julio).
+// scripts/test-envio.ts falla si alguna consulta estricta sobre teia_clients nombra esa columna.
+const UMBRAL_ENVIO = await umbralDeSesion(sessionId, catalog);
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 const slug = (s: string) =>
   String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -130,7 +131,10 @@ const sections = [...groups.keys()]
   <div class="shop">
     <main class="catalog">
       <h1 class="title">Nuestro catálogo</h1>
-      <p class="subtitle">Tocá “Agregar” para sumar al pedido. Mirá cada producto tocando la foto.</p>
+      {/* En la vista previa se avisa ARRIBA, antes de que arme nada: desde acá no se envía (ver el script). */}
+      <p class="subtitle">{isAdminPreview
+        ? '👁 Vista previa: así ven esta lista los comercios. Lo que sumes acá no se guarda ni se envía. Para armarle un pedido a un comercio: en el panel, Clientes → el comercio → 🛒 Armar pedido.'
+        : 'Tocá “Agregar” para sumar al pedido. Mirá cada producto tocando la foto.'}</p>
 
       <InstalarApp app="cliente" />
 
@@ -189,7 +193,10 @@ const sections = [...groups.keys()]
             <p class="meter__t" id="meterT"></p>
           </div>
           <div class="order__total" id="orderTotalRow" hidden><span>Total</span><b id="orderTotal">$0</b></div>
-          <a class="btn btn--block" id="confirmBtn" href="/pedido" aria-disabled="true">Confirmar pedido</a>
+          {/* Vista previa: sin botón para enviar. Antes se podía armar el carrito acá y tocar Confirmar,
+              y si en ese navegador había una sesión de comercio (la cuenta de prueba de Mica), el pedido
+              salía a nombre de ESA cuenta (probable origen de TEIA-0023). */}
+          <a class="btn btn--block" id="confirmBtn" href={isAdminPreview ? '#' : '/pedido'} aria-disabled="true" hidden={isAdminPreview}>Confirmar pedido</a>
         </div>
       </aside>
 
@@ -227,7 +234,7 @@ const sections = [...groups.keys()]
 
   <!-- El mínimo viaja por atributo (no por define:vars) para que NO haga falta ningún script
        inline: así la CSP puede ser estricta (script-src 'self', sin 'unsafe-inline'). -->
-  <div id="shopCfg" data-umbral-envio={String(UMBRAL_ENVIO)} hidden></div>
+  <div id="shopCfg" data-umbral-envio={String(UMBRAL_ENVIO)} data-preview={isAdminPreview ? '1' : ''} hidden></div>
 
   <script>
     // ⚠️ Number.isFinite y NO `|| 140000`. Un umbral de 0 es válido (significa "envío sin cargo
@@ -236,6 +243,9 @@ const sections = [...groups.keys()]
     const umbralCrudo = Number(document.getElementById('shopCfg')?.dataset.umbralEnvio);
     const UMBRAL_ENVIO = Number.isFinite(umbralCrudo) && umbralCrudo >= 0 ? umbralCrudo : 140000;
     const KEY = 'teia_cart';
+    // Vista previa del panel (?ver=): el carrito vive SOLO en memoria. Si escribiera 'teia_cart', ese
+    // carrito aparecería después en /pedido con cualquier sesión de comercio abierta en el navegador.
+    const PREVIEW = document.getElementById('shopCfg')?.dataset.preview === '1';
     const fmt = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
     const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
     const sameId = (a, b) => String(a) === String(b);
@@ -243,8 +253,8 @@ const sections = [...groups.keys()]
     let cart = load();
     let modalId = null;
 
-    function load() { try { const raw = JSON.parse(localStorage.getItem(KEY)); return Array.isArray(raw) ? raw : []; } catch { return []; } }
-    function persist() { try { localStorage.setItem(KEY, JSON.stringify(cart)); } catch {} }
+    function load() { if (PREVIEW) return []; try { const raw = JSON.parse(localStorage.getItem(KEY)); return Array.isArray(raw) ? raw : []; } catch { return []; } }
+    function persist() { if (PREVIEW) return; try { localStorage.setItem(KEY, JSON.stringify(cart)); } catch {} }
     function find(id) { return cart.find((x) => sameId(x.id, id)); }
     function total() { return cart.reduce((s, i) => s + i.price * i.qty, 0); }
     function count() { return cart.reduce((s, i) => s + i.qty, 0); }
@@ -334,7 +344,7 @@ const sections = [...groups.keys()]
       // ⚠️ La condición de la barra NO puede tocar el botón. Cuando eran la misma condición, un
       // umbral en 0 (válido: "envío sin cargo siempre") caía al else y BLOQUEABA el botón de
       // confirmar para toda esa lista — justo lo que este cambio vino a eliminar.
-      confirmBtn.setAttribute('aria-disabled', c > 0 ? 'false' : 'true');
+      confirmBtn.setAttribute('aria-disabled', c > 0 && !PREVIEW ? 'false' : 'true');
       if (c > 0 && UMBRAL_ENVIO > 0) {
         meter.hidden = false;
         const llega = t >= UMBRAL_ENVIO;

@@ -24,27 +24,9 @@ const NEGOCIO_CEL = 'Cel: 11-7623-9937';
 
 const money = (n: any) => '$' + Number(n || 0).toLocaleString('es-AR');
 
-/**
- * Normaliza un monto que escribió la administradora para guardarlo.
- * Devuelve `null` si dejó el campo vacío (= no cargado → el remito no dibuja nada), o
- * `undefined` si lo que escribió no es un número, para que el que llama lo rechace.
- * Acepta "12.500", "$12.500" y "-3000" (el saldo puede ser a favor del comercio).
- */
-export function montoEscrito(v: any): number | null | undefined {
-  const s = String(v ?? '').trim();
-  if (!s) return null;
-  const limpio = s.replace(/[^0-9,.-]/g, '').replace(/\./g, '').replace(',', '.');
-  // ⚠️ SIN ESTE CHEQUEO, "ocho mil" se guardaba como CERO.
-  // Al sacar las letras no queda ningún dígito, y `Number('')` es 0 — no NaN. O sea que un
-  // monto escrito con palabras entraba como "cero pesos de envío" en silencio, y el remito
-  // salía con un total que no era el que ella quería cobrar.
-  // Es la cuarta vez en este proyecto que el cero de JavaScript muerde: también pasó con
-  // TEIA_MIN_ORDER=0, con el umbral de envío en 0 y con el número del globo.
-  if (!/[0-9]/.test(limpio)) return undefined;
-  const n = Number(limpio);
-  if (!Number.isFinite(n) || Math.abs(n) > 99_999_999) return undefined;
-  return Math.round(n * 100) / 100;
-}
+// El lector de montos vive en lib/montos.ts (sin dependencias: lo usa también el script del
+// panel). Se re-exporta acá para no cambiar a quien ya lo importaba de este archivo.
+export { montoEscrito } from './montos';
 
 /** Monto opcional. null = NO CARGADO (ese renglón no se dibuja).
  *  Hace falta explícito porque `Number(null) || 0` da 0 y borraría la diferencia entre

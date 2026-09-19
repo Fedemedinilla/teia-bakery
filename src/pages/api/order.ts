@@ -112,7 +112,11 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   const notas = clean(body?.notes, 500);
   const created = await sbInsert<any>('teia_orders', {
     client_id: clientId, client_name, client_contact, delivery_address,
-    delivery_date: body?.delivery_date || null,
+    // El día de entrega lo decide Teia, no el comercio: el checkout no tiene ese campo desde el 1/7
+    // ("Teia te confirma el día por WhatsApp"). Antes se grababa lo que viniera en el cuerpo, sin
+    // validar: un comercio podía fijarse el día que sale en el remito, y una fecha inválida tiraba el
+    // pedido con un 500 (tarea 3, 19/9). La pone ella: desde la tarjeta o al armar el pedido.
+    delivery_date: null,
     notes: notas,
     status: 'pendiente', version: 1, total, discount_pct: 0,
   });

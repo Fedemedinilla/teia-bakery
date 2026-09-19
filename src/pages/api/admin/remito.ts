@@ -1,7 +1,7 @@
 export const prerender = false;
 import type { APIRoute } from 'astro';
 import { isTeiaAdmin, redirigirAlIngreso } from '../../../lib/auth';
-import { sbSelectStrict, sbSignedUrl, supaConfigured } from '../../../lib/supabase';
+import { sbSelectStrict, sbSignedUrl, storagePath, supaConfigured } from '../../../lib/supabase';
 
 // Sirve el remito de un pedido con una URL FIRMADA temporal. El bucket `teia-remitos` es
 // privado: sin este proxy no hay forma de leer un remito. Gated por la clave del panel, así
@@ -21,10 +21,9 @@ export const GET: APIRoute = async ({ request, url }) => {
   const stored = (rows as any[])[0]?.remito_cliente_url;
   if (!stored) return new Response('Este pedido no tiene remito.', { status: 404 });
 
-  // `stored` es el path del objeto. Compat con remitos viejos que guardaron la URL pública
-  // completa: si trae el prefijo del bucket, se recorta al path. Sale de la base, no del cliente.
-  const marker = '/teia-remitos/';
-  const path = stored.includes(marker) ? stored.slice(stored.indexOf(marker) + marker.length).split('?')[0] : stored;
+  // `stored` es el path del objeto (compat con remitos viejos que guardaron la URL pública
+  // completa). Sale de la base, no del cliente. La misma función la usa /api/admin/print.
+  const path = storagePath(stored);
 
   const signed = await sbSignedUrl('teia-remitos', path, 120); // 2 min: alcanza para abrir/descargar
   if (!signed) return new Response('No se pudo generar el enlace del remito.', { status: 502 });

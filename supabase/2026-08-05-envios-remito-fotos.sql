@@ -28,9 +28,14 @@ alter table teia_settings enable row level security;
 -- cambios que ella haya hecho desde el panel.
 -- OJO: require_code arranca en 'false' a propósito. Correr este SQL NO obliga a nadie a usar
 -- contraseña; eso se enciende aparte, desde el panel, cuando todas las cuentas tengan una.
+-- ⚠️ envio_min_chungo decía '250000' y fue un error nuestro (18/9): la lista Chungo es 140000 y
+-- el 250000 es SOLO de Chungo Pilar (va en su ficha, ver 2026-09-18-envio-por-comercio.sql). Se
+-- corrige acá también porque este archivo siembra la fila si todavía no existe: en una base armada
+-- con un schema.sql de antes de agosto (sin teia_settings), este `insert` es el que la crea, y
+-- con 250000 toda la lista Chungo volvía al error.
 insert into teia_settings (key, value) values
   ('envio_min_general', '140000'),
-  ('envio_min_chungo',  '250000'),
+  ('envio_min_chungo',  '140000'),
   ('require_code',      'false')
 on conflict (key) do nothing;
 

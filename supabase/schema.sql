@@ -76,6 +76,13 @@ alter table teia_products add column if not exists catalog text not null default
 -- Código de acceso (2º factor). Se puede correr AHORA: mientras `TEIA_REQUIRE_CODE` no esté
 -- en 'true', la columna queda ahí sin usarse y la entrada sigue siendo solo con CUIT.
 alter table teia_clients  add column if not exists access_code text;
+-- Envío sin cargo propio de un comercio (migración 2026-09-18). Vacío = el de su lista; 0 = envío
+-- sin cargo siempre; otro número = su propio mínimo. Existe por Chungo Pilar: es el único local de
+-- Chungo con $250.000, el resto de la lista es $140.000.
+alter table teia_clients  add column if not exists envio_min integer;
+do $$ begin
+  alter table teia_clients add constraint teia_clients_envio_min_no_negativo check (envio_min is null or envio_min >= 0);
+exception when duplicate_object then null; end $$;
 alter table teia_orders add column if not exists archive_status     text;
 alter table teia_orders add column if not exists archive_error      text;
 alter table teia_orders add column if not exists archived_at        timestamptz;
@@ -92,6 +99,17 @@ alter table teia_orders add column if not exists costo_envio    numeric(12,2);
 -- Foto ORIGINAL del producto. `image_url` pasa a ser el RECORTE cuadrado que ve el cliente; la
 -- original se guarda acá para poder reencuadrar cuantas veces haga falta sin perder calidad.
 alter table teia_products add column if not exists image_original_url text;
+-- Pedidos que arma la administradora a nombre de un comercio (migración 2026-09-19, tarea 3).
+-- placed_by = 'teia' si lo cargó ella (null: lo hizo el comercio). armado_id = la clave de UN armado,
+-- única: un reintento no lo duplica. La función que los graba (teia_armar_pedido, pedido + líneas en
+-- una transacción) y sus permisos están en supabase/2026-09-19-armar-pedidos.sql: en una base nueva,
+-- correr ese archivo después de este.
+alter table teia_orders add column if not exists placed_by text;
+alter table teia_orders add column if not exists armado_id text;
+do $$ begin
+  alter table teia_orders add constraint teia_orders_placed_by_valido check (placed_by is null or placed_by = 'teia');
+exception when duplicate_object then null; end $$;
+create unique index if not exists teia_orders_armado_id_unico on teia_orders (armado_id) where armado_id is not null;
 
 create table if not exists teia_order_items (
   id          bigint generated always as identity primary key,
@@ -168,9 +186,12 @@ create table if not exists teia_settings (
 
 -- Valores iniciales. `do nothing` = volver a correr este archivo NO pisa lo que ella haya
 -- cambiado después desde el panel. Y correr el SQL no enciende nada: require_code arranca en false.
+-- ⚠️ envio_min_chungo era '250000' y fue un error nuestro: ese monto es SOLO de Chungo Pilar (va en
+-- su ficha, teia_clients.envio_min). Como esto es `do nothing`, corregir el seed NO toca una base
+-- que ya existe: ahí el valor lo cambia la administradora desde la pestaña Envíos.
 insert into teia_settings (key, value) values
   ('envio_min_general', '140000'),
-  ('envio_min_chungo',  '250000'),
+  ('envio_min_chungo',  '140000'),
   ('require_code',      'false')
 on conflict (key) do nothing;
 
