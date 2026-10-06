@@ -600,7 +600,7 @@ const titulo = cuenta ? `Pedido para ${cuenta.business_name}` : 'Armar un pedido
 
       if (r && r.ok && o.ok) {
         borrarBorrador();
-        try { sessionStorage.setItem('teia:pedidoArmado', JSON.stringify({ id: Number(o.id) || 0, num: String(o.order_number || ''), para: nombre, repetido: !!o.repetido, estado: String(o.status || '') })); } catch (e) {}
+        try { sessionStorage.setItem('teia:pedidoArmado', JSON.stringify({ id: Number(o.id) || 0, num: String(o.order_number || ''), para: nombre, repetido: !!o.repetido, estado: String(o.status || ''), aviso: String(o.warning || '') })); } catch (e) {}
         // replace: que el botón atrás no vuelva a este formulario lleno.
         location.replace('/administradora#pedidos');
         return;

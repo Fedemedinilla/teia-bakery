@@ -64,10 +64,12 @@ const carpeta = [...drive.archivos.values()].find((a) => a.appProperties.teia_ro
 ok(drive.hijos(carpeta.id).length === 1, 'el remito está en la carpeta antes de borrar');
 
 let r = await pedirBorrado(28);
+const normal: any = await r.json().catch(() => ({}));
 ok(r.status === 200, `responde 200 (dio ${r.status})`);
 ok(quedanPedidos() === 0, 'el pedido se borró');
 ok(stock() === 15, `el stock se repuso una vez: 5 + 10 = 15 (dio ${stock()})`);
 ok(drive.hijos(carpeta.id).length === 0, 'y el remito salió de la carpeta de impresión');
+ok(normal.ok === true && !normal.warning, `  ...sin ningún aviso (control de los casos de abajo): ${JSON.stringify(normal)}`);
 
 // ---------------------------------------------------------------------------
 seccion('Drive COLGADO — el borrado no puede quedar por la mitad');
@@ -87,11 +89,30 @@ r = await pedirBorrado(28);
 const tardo = Date.now() - t0;
 globalThis.fetch = fetchAnterior;
 
+const colgado: any = await r.json().catch(() => ({}));
 ok(colgadas > 0, `Drive quedó colgado de verdad (${colgadas} peticiones)`);
 ok(r.status === 200, `responde 200 igual (dio ${r.status})`);
+// Revisión del 6/10: antes respondía {ok:true} a secas y el remito podía quedar en la carpeta del local.
+ok(colgado.ok === true && colgado.warning?.includes(printFileName({ order_number: 'TEIA-9028', client_name: 'Chungo Local Dos', confirmed_at: '2026-09-07T11:00:00Z' }))
+  && /no confirmó/.test(colgado.warning || ''), `  ...y avisa, con el nombre del archivo: ${colgado.warning}`);
 ok(quedanPedidos() === 0, 'EL PEDIDO SE BORRÓ pese al cuelgue de Drive');
 ok(stock() === 15, `el stock se repuso UNA sola vez (dio ${stock()})`);
 ok(tardo < 12000, `y corta por el tope, no por el de Vercel (tardó ${(tardo / 1000).toFixed(1)}s)`);
+
+// ---------------------------------------------------------------------------
+seccion('Drive FALLA al sacar la copia (no cuelga): se borra y se avisa');
+
+sembrar();
+await uploadPrintCopy(printFileName(supa.tablas.teia_orders[0]), new Uint8Array([37, 80, 68, 70]));
+const carpeta2 = [...drive.archivos.values()].find((a) => a.appProperties.teia_role === 'print')!;
+drive.fallar(/\/files\/[^/?]+\?fields=id$/, 500, 9); // el PATCH que la manda a la papelera, con sus reintentos
+r = await pedirBorrado(28);
+const fallo: any = await r.json().catch(() => ({}));
+ok(drive.fallasDisparadas() >= 1, `el PATCH de la papelera falló de verdad (${drive.fallasDisparadas()} veces)`);
+ok(r.status === 200 && quedanPedidos() === 0 && stock() === 15, 'el pedido se borra y el stock se repone una vez');
+ok(drive.hijos(carpeta2.id).length === 1, '  ...la copia sigue en la carpeta (es lo que hay que avisar)');
+ok(fallo.ok === true && fallo.warning?.includes(printFileName({ order_number: 'TEIA-9028', client_name: 'Chungo Local Dos', confirmed_at: '2026-09-07T11:00:00Z' })),
+  `  ...y el aviso nombra el archivo: ${fallo.warning}`);
 
 // ---------------------------------------------------------------------------
 seccion('El reintento no puede duplicar la reposición');

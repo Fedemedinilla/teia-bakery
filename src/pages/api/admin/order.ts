@@ -134,11 +134,25 @@ export const POST: APIRoute = async ({ request }) => {
     // 5. Sacar el remito de la carpeta que imprime el local, y el Sheet. Van DESPUÉS del DELETE y con
     //    tope: si Google se CUELGA (no falla: cuelga), un try/catch no alcanza. La copia tiene hasta
     //    8 s; el espejo, todo lo que quede de los 30 s de la función (tiempoRestante).
+    //    Si Google no confirma que la copia salió, se le dice a ella con el nombre del archivo: el local
+    //    podría imprimir y preparar un pedido que ya no existe, y nada lo reintenta (revisión del 6/10).
+    //    No se afirma que quedó: withDeadline deja de esperar pero no cancela, y pudo salir igual.
+    let copiaSinConfirmar = '';
     if (gConfigured() && row.remito_cliente_url) {
-      try { await withDeadline(trashPrintCopy(printFileName(row)), Math.min(8000, tiempoRestante(inicio))); }
-      catch (e: any) { console.warn('[teia] no se pudo sacar la copia de impresión', orderId, '→', (e && e.message) || e); }
+      const nombre = printFileName(row);
+      try { await withDeadline(trashPrintCopy(nombre), Math.min(8000, tiempoRestante(inicio))); }
+      catch (e: any) {
+        console.warn('[teia] no se pudo sacar la copia de impresión', orderId, '→', (e && e.message) || e);
+        copiaSinConfirmar = nombre;
+      }
     }
     try { await withDeadline(tryMirror(), tiempoRestante(inicio)); } catch (e: any) { console.warn('[teia] espejo Sheet sin respuesta al borrar:', (e && e.message) || e); }
+    if (copiaSinConfirmar) {
+      return json({
+        ok: true,
+        warning: `El pedido se borró, pero Google no confirmó que su remito haya salido de la carpeta "Remitos para imprimir". Fijate si sigue ahí "${copiaSinConfirmar}": si está, sacalo o avisale al local que no lo imprima.`,
+      });
+    }
     return json({ ok: true });
   }
 

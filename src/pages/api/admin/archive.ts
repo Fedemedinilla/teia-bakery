@@ -94,9 +94,10 @@ export async function archiveOrder(id: number): Promise<{ ok: boolean; error?: s
     //  · Última, porque el estado del pedido ya quedó durable en el PATCH de arriba. Si esto
     //    fuera antes, una lambda que se muere acá dejaría archive_status en null con el remito
     //    perfecto y subido.
-    //  · Best effort, porque marcar 'error' le esconde ✓ Remito, 📄 Abrir y 📤 Compartir en el
-    //    panel: un problema de la carpeta de impresión le taparía el remito que sí tiene. El
-    //    compensador es el botón "Mandar a imprimir", que hace exactamente esto a pedido.
+    //  · Best effort, porque marcar 'error' le mostraría "Falta guardarlo en Drive" y Reintentar
+    //    sobre un pedido que en Drive está bien (un problema de la carpeta de impresión no es un
+    //    problema del archivo). El compensador es el botón "Mandar a imprimir", que hace
+    //    exactamente esto a pedido.
     const imprimible = order.status === 'confirmado' || order.status === 'entregado';
     // Solo lo reciente. Sin este tope, la primera corrida del barrido nocturno sobre pedidos
     // viejos con archivado fallido le volcaría meses de remitos en la carpeta recién compartida,

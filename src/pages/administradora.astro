@@ -108,9 +108,11 @@ const textoRepetidos = (rs: { name: string; veces: number }[]) =>
 
 // Marca si el pedido ya tiene sus remitos archivados (links vs botón "Reintentar").
 //
-// `hasRemito` es a propósito MÁS ancho que `archived`: si Drive falló, el pedido queda en 'error'
-// pero el PDF ya está en Storage. El botón "Mandar a imprimir" se gatea con este, no con
-// `archived`, porque justo ahí es cuando más hace falta.
+// `hasRemito` = el PDF ya está en Storage. Es a propósito MÁS ancho que `archived`: si Drive falló,
+// el pedido queda en 'error' pero el remito existe y se puede servir. Abrir, Compartir y "Mandar a
+// imprimir" se gatean con este, porque justo cuando Google falla es cuando ella más necesita
+// mandarle el remito al comercio a mano (antes Abrir y Compartir desaparecían: revisión del 6/10).
+// `archived` solo decide el aviso de que falta guardarlo en Drive y el botón Reintentar.
 // `printName` es el nombre que ese remito tiene (o tendría) dentro de la carpeta de impresión;
 // el script lo compara contra lo que Drive dice que hay para poner el ✓.
 const orderRows = (orders as any[]).map((o) => ({
@@ -562,9 +564,9 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
 
           {o.status === 'confirmado' && (
             <div class="ordcard__arch">
-              {o.archived && <span class="arch arch--ok">✓ Remito</span>}
-              {o.archived && <a class="arch-link" href={`/api/admin/remito?id=${o.id}`} target="_blank" rel="noopener">📄 Abrir</a>}
-              {o.archived && (
+              {o.hasRemito && <span class="arch arch--ok">✓ Remito</span>}
+              {o.hasRemito && <a class="arch-link" href={`/api/admin/remito?id=${o.id}`} target="_blank" rel="noopener">📄 Abrir</a>}
+              {o.hasRemito && (
                 <button class="btn btn--ghost share-rem" type="button"
                   data-url={`/api/admin/remito?id=${o.id}`} data-num={o.order_number || `#${o.id}`}>📤 Compartir</button>
               )}
@@ -575,7 +577,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
               {/* El ✓ va servido en el HTML con `hidden` y el script solo lo destapa: con la CSP
                   estricta, un nodo creado por JS no recibe el CSS con scope del componente. */}
               {o.hasRemito && <span class="arch arch--ok print-ok" data-name={attrSafe(o.printName)} hidden>✓ en la carpeta</span>}
-              {!o.archived && <span class="arch arch--err">⚠️ Sin archivar{o.archive_error ? `: ${o.archive_error}` : ''}</span>}
+              {!o.archived && <span class="arch arch--err">{o.hasRemito ? '⚠️ Falta guardarlo en Drive' : '⚠️ Sin archivar'}{o.archive_error ? `: ${o.archive_error}` : ''}</span>}
               {!o.archived && <button class="btn btn--ghost retry-arch" type="button" data-id={o.id}>Reintentar</button>}
             </div>
           )}
@@ -711,8 +713,8 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
                     num: o.order_number || `#${o.id}`, status: o.status,
                     date: String(o.created_at || '').slice(0, 10), ddate: o.delivery_date || '',
                     address: o.delivery_address || '', total: o.total, pct: o.discount_pct || 0,
-                    notes: o.notes || '', archived: o.archived,
-                    rc: o.archived ? `/api/admin/remito?id=${o.id}` : '',
+                    notes: o.notes || '',
+                    rc: o.hasRemito ? `/api/admin/remito?id=${o.id}` : '',
                     items: (itemsByOrder[o.id] || []).map((it: any) => ({ n: it.name, p: it.pack_label, q: it.qty, t: it.line_total })),
                   })}>{o.order_number || `#${o.id}`}</button>
                   <span class={`badge badge--${o.status === 'confirmado' ? 'ok' : o.status === 'anulado' ? 'anulado' : 'wait'}`}>{o.status}</span>
@@ -720,7 +722,7 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
                   <span class="muted">{String(o.created_at || '').slice(0, 10)}</span>
                   {Number(o.discount_pct) > 0 && <span class="muted">−{o.discount_pct}%</span>}
                   <b>{money(o.total)}</b>
-                  {o.archived && <a class="arch-link" href={`/api/admin/remito?id=${o.id}`} target="_blank" rel="noopener">📄 remito</a>}
+                  {o.hasRemito && <a class="arch-link" href={`/api/admin/remito?id=${o.id}`} target="_blank" rel="noopener">📄 remito</a>}
                 </li>
               ))}
               {(ordersByClient[c.id] || []).length === 0 && <li class="muted">Sin pedidos todavía.</li>}
@@ -2137,7 +2139,9 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           });
           o = (await r.json().catch(() => null)) || {};
         } catch { r = null; }
-        if (r && r.ok) { location.reload(); return; }
+        // Se borró, pero Google no confirmó que el remito salió de la carpeta de impresión: el aviso
+        // trae el nombre del archivo para que ella lo saque o le avise al local.
+        if (r && r.ok) { if (o.warning) alert(o.warning); location.reload(); return; }
         b.disabled = false;
         // Si el pedido quedó anulado, el próximo Borrar ya no repone: el diálogo lo tiene que decir.
         if (o.anulado) b.dataset.st = 'anulado';
@@ -2512,8 +2516,8 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
       notes.hidden = !d.notes;
       if (d.notes) notes.textContent = '📝 ' + d.notes;
       const links = document.getElementById('om-links');
-      links.hidden = !d.archived;
-      if (d.archived) {
+      links.hidden = !d.rc;
+      if (d.rc) {
         links.innerHTML = `<a class="arch-link" href="${oEsc(d.rc)}" target="_blank" rel="noopener">📄 Abrir remito</a>`;
       }
       omodal.hidden = false;
@@ -2670,7 +2674,9 @@ const info = configured ? await sbSelect('teia_info?order=sort_order.asc,id.asc&
           + ' para ' + (d.para || 'el comercio') + '. '
           + (estado && estado !== 'pendiente'
             ? 'Está ' + estado + ': revisalo en su tarjeta.'
-            : 'Quedó pendiente: cuando lo prepares, tocá Confirmar y el remito va a la carpeta de impresión.');
+            : 'Quedó pendiente: cuando lo prepares, tocá Confirmar y el remito va a la carpeta de impresión.')
+          // Lo que el servidor no pudo comprobar (por ejemplo, los datos de entrega de un armado repetido).
+          + (d.aviso ? ' ' + String(d.aviso) : '');
         aviso.hidden = false;
       }
       showTab('pedidos');

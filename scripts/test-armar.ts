@@ -211,6 +211,58 @@ ok(r.status === 409 && r.o?.otro_armado === true, '  ...lo mismo si lo único qu
 r = await armar({ ...cambiado, armado_id: nuevoArmado() });
 ok(r.status === 200 && !r.o?.repetido && nuevos().length === 2, '  ..."Crear como otro pedido" (clave nueva) sí crea el segundo');
 
+// Revisión del 6/10: la misma clave y las MISMAS cantidades, pero cambió la ENTREGA (el día, la
+// dirección, el contacto o las aclaraciones). Antes contestaba "ya estaba creado" y lo nuevo se perdía.
+sembrar();
+const conEntrega = cuerpo();
+supa.despuesDe(/rpc\/teia_armar_pedido/, 'POST', () => { throw new TypeError('se cortó la respuesta'); }, 1);
+await armar(conEntrega);
+supa.limpiarGanchos();
+ok(nuevos().length === 1, 'entrega: el primer intento entró y su respuesta se perdió');
+r = await armar(conEntrega);
+ok(r.status === 200 && r.o?.repetido === true && !r.o?.warning,
+  `control: la misma entrega → "ya estaba creado", sin aviso (${r.status}: ${r.o?.error || 'ok'})`);
+// La frase esperada entera, con el verbo concordando: "no coincide el contacto", "no coinciden las aclaraciones".
+const cambiosDeEntrega: [string, string, string][] = [
+  ['delivery_date', '2026-09-27', 'no coincide el día de entrega:'],
+  ['delivery_date', '', 'no coincide el día de entrega:'],
+  ['delivery_address', 'Otra sucursal 123', 'no coincide la dirección:'],
+  ['client_contact', '11 4444-0000', 'no coincide el contacto:'],
+  ['notes', 'Sin la caja grande', 'no coinciden las aclaraciones:'],
+];
+for (const [campo, valor, frase] of cambiosDeEntrega) {
+  r = await armar({ ...conEntrega, [campo]: valor });
+  ok(r.status === 409 && r.o?.otro_armado === true && r.o?.otros_datos === true && !r.o?.ok
+    && (r.o?.error || '').includes(frase) && /NO se guardó/.test(r.o?.error || '') && /Editar pedido/.test(r.o?.error || ''),
+    `misma clave, cambia ${campo} ${JSON.stringify(valor)} → 409 que dice "${frase}" (${r.status}: ${r.o?.error})`);
+}
+r = await armar({ ...conEntrega, delivery_date: '2026-09-27', delivery_address: 'Otra sucursal 123' });
+ok(r.status === 409 && /no coinciden el día de entrega y la dirección/.test(r.o?.error || ''), `  ...dos a la vez, con la concordancia bien (${r.o?.error})`);
+ok(nuevos().length === 1 && nuevos()[0].delivery_address === 'Calle Falsa 303' && nuevos()[0].delivery_date === '2026-09-26'
+  && nuevos()[0].notes === 'Entregar temprano', '  ...y el pedido guardado queda como estaba (no se crea otro)');
+// Lo que el saneado ya iguala (espacios de más) no es un cambio: los dos lados pasan por el mismo.
+r = await armar({ ...conEntrega, notes: '  Entregar temprano  ', delivery_address: 'Calle Falsa 303 ' });
+ok(r.status === 200 && r.o?.repetido === true, `  ...espacios de más no cuentan como cambio (${r.status}: ${r.o?.error || 'ok'})`);
+// Ya confirmado: no se le puede decir "Editar pedido".
+nuevos()[0].status = 'confirmado';
+r = await armar({ ...conEntrega, notes: 'Sin la caja grande' });
+ok(r.status === 409 && /Ya está confirmado/.test(r.o?.error || '') && !/Editar pedido/.test(r.o?.error || ''),
+  `  ...y si ya está confirmado, no le ofrece editarlo (${r.o?.error})`);
+nuevos()[0].status = 'pendiente';
+// No se pudo leer el pedido para comparar: existe y las cantidades coinciden, pero no se afirma el resto.
+supa.fallar(/teia_orders\?id=eq\.\d+&select=client_contact/, 503, 1, undefined, 'GET');
+r = await armar(conEntrega);
+ok(r.status === 200 && r.o?.repetido === true && /No pude comprobar/.test(r.o?.warning || '') && supa.fallasDisparadas() === 1,
+  `  ...si no puede leer la entrega guardada: "ya estaba creado" + aviso (${r.status}: ${r.o?.warning || r.o?.error})`);
+// Se borró entre la búsqueda y la lectura: ni "listo" ni otro pedido.
+supa.despuesDe(/rpc\/teia_armar_pedido/, 'POST', () => {
+  supa.tablas.teia_orders = supa.tablas.teia_orders.filter((o) => o.id === 40);
+});
+r = await armar(conEntrega);
+ok(r.status === 409 && r.o?.recargar === true && /ya no está/.test(r.o?.error || '') && nuevos().length === 0,
+  `  ...si lo borraron en el medio: "ya no está", sin crear otro (${r.status}: ${r.o?.error})`);
+supa.limpiarGanchos();
+
 // La misma clave y el MISMO contenido, pero cambió un precio entre el primer intento (que entró) y el
 // reintento: antes contestaba "no se creó nada: cambió el precio", con el pedido creado.
 sembrar();
@@ -353,6 +405,18 @@ const escribenMarca = archivos.filter((f) => /placed_by\s*:/.test(sinComentarios
 ok(escribenMarca.length === 0, 'ningún archivo del servidor arma un objeto con placed_by (la marca la pone solo la función SQL)' + (escribenMarca.length ? ': ' + escribenMarca.map(rel).join(', ') : ''));
 const llamanFuncion = archivos.filter((f) => /teia_armar_pedido/.test(sinComentarios(readFileSync(f, 'utf8')))).map(rel);
 ok(llamanFuncion.join() === '/src/pages/api/admin/armar.ts', `teia_armar_pedido se llama solo desde el endpoint del panel (${llamanFuncion.join(', ')})`);
+// Revisión del 6/10: los runbooks de traspaso dicen que schema.sql "crea todo", y la función vivía solo
+// en la migración. Ahora va copiada al final de schema.sql: las dos copias tienen que ser idénticas.
+const bloqueDeLaFuncion = (sql: string) => {
+  const desde = sql.indexOf('create or replace function public.teia_armar_pedido');
+  const fin = 'grant execute on function public.teia_armar_pedido(jsonb) to service_role;';
+  const hasta = sql.indexOf(fin, desde);
+  return desde < 0 || hasta < 0 ? '' : sql.slice(desde, hasta + fin.length).replace(/\r\n/g, '\n');
+};
+const enMigracion = bloqueDeLaFuncion(readFileSync(join(process.cwd(), 'supabase/2026-09-19-armar-pedidos.sql'), 'utf8'));
+const enSchema = bloqueDeLaFuncion(readFileSync(join(process.cwd(), 'supabase/schema.sql'), 'utf8'));
+ok(enMigracion.length > 3000 && enSchema === enMigracion,
+  `schema.sql trae la función y sus permisos, idénticos a la migración (${enSchema.length} / ${enMigracion.length} caracteres)`);
 const publico = sinComentarios(readFileSync(join(process.cwd(), 'src/pages/api/order.ts'), 'utf8'));
 ok(/avisarPushPedido\(/.test(publico) && /avisarPedidoNuevo\(/.test(publico) && !/placed_by|armado_id|esSesionDelPanel|isTeiaAdmin/.test(publico),
   'el alta del comercio sigue avisando siempre y no sabe nada de la marca ni del panel');

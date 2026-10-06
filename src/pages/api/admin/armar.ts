@@ -101,8 +101,42 @@ export const POST: APIRoute = async ({ request }) => {
         error: `Este pedido ya se había creado como ${d.order_number} (${pesos(Number(d.total))}), con otras cantidades o descuento: lo que cambiaste después NO se guardó. Revisalo en Pedidos: si le falta algo, sumáselo desde su tarjeta. Si en cambio es otro pedido aparte, tocá "Crear como otro pedido".`,
       }, 409);
     }
+    // Las cantidades coinciden, pero la entrega también puede haber cambiado entre el intento y el
+    // reintento (el día, la dirección, el contacto, las aclaraciones), o haberse corregido desde su
+    // tarjeta. La función SQL no devuelve esos datos: se leen. Antes un reintento así contestaba "ya
+    // estaba creado" y lo nuevo se perdía sin aviso (revisión del 6/10). Los dos lados pasan por el
+    // mismo saneado, así una diferencia solo de forma no se toma por un cambio.
+    const guardados = await sbSelectStrict(`teia_orders?id=eq.${Number(d.id)}&select=client_contact,delivery_address,delivery_date,notes`);
+    const g = guardados === null ? null : (guardados as any[])[0];
+    if (guardados !== null && !g) {
+      return json({ recargar: true, error: `Este pedido se había creado como ${d.order_number}, pero ya no está: lo borraron desde otro lado. No se creó otro. Recargá la página.` }, 409);
+    }
+    const distintos: string[] = [];
+    if (g) {
+      if ((fechaDeEntrega(String(g.delivery_date ?? '').slice(0, 10)) || '') !== (delivery_date || '')) distintos.push('el día de entrega');
+      if (clean(g.delivery_address, 300) !== delivery_address) distintos.push('la dirección');
+      if (clean(g.client_contact, 160) !== client_contact) distintos.push('el contacto');
+      if (clean(g.notes, 500) !== notes) distintos.push('las aclaraciones');
+    }
+    if (distintos.length) {
+      const lista = distintos.length === 1 ? distintos[0] : `${distintos.slice(0, -1).join(', ')} y ${distintos[distintos.length - 1]}`;
+      // "no coincide el contacto", pero "no coinciden las aclaraciones": el verbo sigue al sustantivo.
+      const plural = distintos.length > 1 || distintos[0].startsWith('las ');
+      const corregir = String(d.status || '') === 'pendiente'
+        ? 'Si hay que cambiarlo, hacelo desde su tarjeta en Pedidos (✏️ Editar pedido).'
+        : `Ya está ${d.status}, así que no se puede editar: revisalo en su tarjeta.`;
+      return json({
+        otro_armado: true, otros_datos: true, order_number: d.order_number,
+        error: `Este pedido ya se había creado como ${d.order_number}, con las mismas cantidades, pero ${plural ? 'no coinciden' : 'no coincide'} ${lista}: lo que tiene esta pantalla NO se guardó. ${corregir} Si en cambio es otro pedido aparte (por ejemplo, el mismo para otro día), tocá "Crear como otro pedido".`,
+      }, 409);
+    }
     await ultimoPedido();
-    return json({ ok: true, id: Number(d.id), order_number: d.order_number, total: Number(d.total), repetido: true, status: String(d.status || '') });
+    return json({
+      ok: true, id: Number(d.id), order_number: d.order_number, total: Number(d.total), repetido: true, status: String(d.status || ''),
+      // No se pudo leer el pedido para comparar la entrega: existe y las cantidades coinciden, pero no
+      // se afirma que el resto también.
+      ...(g ? {} : { warning: 'No pude comprobar que el día, la dirección, el contacto y las aclaraciones sean los de la pantalla: revisalos en su tarjeta.' }),
+    });
   };
   const previo = await sbRpc<any>('teia_armar_pedido', { p: { armado_id: b.armado_id, solo_buscar: true } });
   if (!previo.ok) return errorDeRpc(previo);
